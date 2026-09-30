@@ -1,0 +1,450 @@
+import type {
+  CodingAgentDriverKind,
+  CodingAgentProfileStatus,
+  CodingAgentCheckPhase,
+  CodingAgentCheckFailure,
+  CodingAssignmentStatus,
+  CodingEventKind,
+  CodingElicitationStatus,
+  CodingGitDiffScope,
+  CodingGitFileStatus,
+  CodingWorkspaceFileKind,
+  CodingLaneStatus,
+  CodingMissionStatus,
+  CodingPermissionOutcome,
+  CodingWorkflowStage,
+} from './constants';
+import { CoworkQueueDelivery } from '../cowork/pendingMessageQueue';
+
+export interface CodingAgentCapabilities {
+  supportsLoadSession: boolean;
+  supportsResumeSession: boolean;
+  supportsPlans: boolean;
+  supportsPermissions: boolean;
+  supportsFilesystem: boolean;
+  supportsTerminal: boolean;
+  supportsConfigOptions: boolean;
+  supportsUsage: boolean;
+  supportsElicitation: boolean;
+  /** ACP promptCapabilities.image. Omitted profiles predate attachment support. */
+  supportsPromptImages?: boolean;
+  /** ACP promptCapabilities.embeddedContext. */
+  supportsEmbeddedContext?: boolean;
+}
+
+/** Advertised by ACP during probing; credentials themselves are never stored. */
+export interface CodingAgentAuthMethod {
+  id: string;
+  name: string;
+  description?: string;
+  type?: string;
+  args?: string[];
+  environment?: Record<string, string>;
+}
+
+export interface CodingAgentConfigOptionValue {
+  value: string;
+  name: string;
+  description?: string;
+}
+
+export interface CodingAgentConfigOption {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  type: 'select' | 'boolean';
+  currentValue: string | boolean;
+  options?: CodingAgentConfigOptionValue[];
+}
+
+/** One value the composer can append after a command that takes a selection. */
+export interface CodingAgentAvailableCommandOption {
+  /** Text inserted after the command name. */
+  value: string;
+  /** Localized label shown in the selection menu. */
+  label: string;
+  description?: string;
+}
+
+export interface CodingAgentAvailableCommandInput {
+  hint: string;
+  /** Choices offered as a second-level menu once the command is typed. */
+  options?: CodingAgentAvailableCommandOption[];
+}
+
+/** Full ACP command snapshot advertised for one Agent session. */
+export interface CodingAgentAvailableCommand {
+  name: string;
+  description: string;
+  input?: CodingAgentAvailableCommandInput | null;
+  _meta?: Record<string, unknown> | null;
+}
+
+export interface CodingAgentProfile {
+  id: string;
+  name: string;
+  description: string;
+  driverKind: CodingAgentDriverKind;
+  status: CodingAgentProfileStatus;
+  capabilities: CodingAgentCapabilities;
+  authMethods: CodingAgentAuthMethod[];
+  command: string | null;
+  args: string[];
+  environment: Record<string, string>;
+  isBuiltin: boolean;
+  /** Session-only diagnostics; never contains credentials or raw agent stderr. */
+  connectionCheck?: {
+    phase: CodingAgentCheckPhase;
+    failure?: CodingAgentCheckFailure;
+    checkedAt?: number;
+  };
+}
+
+export interface CodingRoom {
+  id: string;
+  name: string;
+  workspaceRoot: string;
+  defaultProfileId: string;
+  activeMissionId: string | null;
+  activeLaneId: string | null;
+}
+
+export interface CodingMission {
+  id: string;
+  roomId: string;
+  title: string;
+  goal: string;
+  /** Immutable Git revision captured when this mission was created, when applicable. */
+  gitBaseline: string | null;
+  status: CodingMissionStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodingAgentLane {
+  id: string;
+  missionId: string;
+  profileId: string;
+  /** Explicit provider/model reference for the built-in agent, when selected. */
+  modelOverride: string | null;
+  /** Immutable source folder selected when this Agent session was created. */
+  sourceRoot: string;
+  /** Actual cwd. Collaborators use an isolated worktree derived from sourceRoot. */
+  executionRoot: string;
+  configOptions: CodingAgentConfigOption[];
+  availableCommands: CodingAgentAvailableCommand[];
+  localSessionId: string;
+  remoteSessionId: string | null;
+  status: CodingLaneStatus;
+  draft: string;
+  scrollPosition: number;
+  pendingRecoveryPrompt: string | null;
+  pendingRecoveryContext: string | null;
+}
+
+export interface CodingAssignment {
+  id: string;
+  missionId: string;
+  laneId: string;
+  title: string;
+  instructions: string;
+  workflowStage: CodingWorkflowStage | null;
+  previousAssignmentId: string | null;
+  status: CodingAssignmentStatus;
+  workbenchTaskId: string | null;
+  workbenchRunId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodingEvent {
+  id: string;
+  laneId: string;
+  sequence: number;
+  kind: CodingEventKind;
+  payload: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface CodingEventWindow {
+  laneId: string;
+  oldestSequence: number | null;
+  newestSequence: number | null;
+  hasMore: boolean;
+}
+
+export interface CodingEventPage {
+  laneId: string;
+  events: CodingEvent[];
+  hasMore: boolean;
+  nextCursor: number | null;
+}
+
+export interface CodingRoomEventDelta {
+  workspaceRoot: string;
+  events: CodingEvent[];
+}
+
+export interface CodingPermissionResponse {
+  requestId: string;
+  outcome: CodingPermissionOutcome;
+  optionId?: string;
+}
+
+/** A coding-only free-text question the agent paused on. */
+export interface CodingElicitation {
+  id: string;
+  laneId: string;
+  question: string;
+  status: CodingElicitationStatus;
+  createdAt: number;
+  answer: string | null;
+  cancelReason: string | null;
+}
+
+export interface CodingElicitationResponse {
+  requestId: string;
+  answer: string;
+}
+
+export interface CodingWorkspaceLease {
+  roomId: string;
+  sourceRoot: string;
+  laneId: string | null;
+  acquiredAt: number | null;
+}
+
+export interface CodingHandoffPackage {
+  id: string;
+  missionId: string;
+  sourceLaneId: string;
+  targetLaneId: string;
+  content: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface CodingRoomSnapshot {
+  room: CodingRoom;
+  profiles: CodingAgentProfile[];
+  missions: CodingMission[];
+  lanes: CodingAgentLane[];
+  assignments: CodingAssignment[];
+  events: CodingEvent[];
+  eventWindows?: CodingEventWindow[];
+  elicitations: CodingElicitation[];
+}
+
+export interface CodingPendingMessagesChangedEvent {
+  laneId: string;
+  items: import('../cowork/pendingMessageQueue').CoworkPendingMessage[];
+}
+
+/** Coding lanes use the same in-process delivery semantics as Work sessions. */
+export const CodingPromptDelivery = CoworkQueueDelivery;
+export type CodingPromptDelivery = CoworkQueueDelivery;
+
+export interface CodingWorkspaceSource {
+  id: string;
+  workspaceId: string;
+  path: string;
+  isPrimary: boolean;
+}
+
+export interface CodingSessionSummary {
+  id: string;
+  workspaceId: string;
+  missionId: string;
+  parentSessionId: string | null;
+  title: string;
+  profileId: string;
+  sourceRoot: string;
+  status: CodingLaneStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodingWorkspaceSummary {
+  id: string;
+  name: string;
+  primaryRoot: string;
+  defaultProfileId: string;
+  sources: CodingWorkspaceSource[];
+  sessions: CodingSessionSummary[];
+  activeSessionId: string | null;
+}
+
+export interface CreateCodingWorkspaceInput {
+  name: string;
+  sourceFolders: string[];
+  defaultProfileId: string;
+}
+
+export interface UpdateCodingWorkspaceInput extends CreateCodingWorkspaceInput {
+  workspaceId: string;
+}
+
+export interface CreateCodingSessionInput {
+  workspaceId: string;
+  profileId: string;
+  sourceRoot: string;
+  title?: string;
+  modelOverride?: string;
+}
+
+export interface StartCodingSessionInput extends CreateCodingSessionInput {
+  prompt: string;
+  attachments?: CodingPromptAttachment[];
+  /** Config option values chosen in the draft composer, applied at creation. */
+  configOptionOverrides?: Record<string, string>;
+}
+
+export interface CreateCodingMissionInput {
+  workspaceRoot: string;
+  profileId: string;
+  title?: string;
+}
+
+export interface CodingPromptInput {
+  laneId: string;
+  prompt: string;
+  delivery?: CodingPromptDelivery;
+  attachments?: CodingPromptAttachment[];
+}
+
+/** A user-selected local file. The main process validates the path before use. */
+export interface CodingPromptAttachment {
+  name: string;
+  path: string;
+}
+
+export interface CodingLaneViewStateInput {
+  laneId: string;
+  draft: string;
+  scrollPosition: number;
+}
+
+export interface CodingLaneConfigOptionInput {
+  laneId: string;
+  configId: string;
+  value: string | boolean;
+}
+
+export interface CodingLaneChangePreview {
+  laneId: string;
+  diff: string;
+}
+
+export interface CodingGitTargetInput {
+  workspaceRoot: string;
+  laneId?: string;
+  sourceRoot?: string;
+}
+
+export interface CodingGitBranchInput extends CodingGitTargetInput {
+  branch: string;
+}
+
+export interface CodingGitPullRequestInput extends CodingGitTargetInput {
+  title: string;
+  body: string;
+  base: string;
+  draft?: boolean;
+}
+
+export interface CodingGitFileChange {
+  path: string;
+  originalPath?: string;
+  indexStatus: CodingGitFileStatus | null;
+  worktreeStatus: CodingGitFileStatus | null;
+  additions: number | null;
+  deletions: number | null;
+}
+
+export interface CodingGitStatus {
+  isRepository: boolean;
+  targetRoot: string;
+  repositoryRoot: string | null;
+  /** Canonical GitHub repository URL when the origin remote is hosted on GitHub. */
+  githubRepositoryUrl: string | null;
+  /** Whether the repository has an origin remote for first-time branch pushes. */
+  hasOrigin: boolean;
+  /** Whether the current HEAD is known to be present on the origin branch. */
+  hasRemoteBranch: boolean;
+  /** The locally known default branch for the origin remote. */
+  defaultBranch: string | null;
+  branch: string | null;
+  localBranches: string[];
+  head: string | null;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  additions: number;
+  deletions: number;
+  files: CodingGitFileChange[];
+  isIsolated: boolean;
+  isBusy: boolean;
+  canMutate: boolean;
+}
+
+export interface CodingGitDiffInput extends CodingGitTargetInput {
+  path: string;
+  scope: CodingGitDiffScope;
+}
+
+export interface CodingGitPathActionInput extends CodingGitTargetInput {
+  paths: string[];
+}
+
+export interface CodingWorkspaceFileInput extends CodingGitTargetInput {
+  /** A path relative to the selected coding source root. */
+  path?: string;
+}
+
+export interface CodingWorkspaceFileEntry {
+  name: string;
+  path: string;
+  kind: CodingWorkspaceFileKind;
+}
+
+export interface CodingWorkspaceFileContent {
+  path: string;
+  content: string;
+  sha256: string;
+}
+
+export interface CodingWorkspaceFileWriteInput extends CodingWorkspaceFileInput {
+  content: string;
+  expectedSha256: string;
+}
+
+export interface CodingGitCommitInput extends CodingGitTargetInput {
+  message: string;
+  /** Unstaged paths explicitly included from the commit dialog. */
+  paths: string[];
+}
+
+/** A single main-process transaction for the commit dialog's primary action. */
+export type CodingGitCommitAndPushInput = CodingGitCommitInput;
+
+/** Outcome for a non-atomic commit-and-push operation. */
+export interface CodingGitCommitAndPushResult {
+  status: CodingGitStatus;
+  pushed: boolean;
+  pushError?: string;
+}
+
+export interface CreateCodingCollaborationPresetInput {
+  workspaceRoot: string;
+  missionId: string;
+  reviewerProfileId: string;
+  verifierProfileId: string;
+}
+
+export interface AddCodingAgentProfileInput {
+  name: string;
+  description: string;
+  command: string;
+  args: string[];
+}

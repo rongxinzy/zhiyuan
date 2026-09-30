@@ -1,0 +1,648 @@
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+} from '@shared/components/ai-elements/chain-of-thought';
+import { ReasoningContent, ReasoningTrigger } from '@shared/components/ai-elements/reasoning';
+import { Button } from '@shared/components/ui/button';
+import { Shimmer } from '@shared/components/ai-elements/shimmer';
+import { Info, SparklesIcon, TriangleAlert, Wrench } from 'lucide-react';
+import React from 'react';
+
+import type { CoworkErrorKind } from '../../../../common/coworkError';
+import { getUserErrorI18nKey } from '../../../../common/coworkError';
+import { getScheduledReminderDisplayText } from '../../../../scheduledTask/reminderText';
+import type { CoworkMessageExpertIdentity } from '../../../../shared/cowork/sessionExperts';
+import {
+  CoworkInterruptionCause,
+  type CoworkSessionInterruption,
+} from '../../../../shared/cowork/interruption';
+import type { CoworkToolActivity } from '../../../../shared/cowork/toolActivity';
+import { i18nService } from '../../../services/i18n';
+import { isCoworkTerminalErrorMessage } from '../../../services/coworkTerminalError';
+import { ArtifactRole, type Artifact } from '../../../types/artifact';
+import type {
+  CoworkMessage,
+  CoworkMessageMetadata,
+  CoworkPermissionRequest,
+  CoworkPermissionResult,
+} from '../../../types/cowork';
+import ArtifactPreviewCard from '../../artifacts/ArtifactPreviewCard';
+import { AgentCompanion } from '../../agentCompanion/AgentCompanion';
+import { resolveAgentCompanionState } from '../../agentCompanion/constants';
+import {
+  ExecutionStatusKind,
+  getCompletedExecutionSummaryText,
+  getCurrentExecutionStatus,
+  getExecutionStatusText,
+  getExecutionSummary,
+  getFinalAnswerIndex,
+  getToolActivityExecutionStatus,
+} from '../helpers/executionStatus';
+import type { AssistantTurnItem, ConversationTurn } from '../helpers/messageGrouping';
+import { getToolResultLineCount, getVisibleAssistantItems } from '../helpers/messageGrouping';
+import { findToolGroupForPermission } from '../helpers/toolPermissionMatch';
+import { getThinkingPresentation } from '../helpers/thinkingPresentation';
+import { getToolResultDisplay, hasText } from '../helpers/toolUtils';
+import { AssistantBubble } from './AssistantBubble';
+import { CopyButton } from './CopyButton';
+import { ExpertAvatar } from '../../expert/expertAvatars';
+import { ExecutionSummary } from './ExecutionSummary';
+import { PersistentChainOfThought, PersistentReasoning } from './PersistentCollapsible';
+import { ToolCard } from './ToolCard';
+import { WorkingIndicator } from './WorkingIndicator';
+
+const getInterruptionMessage = (interruption: CoworkSessionInterruption): string => {
+  switch (interruption.cause) {
+    case CoworkInterruptionCause.ApprovalDenied:
+      return i18nService.t('coworkInterruptionApprovalDenied');
+    case CoworkInterruptionCause.RuntimePaused:
+      return i18nService.t('coworkInterruptionRuntimePaused');
+    case CoworkInterruptionCause.UserStop:
+    default:
+      return i18nService.t('coworkInterruptionUserStop');
+  }
+};
+
+export const getTurnPrimaryExpert = (
+  turn: ConversationTurn,
+): CoworkMessageExpertIdentity | undefined => {
+  const userExperts = turn.userMessage?.metadata?.experts;
+  if (Array.isArray(userExperts)) return userExperts[0];
+
+  const assistantItem = turn.assistantItems.find(
+    item => item.type === 'assistant' && Array.isArray(item.message.metadata?.experts),
+  );
+  return assistantItem?.type === 'assistant'
+    ? assistantItem.message.metadata?.experts?.[0]
+    : undefined;
+};
+
+export const isTerminalErrorItem = (item: AssistantTurnItem): boolean =>
+  item.type === 'system' && isCoworkTerminalErrorMessage(item.message);
+
+const isStandaloneSystemItem = (item: AssistantTurnItem): boolean =>
+  item.type === 'system' &&
+  (Boolean(item.message.metadata?.interruption) || isTerminalErrorItem(item));
+
+const TurnBlockComponent: React.FC<{
+  turn: ConversationTurn;
+  artifacts?: Artifact[];
+  resolveLocalFilePath?: (href: string, text: string) => string | null;
+  mapDisplayText?: (value: string) => string;
+  showTypingIndicator?: boolean;
+  showCopyButtons?: boolean;
+  isTurnComplete?: boolean;
+  toolActivities?: CoworkToolActivity[];
+  recoverableTaskId?: string | null;
+  resumeTaskId?: string | null;
+  // 2026/09/17 lixiang  流式/恢复中禁用继续执行，避免重复点击
+  resumeDisabled?: boolean;
+  onResumeTask?: (interruption: CoworkSessionInterruption) => void;
+  hideDefaultAssistantHeader?: boolean;
+  // 2026/09/16 lixiang  把当前轮次的工具授权嵌进对应 ToolCard，不再叠在底部输入框上
+  pendingPermission?: CoworkPermissionRequest | null;
+  onRespondToPermission?: (result: CoworkPermissionResult) => void
+  /** Expand long tool results fully (image export capture). */
+  expandToolResults?: boolean;
+  /** 2026/09/20 lixiang  验收卡插在文件卡片与复制按钮之间（issue #805） */
+  beforeCopySlot?: React.ReactNode;
+}> = ({
+  turn,
+  artifacts,
+  resolveLocalFilePath,
+  mapDisplayText,
+  showTypingIndicator = false,
+  showCopyButtons = true,
+  isTurnComplete = true,
+  toolActivities = [],
+  recoverableTaskId,
+  resumeTaskId,
+  resumeDisabled = false,
+  onResumeTask,
+  hideDefaultAssistantHeader = false,
+  pendingPermission = null,
+  onRespondToPermission,
+  expandToolResults = false,
+  beforeCopySlot = null,
+}) => {
+  const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
+  const primaryExpert = getTurnPrimaryExpert(turn);
+  const renderActiveStatusText = (text: string) =>
+    primaryExpert ? <Shimmer duration={1}>{text}</Shimmer> : <span>{text}</span>;
+
+  // 2026/09/16 lixiang  只把授权挂到匹配到的那一个正在执行的工具上
+  const pendingToolGroup =
+    pendingPermission && onRespondToPermission
+      ? findToolGroupForPermission(visibleAssistantItems, pendingPermission)
+      : null;
+
+
+  const renderSystemMessage = (message: CoworkMessage) => {
+    const interruption = message.metadata?.interruption as CoworkSessionInterruption | undefined;
+    const isError = isCoworkTerminalErrorMessage(message);
+    const errorKind = message.metadata?.errorKind as CoworkErrorKind | undefined;
+    const i18nKey = isError && errorKind ? getUserErrorI18nKey(errorKind) : null;
+    const i18nMessage = i18nKey ? i18nService.t(i18nKey) : null;
+    const rawContent = interruption
+      ? getInterruptionMessage(interruption)
+      : i18nMessage
+        ? i18nMessage
+        : hasText(message.content)
+          ? message.content
+          : typeof message.metadata?.error === 'string'
+            ? message.metadata.error
+            : '';
+    const normalizedContent = getScheduledReminderDisplayText(rawContent) ?? rawContent;
+    const content = mapDisplayText ? mapDisplayText(normalizedContent) : normalizedContent;
+    if (!content.trim()) return null;
+    const canResume = Boolean(
+      interruption?.recoverable &&
+      interruption.taskId &&
+      interruption.taskId === recoverableTaskId &&
+      onResumeTask,
+    );
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-background px-3 py-2">
+        {/* 2026/09/17 lixiang  暂停提示与继续执行按钮同一行展示 */}
+        {isError ? (
+          <TriangleAlert className="size-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <Info className="size-4 shrink-0 text-muted-foreground" />
+        )}
+        <div className="min-w-0 text-xs whitespace-pre-wrap text-muted-foreground">{content}</div>
+        {canResume && interruption && onResumeTask && (
+          // 2026/09/17 lixiang  继续执行用主题色按钮，与提示文案同一行；可点手型、禁用禁止光标
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="shrink-0 cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-auto"
+            disabled={resumeDisabled || resumeTaskId === interruption.taskId}
+            onClick={() => onResumeTask(interruption)}
+          >
+            {i18nService.t('coworkResumeTaskAction')}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
+  const renderOrphanToolResult = (message: CoworkMessage) => {
+    const toolResultDisplayRaw = getToolResultDisplay(message);
+    const toolResultDisplay = mapDisplayText
+      ? mapDisplayText(toolResultDisplayRaw)
+      : toolResultDisplayRaw;
+    const isToolError = Boolean(message.metadata?.isError || message.metadata?.error);
+    const hasToolResultText = hasText(toolResultDisplay);
+    const resultLineCount = hasToolResultText ? getToolResultLineCount(toolResultDisplay) : 0;
+    const showNoDetailError = isToolError && !hasToolResultText;
+    const fallbackText = showNoDetailError ? i18nService.t('coworkToolNoErrorDetail') : '';
+    const displayText = hasToolResultText ? toolResultDisplay : fallbackText;
+    return (
+      <div className="py-1">
+        <div className="flex items-start gap-2">
+          <span
+            className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${isToolError ? 'bg-destructive' : 'bg-surface-raised'}`}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-muted-foreground">
+              {i18nService.t('coworkToolResult')}
+            </div>
+            {resultLineCount > 0 && (
+              <div className="text-xs text-muted mt-0.5">
+                {resultLineCount} {resultLineCount === 1 ? 'line' : 'lines'} of output
+              </div>
+            )}
+            {resultLineCount === 0 && showNoDetailError && (
+              <div className={`text-xs mt-0.5 ${isToolError ? 'text-red-500/80' : 'text-muted'}`}>
+                {fallbackText}
+              </div>
+            )}
+            {(hasToolResultText || showNoDetailError) && (
+              <div className="mt-2 px-3 py-2 rounded-lg bg-surface-raised max-h-64 overflow-y-auto">
+                <pre
+                  className={`text-xs whitespace-pre-wrap wrap-break-word font-mono ${isToolError ? 'text-red-500' : hasToolResultText ? 'text-foreground' : 'text-muted-foreground italic'}`}
+                >
+                  {displayText}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderItem = (
+    item: (typeof visibleAssistantItems)[0],
+    _idx: number,
+    isFinalAnswer: boolean,
+    forceComplete = false,
+    mutedExecution = false,
+    isLastInSequence = true,
+  ) => {
+    // ── Thinking: collapsed Reasoning block with shimmer ──
+    if (item.type === 'assistant' && item.message.metadata?.isThinking) {
+      const meta = item.message.metadata;
+      const { durationSeconds, isComplete, isStreaming } = getThinkingPresentation(
+        meta,
+        forceComplete,
+        hasText(item.message.content),
+      );
+      const content = mapDisplayText ? mapDisplayText(item.message.content) : item.message.content;
+      return (
+        <PersistentReasoning
+          key={item.message.id}
+          persistKey={`reasoning-${item.message.id}`}
+          className={mutedExecution ? 'text-muted-foreground' : undefined}
+          isStreaming={isStreaming}
+          defaultOpen={false}
+          autoClose={false}
+          duration={durationSeconds}
+          showConnector={!isLastInSequence}
+        >
+          <ReasoningTrigger
+            getThinkingMessage={(s, d) => {
+              if (isComplete) return <p>{d ? `已思考 ${d} 秒` : '思考完成'}</p>;
+              if (s) return renderActiveStatusText('思考中…');
+              return <p>思考内容</p>;
+            }}
+          />
+          <ReasoningContent className="pl-4">{content}</ReasoningContent>
+        </PersistentReasoning>
+      );
+    }
+
+    // ── Tool call + result ──
+    if (item.type === 'tool_group') {
+      const isPendingTool = pendingToolGroup?.toolUse.id === item.group.toolUse.id;
+      return (
+        <ToolCard
+          key={item.group.toolUse.id}
+          group={item.group}
+          isLastInSequence={isLastInSequence}
+          muted={mutedExecution}
+          mapDisplayText={mapDisplayText}
+          forceExpand={expandToolResults}
+          pendingPermission={isPendingTool ? pendingPermission : null}
+          onRespondToPermission={isPendingTool ? onRespondToPermission : undefined}
+        />
+      );
+    }
+
+    // ── Orphan tool result ──
+    if (item.type === 'tool_result') {
+      return (
+        <div key={item.message.id} className="relative">
+          {!isLastInSequence && (
+            <div aria-hidden="true" className="absolute top-full -bottom-3 left-2 w-px bg-border" />
+          )}
+          {renderOrphanToolResult(item.message)}
+        </div>
+      );
+    }
+
+    // ── System message ──
+    if (item.type === 'system') {
+      const sys = renderSystemMessage(item.message);
+      return sys ? (
+        <div key={item.message.id} className="relative">
+          {!isLastInSequence && (
+            <div aria-hidden="true" className="absolute top-full -bottom-3 left-2 w-px bg-border" />
+          )}
+          {sys}
+        </div>
+      ) : null;
+    }
+
+    // ── Assistant answer ──
+    if (item.type === 'assistant') {
+      return (
+        <AssistantBubble
+          key={item.message.id}
+          message={item.message}
+          resolveLocalFilePath={resolveLocalFilePath}
+          mapDisplayText={mapDisplayText}
+          turnMetadata={
+            showCopyButtons && isFinalAnswer
+              ? (item.message.metadata as CoworkMessageMetadata)
+              : undefined
+          }
+        />
+      );
+    }
+
+    return null;
+  };
+
+  // Keep user-facing answers visible while grouping execution-only events.
+  const groups = (() => {
+    const result: Array<{
+      items: typeof visibleAssistantItems;
+      followedByAnswer: boolean;
+    }> = [];
+    let currentItems: typeof visibleAssistantItems = [];
+
+    const flush = (followedByAnswer = false) => {
+      if (currentItems.length === 0) return;
+      result.push({ items: [...currentItems], followedByAnswer });
+      currentItems = [];
+    };
+
+    for (const item of visibleAssistantItems) {
+      const isStandaloneSystem = isStandaloneSystemItem(item);
+      const isAnswer =
+        item.type === 'assistant' &&
+        !item.message.metadata?.isThinking &&
+        hasText(item.message.content);
+      const isStep =
+        (item.type === 'assistant' && item.message.metadata?.isThinking) ||
+        item.type === 'tool_group' ||
+        item.type === 'tool_result' ||
+        item.type === 'system';
+
+      if (isAnswer || isStandaloneSystem) {
+        flush(isAnswer);
+        result.push({
+          items: [item],
+          followedByAnswer: false,
+        });
+      } else if (isStep) {
+        currentItems.push(item);
+      }
+    }
+    flush();
+    return result;
+  })();
+  const lastAnswerGroupIndex = groups.reduce((lastIndex, group, index) => {
+    const firstItem = group.items[0];
+    return firstItem?.type === 'assistant' && !firstItem.message.metadata?.isThinking
+      ? index
+      : lastIndex;
+  }, -1);
+  const isEmptyAnswerGroup = (group: (typeof groups)[number]) => {
+    const firstItem = group.items[0];
+    return (
+      firstItem?.type === 'assistant' &&
+      !firstItem.message.metadata?.isThinking &&
+      !hasText(firstItem.message.content)
+    );
+  };
+  const visibleGroups = groups.filter(group => !isEmptyAnswerGroup(group));
+  const finalAnswerIndex = getFinalAnswerIndex(visibleAssistantItems, isTurnComplete);
+  // Historical interruptions belong before the resumed answer, not after it.
+  const finalAnswerItem =
+    finalAnswerIndex >= 0 &&
+    !visibleAssistantItems.slice(0, finalAnswerIndex).some(isStandaloneSystemItem)
+      ? visibleAssistantItems[finalAnswerIndex]
+      : null;
+  const standaloneSystemItems = visibleAssistantItems.filter(isStandaloneSystemItem);
+  const lastVisibleItem = visibleAssistantItems[visibleAssistantItems.length - 1];
+  const defaultCompanionState = resolveAgentCompanionState({
+    isTurnComplete,
+    hasAssistantAnswer: visibleAssistantItems.some(
+      item =>
+        item.type === 'assistant' &&
+        !item.message.metadata?.isThinking &&
+        hasText(item.message.content),
+    ),
+    hasTerminalOutcome: Boolean(lastVisibleItem && isStandaloneSystemItem(lastVisibleItem)),
+  });
+  const executionItems =
+    finalAnswerIndex >= 0
+      ? visibleAssistantItems.filter(
+          (item, index) => index !== finalAnswerIndex && !isStandaloneSystemItem(item),
+        )
+      : [];
+  const executionSummary = getExecutionSummary(executionItems);
+  const latestToolActivity = toolActivities[toolActivities.length - 1];
+  const toolActivityStatus = latestToolActivity
+    ? getToolActivityExecutionStatus(latestToolActivity)
+    : null;
+  const lastVisibleGroup = visibleGroups[visibleGroups.length - 1];
+  // A group whose tools already produced results (or whose turn ended) shows a
+  // settled summary instead of a live status; everything else renders a
+  // shimmering "running" header.
+  const isSummarizedGroup = (group: (typeof groups)[number]): boolean =>
+    group.followedByAnswer ||
+    isTurnComplete ||
+    (group.items.some(item => item.type === 'tool_group') &&
+      group.items.every(item => item.type !== 'tool_group' || Boolean(item.group.toolResult)));
+  // Answer-led groups render through renderItem and own no header.
+  const isAnswerLeadingGroup = (group: (typeof groups)[number]): boolean => {
+    const first = group.items[0];
+    return (
+      (first?.type === 'assistant' && !first.message.metadata?.isThinking) ||
+      Boolean(first && isStandaloneSystemItem(first))
+    );
+  };
+  const isRunningThinkingItem = (item: (typeof visibleAssistantItems)[number]): boolean =>
+    item.type === 'assistant' &&
+    Boolean(item.message.metadata?.isThinking) &&
+    getThinkingPresentation(item.message.metadata, false, hasText(item.message.content)).isStreaming;
+  const hasTrailingExecutionGroup = Boolean(
+    lastVisibleGroup &&
+    lastVisibleGroup.items.length > 0 &&
+    !isAnswerLeadingGroup(lastVisibleGroup),
+  );
+  // The bottom tool indicator renders only for a trailing answer group; the
+  // summary row must not defer to an indicator that is suppressed, otherwise a
+  // preparing tool leaves the screen with nothing animating.
+  const showTrailingToolStatus =
+    toolActivityStatus !== null && !finalAnswerItem && !hasTrailingExecutionGroup;
+  const hasLiveGroup = visibleGroups.some(
+    group => !isAnswerLeadingGroup(group) && !isSummarizedGroup(group),
+  );
+  // At most one cyclic animation may be on screen per DESIGN.md. The collapsed
+  // "completed N steps" row is the fallback activity signal: a stalled turn has
+  // nothing else moving, so it shimmers only when no other indicator is rendered.
+  const summaryIsActive =
+    !isTurnComplete && !showTypingIndicator && !showTrailingToolStatus && !hasLiveGroup;
+  // The fallback belongs to the last group that renders a summary header: a
+  // trailing interim answer renders plainly and must not silence it.
+  const lastSummaryGroup = [...visibleGroups].reverse().find(group => !isAnswerLeadingGroup(group));
+
+  const isExecutionStep = (item: (typeof visibleAssistantItems)[number] | undefined) =>
+    item?.type === 'tool_group' ||
+    item?.type === 'tool_result' ||
+    (item?.type === 'system' && !isStandaloneSystemItem(item)) ||
+    (item?.type === 'assistant' && Boolean(item.message.metadata?.isThinking));
+
+  const renderExecutionGroup = (
+    group: (typeof groups)[number],
+    groupKey: string,
+    isFinalAnswer: boolean,
+  ) => {
+    const firstItem = group.items[0];
+    const isAnswerItem = firstItem?.type === 'assistant' && !firstItem.message.metadata?.isThinking;
+    if (isAnswerItem || (firstItem && isStandaloneSystemItem(firstItem))) {
+      return renderItem(firstItem, 0, isFinalAnswer);
+    }
+
+    // A turn that has ended, or a group whose tools already have results, never
+    // keeps a live "正在执行命令" header. Resume only highlights the new command.
+    const showCompletedSummary = isSummarizedGroup(group);
+    const currentStatus = showCompletedSummary ? null : getCurrentExecutionStatus(group.items);
+    const isActiveTool = currentStatus?.kind === ExecutionStatusKind.Tool;
+    return (
+      <PersistentChainOfThought
+        key={`${groupKey}-${showCompletedSummary ? 'summarized' : 'working'}`}
+        persistKey={`cot-${turn.id}-${groupKey}`}
+        defaultOpen={false}
+        // 2026/09/16 lixiang  本组有待授权工具时展开思考链，让终端里的授权按钮露出来
+        forceOpen={Boolean(
+          pendingToolGroup &&
+          group.items.some(
+            item =>
+              item.type === 'tool_group' && item.group.toolUse.id === pendingToolGroup.toolUse.id,
+          ),
+        )}
+        renderHeader={isOpen => (
+          <ChainOfThoughtHeader icon={isActiveTool ? Wrench : SparklesIcon}>
+            {showCompletedSummary ? (
+              summaryIsActive &&
+              group === lastSummaryGroup &&
+              // When the block is open and its reasoning still streams, the inner
+              // "思考中" indicator already animates; the header yields to it so a
+              // single cyclic animation is on screen.
+              (!isOpen || !group.items.some(isRunningThinkingItem)) ? (
+                renderActiveStatusText(
+                  getCompletedExecutionSummaryText(getExecutionSummary(group.items)),
+                )
+              ) : (
+                getCompletedExecutionSummaryText(getExecutionSummary(group.items))
+              )
+            ) : currentStatus ? (
+              renderActiveStatusText(getExecutionStatusText(currentStatus))
+            ) : (
+              renderActiveStatusText(i18nService.t('coworkIntermediateProcess'))
+            )}
+          </ChainOfThoughtHeader>
+        )}
+      >
+        <ChainOfThoughtContent>
+          {group.items.map((item, idx) =>
+            renderItem(item, idx, false, false, true, idx === group.items.length - 1),
+          )}
+        </ChainOfThoughtContent>
+      </PersistentChainOfThought>
+    );
+  };
+  const hasDeliverableArtifacts = Boolean(
+    artifacts?.some(artifact => artifact.role === ArtifactRole.Deliverable && artifact.declared),
+  );
+  // 2026/09/17 lixiang  轮次结束后在文件卡片下方常显复制（参考豆包）
+  const copyContent = (() => {
+    if (!showCopyButtons) return null;
+    if (finalAnswerItem?.type === 'assistant' && hasText(finalAnswerItem.message.content)) {
+      return finalAnswerItem.message.content;
+    }
+    for (let i = visibleAssistantItems.length - 1; i >= 0; i -= 1) {
+      const item = visibleAssistantItems[i];
+      if (
+        item?.type === 'assistant' &&
+        !item.message.metadata?.isThinking &&
+        hasText(item.message.content)
+      ) {
+        return item.message.content;
+      }
+    }
+    return null;
+  })();
+
+  return (
+    <div className="py-2">
+      {/* 2026/09/20 lixiang  对话列加宽，缓解代码块/表格过窄（issue #805） */}
+      <div className="mx-auto w-full max-w-6xl min-w-[320px] pl-4">
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 py-3">
+            {primaryExpert ? (
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <ExpertAvatar
+                  name={primaryExpert.presetId}
+                  label={primaryExpert.expertName}
+                  className="size-7 rounded-full border-0"
+                />
+                <span className="truncate">{primaryExpert.expertName}</span>
+              </div>
+            ) : !hideDefaultAssistantHeader ? (
+              <div className="flex items-center gap-2">
+                <AgentCompanion state={defaultCompanionState} />
+                {showTypingIndicator ? (
+                  <WorkingIndicator showCompanion={false} animateText={false} />
+                ) : (
+                  <span className="text-sm font-semibold text-foreground">
+                    {i18nService.t('cowork')}
+                  </span>
+                )}
+              </div>
+            ) : null}
+            {finalAnswerItem && executionItems.length > 0 && (
+              <ExecutionSummary
+                summary={executionSummary}
+                persistKey={`execsummary-${turn.id}`}
+                // Matches the live status rows: they only shimmer for expert turns.
+                active={summaryIsActive && primaryExpert !== undefined}
+              >
+                {executionItems.map((item, index) => {
+                  const isAnswer = item.type === 'assistant' && !item.message.metadata?.isThinking;
+                  const connectsToNextStep =
+                    isExecutionStep(item) && isExecutionStep(executionItems[index + 1]);
+                  return renderItem(item, index, false, true, !isAnswer, !connectsToNextStep);
+                })}
+              </ExecutionSummary>
+            )}
+            {finalAnswerItem ? (
+              <>
+                {renderItem(finalAnswerItem, finalAnswerIndex, true)}
+                {standaloneSystemItems.map((item, index) => renderItem(item, index, false))}
+              </>
+            ) : (
+              visibleGroups.map((group, index) =>
+                renderExecutionGroup(group, `turn-group-${index}`, index === lastAnswerGroupIndex),
+              )
+            )}
+            {showTrailingToolStatus && (
+              <ChainOfThought key="transient-working-summary" defaultOpen={false}>
+                <ChainOfThoughtHeader icon={Wrench}>
+                  {renderActiveStatusText(getExecutionStatusText(toolActivityStatus))}
+                </ChainOfThoughtHeader>
+              </ChainOfThought>
+            )}
+            {showTypingIndicator && (primaryExpert || hideDefaultAssistantHeader) && (
+              <WorkingIndicator showCompanion={false} />
+            )}
+            {/* 2026/09/17 lixiang  文件卡片与复制按钮上下间距收紧 */}
+            {/* 2026/09/20 lixiang  验收卡在复制按钮之上（issue #805） */}
+            {(hasDeliverableArtifacts || copyContent || beforeCopySlot) && (
+              <div className="-mt-1 flex flex-col gap-1">
+                {hasDeliverableArtifacts && artifacts && (
+                  <div className="flex flex-wrap gap-2">
+                    {artifacts
+                      .filter(
+                        artifact => artifact.role === ArtifactRole.Deliverable && artifact.declared,
+                      )
+                      .map(artifact => (
+                        <ArtifactPreviewCard key={artifact.id} artifact={artifact} />
+                      ))}
+                  </div>
+                )}
+                {beforeCopySlot}
+                {copyContent && (
+                  <div className="flex items-center gap-1">
+                    <CopyButton content={copyContent} visible />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Memo boundary: with stabilized turn references, completed turns skip
+// re-rendering entirely while the streaming tail updates (issue #141).
+export const TurnBlock = React.memo(TurnBlockComponent);

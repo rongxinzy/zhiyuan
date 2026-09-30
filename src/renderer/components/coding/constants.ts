@@ -1,0 +1,112 @@
+import { CodingAgentProfileStatus, type CodingWorkspaceSummary } from '../../../shared/codingAgent';
+
+export const CodingUiEvent = {
+  CreateSession: 'coding:create-session',
+  ManageAgents: 'coding:manage-agents',
+} as const;
+
+export interface CodingCreateSessionEventDetail {
+  workspace: CodingWorkspaceSummary;
+  /** Agent to start the session with; omitted to ask the user for one. */
+  profileId?: string;
+}
+
+export const CodingAgentStatusI18nKey: Record<CodingAgentProfileStatus, string> = {
+  [CodingAgentProfileStatus.Detected]: 'codingAgentStatusDetected',
+  [CodingAgentProfileStatus.Ready]: 'codingAgentReady',
+  [CodingAgentProfileStatus.NeedsConfiguration]: 'codingAgentStatusNeedsConfiguration',
+  [CodingAgentProfileStatus.NeedsAdapter]: 'codingAgentStatusNeedsAdapter',
+  [CodingAgentProfileStatus.NeedsAuth]: 'codingAgentStatusNeedsAuth',
+  [CodingAgentProfileStatus.Incompatible]: 'codingAgentStatusIncompatible',
+  [CodingAgentProfileStatus.Untrusted]: 'codingAgentStatusUntrusted',
+  [CodingAgentProfileStatus.Unavailable]: 'codingAgentStatusUnavailable',
+};
+
+export const CodingAgentManagerTab = {
+  Local: 'local',
+  Custom: 'custom',
+} as const;
+export type CodingAgentManagerTab =
+  (typeof CodingAgentManagerTab)[keyof typeof CodingAgentManagerTab];
+
+export const CodingConversationRole = {
+  User: 'user',
+  Assistant: 'assistant',
+} as const;
+export type CodingConversationRole =
+  (typeof CodingConversationRole)[keyof typeof CodingConversationRole];
+
+export const CodingConversationActivityKind = {
+  Plan: 'plan',
+  Tool: 'tool',
+  Permission: 'permission',
+} as const;
+export type CodingConversationActivityKind =
+  (typeof CodingConversationActivityKind)[keyof typeof CodingConversationActivityKind];
+
+export const CodingConversationSegmentKind = {
+  Reasoning: 'reasoning',
+  Activity: 'activity',
+} as const;
+export type CodingConversationSegmentKind =
+  (typeof CodingConversationSegmentKind)[keyof typeof CodingConversationSegmentKind];
+
+export const CodingConversationTurnStatus = {
+  Complete: 'complete',
+  Cancelled: 'cancelled',
+  Failed: 'failed',
+} as const;
+export type CodingConversationTurnStatus =
+  (typeof CodingConversationTurnStatus)[keyof typeof CodingConversationTurnStatus];
+
+export const CodingInspectorTab = {
+  Changes: 'changes',
+  Terminal: 'terminal',
+} as const;
+export type CodingInspectorTab = (typeof CodingInspectorTab)[keyof typeof CodingInspectorTab];
+
+export const CodingSidePanelView = {
+  Launcher: 'launcher',
+  Files: 'files',
+  Review: 'review',
+  Inspector: 'inspector',
+} as const;
+export type CodingSidePanelView = (typeof CodingSidePanelView)[keyof typeof CodingSidePanelView];
+
+export const CodingWorkspaceFileView = {
+  Preview: 'preview',
+  Code: 'code',
+} as const;
+export type CodingWorkspaceFileView =
+  (typeof CodingWorkspaceFileView)[keyof typeof CodingWorkspaceFileView];
+
+export const CodingGitQuickActionMode = {
+  Environment: 'environment',
+  Commit: 'commit',
+} as const;
+export type CodingGitQuickActionMode =
+  (typeof CodingGitQuickActionMode)[keyof typeof CodingGitQuickActionMode];
+
+export const CodingExternalActivityStatus = {
+  Completed: 'completed',
+  Failed: 'failed',
+  Pending: 'pending',
+} as const;
+
+export const CodingToolPartState = {
+  ApprovalRequested: 'approval-requested',
+  ApprovalResponded: 'approval-responded',
+  InputAvailable: 'input-available',
+  InputStreaming: 'input-streaming',
+  OutputAvailable: 'output-available',
+  OutputDenied: 'output-denied',
+  OutputError: 'output-error',
+} as const;
+export type CodingToolPartState = (typeof CodingToolPartState)[keyof typeof CodingToolPartState];
+
+export const CodingComposerStatus = {
+  Submitted: 'submitted',
+  Streaming: 'streaming',
+} as const;
+export type CodingComposerStatus =
+  (typeof CodingComposerStatus)[keyof typeof CodingComposerStatus];

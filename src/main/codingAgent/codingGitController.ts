@@ -1,0 +1,157 @@
+import path from 'path';
+
+import {
+  CodingLaneStatus,
+  type CodingGitCommitAndPushInput,
+  type CodingGitCommitAndPushResult,
+  CodingErrorMessage,
+  type CodingGitCommitInput,
+  type CodingGitBranchInput,
+  type CodingGitPullRequestInput,
+  type CodingGitDiffInput,
+  type CodingGitPathActionInput,
+  type CodingGitStatus,
+  type CodingGitTargetInput,
+} from '../../shared/codingAgent';
+import { CodingGitService } from './codingGitService';
+import type { CodingRoomRepository } from './codingRoomRepository';
+
+interface ResolvedGitTarget {
+  targetRoot: string;
+  sourceRoot: string;
+  isIsolated: boolean;
+  isBusy: boolean;
+}
+
+export class CodingGitController {
+  private readonly git = new CodingGitService();
+
+  constructor(private readonly repository: CodingRoomRepository) {}
+
+  async getStatus(input: CodingGitTargetInput): Promise<CodingGitStatus> {
+    const target = this.resolveTarget(input);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async getDiff(input: CodingGitDiffInput): Promise<string> {
+    const target = this.resolveTarget(input);
+    return await this.git.getDiff({ ...input, targetRoot: target.targetRoot });
+  }
+
+  async stage(input: CodingGitPathActionInput): Promise<CodingGitStatus> {
+    const target = this.resolveMutableTarget(input);
+    await this.git.stage(target.targetRoot, input.paths);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async unstage(input: CodingGitPathActionInput): Promise<CodingGitStatus> {
+    const target = this.resolveMutableTarget(input);
+    await this.git.unstage(target.targetRoot, input.paths);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async commit(input: CodingGitCommitInput): Promise<CodingGitStatus> {
+    const target = this.resolveMutableTarget(input);
+    await this.git.commit(target.targetRoot, input.message, input.paths);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async commitAndPush(input: CodingGitCommitAndPushInput): Promise<CodingGitCommitAndPushResult> {
+    const target = this.resolveMutableTarget(input);
+    const result = await this.git.commitAndPush(target.targetRoot, input.message, input.paths);
+    return {
+      ...result,
+      status: await this.git.getStatus(target.targetRoot, target),
+    };
+  }
+
+  async push(input: CodingGitTargetInput): Promise<CodingGitStatus> {
+    const target = this.resolveMutableTarget(input);
+    await this.git.push(target.targetRoot);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async switchBranch(input: CodingGitBranchInput): Promise<CodingGitStatus> {
+    const target = this.resolveMutableTarget(input);
+    await this.git.switchBranch(target.targetRoot, input.branch);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async createBranch(input: CodingGitBranchInput): Promise<CodingGitStatus> {
+    const target = this.resolveBranchCreationTarget(input);
+    await this.git.createBranch(target.targetRoot, input.branch);
+    return await this.git.getStatus(target.targetRoot, target);
+  }
+
+  async createPullRequest(input: CodingGitPullRequestInput): Promise<string> {
+    const target = this.resolveMutableTarget(input);
+    const status = await this.git.getStatus(target.targetRoot, target);
+    if (!status.githubRepositoryUrl || !status.hasRemoteBranch) {
+      throw new Error('Push the current branch before creating a pull request.');
+    }
+    return await this.git.createPullRequest(target.targetRoot, input);
+  }
+
+  private resolveMutableTarget(input: CodingGitTargetInput): ResolvedGitTarget {
+    const target = this.resolveTarget(input);
+    if (target.isIsolated) {
+      throw new Error(CodingErrorMessage.GitIsolatedReadOnly);
+    }
+    if (target.isBusy) {
+      throw new Error(CodingErrorMessage.GitAgentBusy);
+    }
+    return target;
+  }
+
+  private resolveBranchCreationTarget(input: CodingGitTargetInput): ResolvedGitTarget {
+    const target = this.resolveTarget(input);
+    if (target.isIsolated) {
+      throw new Error('Isolated collaborator worktrees are read-only in the Git panel.');
+    }
+    // `git switch --create` from the current HEAD changes only HEAD and refs;
+    // the worktree contents stay intact, so an active agent can continue its
+    // writes on the newly created branch without a filesystem race.
+    return target;
+  }
+
+  private resolveTarget(input: CodingGitTargetInput): ResolvedGitTarget {
+    const workspaceRoot = path.resolve(input.workspaceRoot);
+    const room =
+      this.repository.getRoomByRoot(workspaceRoot) ??
+      this.repository
+        .listRooms()
+        .find(candidate => path.resolve(candidate.workspaceRoot) === workspaceRoot);
+    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+
+    if (input.laneId) {
+      const missions = this.repository.listMissions(room.id);
+      const lane = this.repository
+        .listLanes(missions.map(mission => mission.id))
+        .find(candidate => candidate.id === input.laneId);
+      if (!lane) throw new Error(CodingErrorMessage.SessionNotFoundInWorkspace);
+      const sourceRoot = path.resolve(lane.sourceRoot || room.workspaceRoot);
+      const targetRoot = path.resolve(lane.executionRoot || sourceRoot);
+      return {
+        targetRoot,
+        sourceRoot,
+        isIsolated: sourceRoot !== targetRoot,
+        isBusy:
+          lane.status === CodingLaneStatus.Running ||
+          lane.status === CodingLaneStatus.WaitingApproval ||
+          this.repository.getWriterLease(room.id, sourceRoot) !== null,
+      };
+    }
+
+    const requestedSource = path.resolve(input.sourceRoot || room.workspaceRoot);
+    const source = this.repository
+      .listWorkspaceSources(room.id)
+      .find(candidate => path.resolve(candidate.path) === requestedSource);
+    if (!source) throw new Error(CodingErrorMessage.GitSourceNotInWorkspace);
+    return {
+      targetRoot: requestedSource,
+      sourceRoot: requestedSource,
+      isIsolated: false,
+      isBusy: this.repository.getWriterLease(room.id, requestedSource) !== null,
+    };
+  }
+}

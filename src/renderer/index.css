@@ -1,0 +1,24 @@
+/* Establish cascade order before generated component recipes declare their layer. */
+@layer theme, base, components, utilities;
+
+/* Theme system: CSS variable definitions for the light/dark themes */
+@import './theme/css/themes.css';
+@import './theme/css/base.css';
+@import './theme/css/shadcn-token-bridge.css';
+
+@import 'tailwindcss' source(none);
+@import 'tw-animate-css';
+
+@source ".";
+@source "../shared";
+/* cowork/ is an ignored runtime-output directory name, so opt it into Tailwind scanning. */
+@source "./components/cowork";
+
+@plugin '@tailwindcss/typography';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@import './theme/css/tailwind.css';
+@import './theme/css/components.css';
+
+@import './theme/css/background.css';

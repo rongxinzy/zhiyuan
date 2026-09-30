@@ -1,0 +1,116 @@
+name: Windows installer gate
+
+on:
+  schedule:
+    - cron: '23 2 * * 1'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  package-and-install:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+      - name: Enforce retired runtime decoupling
+        run: node scripts/ci/check-openclaw-decoupling.mjs
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Restore packaging caches
+        id: packaging-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.npm
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+            vendor/engram-runtime
+            vendor/channel-runtime
+          key: windows-installer-node24-bun1.4.0-${{ hashFiles('bun.lock', 'package.json', 'scripts/**') }}
+          restore-keys: |
+            windows-installer-node24-bun1.4.0-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run apply:patches
+      - name: Set up offline Windows runtimes
+        run: |
+          bun run setup:uv-runtime
+          bun run setup:python-runtime
+          bun run engram:runtime:win-x64
+      - name: Build complete offline installer
+        # Keep a stuck packager observable and fail it before the job-level
+        # timeout so the diagnostics upload below still gets a chance to run.
+        timeout-minutes: 65
+        shell: pwsh
+        run: |
+          & .\scripts\ci\run-with-heartbeat.ps1 `
+            -FilePath 'bun' `
+            -ArgumentList @('run', 'dist:win:offline') `
+            -TimeoutMinutes 55 `
+            -HeartbeatSeconds 60
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Check offline installer size
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts/ci/windows-installer-size-smoke.ps1
+          -ProjectRoot ${{ github.workspace }}
+      - name: Benchmark shared Skill Python solid compression
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: ./.github/actions/verify-windows-compression
+      - name: Verify embedded runtimes with a clean PATH
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts/ci/windows-runtime-smoke.ps1
+          -ProjectRoot ${{ github.workspace }}
+      - name: Verify cold install, cache-hit upgrade, and uninstall
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts/ci/windows-installer-smoke.ps1
+          -ProjectRoot ${{ github.workspace }}
+      - name: Save shared packaging caches from verified main builds
+        if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.packaging-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.npm
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+            vendor/engram-runtime
+            vendor/channel-runtime
+          key: ${{ steps.packaging-cache.outputs.cache-primary-key }}
+      - name: Collect installer diagnostics
+        if: ${{ failure() }}
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path installer-diagnostics -Force | Out-Null
+          $timingLog = Join-Path $env:APPDATA 'ZhiYuanAgent\install-timing.log'
+          if (Test-Path -LiteralPath $timingLog) {
+            Copy-Item -LiteralPath $timingLog -Destination installer-diagnostics\install-timing.log -Force
+          }
+      - name: Upload installer diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-installer-diagnostics
+          path: |
+            release/*.exe
+            installer-diagnostics/install-timing.log
+            ${{ runner.temp }}/zhiyuan-build-logs
+          if-no-files-found: ignore
+          retention-days: 3

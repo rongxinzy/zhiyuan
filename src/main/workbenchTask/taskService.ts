@@ -1,0 +1,952 @@
+import type Database from 'better-sqlite3';
+import { EventEmitter } from 'events';
+
+import {
+  WorkbenchApprovalDecision,
+  WorkbenchApprovalDecisionSource,
+  WorkbenchApprovalEffectStatus,
+  WorkbenchApprovalMode,
+  WorkbenchApprovalRiskLevel,
+  WorkbenchContractKind,
+  WorkbenchArtifactCandidateSource,
+  WorkbenchArtifactVerificationStatus,
+  WorkbenchRunEventType,
+  WorkbenchRunStatus,
+  WorkbenchRunTrigger,
+  WorkbenchTaskStatus,
+  WorkbenchVerificationCheckStatus,
+  WorkbenchVerificationCheckName,
+  WorkbenchVerificationOutcome,
+  type WorkbenchApproval,
+  type WorkbenchArtifact,
+  type WorkbenchArtifactCandidate,
+  type WorkbenchApprovalResponseInput,
+  type WorkbenchJsonObject,
+  type WorkbenchRun,
+  type WorkbenchRunContext,
+  type WorkbenchTask,
+  type WorkbenchTaskChangedEvent,
+  type WorkbenchTaskContract,
+  type WorkbenchTaskDetail,
+  type WorkbenchVerificationResult,
+} from '../../shared/workbenchTask';
+import { HarnessActivationType } from '../../shared/harness';
+import { HarnessMeasurementService } from '../harness/measurementService';
+import { t } from '../i18n';
+import { collectWorkbenchArtifactsAsync } from './artifactWorkerPool';
+import { applyWorkbenchDeliveryGate } from './deliveryGate';
+import { getCurrentDeclaredArtifacts } from './artifactCompletion';
+import { WorkbenchTaskRepository } from './repository';
+import { classifyWorkbenchToolRisk, createToolIdempotencyKey } from './riskClassifier';
+import { verifyWorkbenchRun, type WorkbenchVerificationContext } from './verification';
+
+export interface WorkbenchApprovalRequestedEvent {
+  sessionId: string;
+  approval: WorkbenchApproval;
+}
+
+export interface WorkbenchToolAuthorizationResult {
+  allow: boolean;
+  reason?: string;
+  /**
+   * The run cannot continue. The runtime must end the turn instead of handing
+   * the model another ordinary tool error, otherwise it keeps requesting tools
+   * against a run that is already over.
+   */
+  terminateRun?: boolean;
+}
+
+export interface VerifiedWorkbenchRunEvent {
+  task: WorkbenchTask;
+  run: WorkbenchRun;
+  artifacts: WorkbenchTaskDetail['artifacts'];
+  approvals: WorkbenchTaskDetail['approvals'];
+  verificationResult: WorkbenchVerificationResult;
+  workspaceRoot: string;
+  finalAnswer: string;
+}
+
+export interface WorkbenchTaskServiceOptions {
+  onVerifiedRun?: (event: VerifiedWorkbenchRunEvent) => void;
+}
+
+type PendingApproval = {
+  resolve: (result: WorkbenchToolAuthorizationResult) => void;
+};
+
+const MAX_RESULT_DEPTH = 6;
+const MAX_RESULT_NODES = 500;
+const MAX_RESULT_COLLECTION_ENTRIES = 50;
+const MAX_RESULT_STRING_LENGTH = 4_000;
+const MAX_RESULT_SERIALIZED_LENGTH = 64_000;
+/** Consecutive output-contract denials before a run is stopped instead of spinning. */
+const MAX_OUTPUT_CONTRACT_DENIALS = 4;
+
+export class WorkbenchTaskService extends EventEmitter {
+  readonly repository: WorkbenchTaskRepository;
+  readonly measurement: HarnessMeasurementService;
+  private readonly pendingApprovals = new Map<string, PendingApproval>();
+  /** Last set_task_output failure per run, so the gate can explain what to fix. */
+  private readonly lastOutputContractErrors = new Map<string, string>();
+  /** Consecutive output-contract denials per run, so a stuck run can be stopped. */
+  private readonly outputContractDenials = new Map<string, number>();
+
+  constructor(
+    db: Database.Database,
+    private readonly options: WorkbenchTaskServiceOptions = {},
+  ) {
+    super();
+    this.repository = new WorkbenchTaskRepository(db);
+    this.measurement = new HarnessMeasurementService(this.repository);
+  }
+
+  getCurrent(sessionId: string): WorkbenchTaskDetail | null {
+    const task = this.repository.getLatestTaskForSession(sessionId);
+    return task ? this.repository.getDetail(task.id) : null;
+  }
+
+  getDetail(taskId: string): WorkbenchTaskDetail | null {
+    return this.repository.getDetail(taskId);
+  }
+
+  listForSession(sessionId: string): WorkbenchTask[] {
+    return this.repository.listTasksForSession(sessionId);
+  }
+
+  async registerArtifact(input: {
+    sessionId: string;
+    runId: string;
+    workspaceRoot: string;
+    candidate: WorkbenchArtifactCandidate;
+    signal?: AbortSignal;
+  }): Promise<WorkbenchArtifact> {
+    const run = this.requireRun(input.runId);
+    const task = this.requireTask(run.taskId);
+    if (task.sessionId !== input.sessionId || task.activeRunId !== run.id) {
+      throw new Error('The artifact does not belong to the active task run.');
+    }
+    if (run.status !== WorkbenchRunStatus.Running) {
+      throw new Error('Artifacts can only be registered while the task run is active.');
+    }
+    const [artifact] = await collectWorkbenchArtifactsAsync(
+      {
+        taskId: task.id,
+        runId: run.id,
+        workspaceRoot: input.workspaceRoot,
+        finalAnswer: '',
+        artifactCandidates: [input.candidate],
+      },
+      input.signal,
+    );
+    if (!artifact) {
+      throw new Error('The artifact path must resolve to a file inside the workspace.');
+    }
+    if (!this.isRunRunning(run.id) || this.requireTask(task.id).activeRunId !== run.id) {
+      throw new Error('The artifact run ended during collection.');
+    }
+    const registered = this.repository.transaction(() => {
+      const stored = this.repository.addArtifact(artifact);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.ArtifactRegistered, {
+        artifactId: stored.id,
+        reference: stored.reference,
+        source: input.candidate.source,
+      });
+      return stored;
+    });
+    this.emitChanged(task);
+    return registered;
+  }
+
+  beginRun(input: {
+    sessionId: string;
+    goal: string;
+    contract: WorkbenchTaskContract;
+    trigger?: WorkbenchRunTrigger;
+    preparedRunId?: string;
+  }): { task: WorkbenchTask; run: WorkbenchRun } {
+    const supersededReason = 'Superseded by a new user message.';
+    const result = this.repository.transaction(() => {
+      let run = input.preparedRunId ? this.repository.getRun(input.preparedRunId) : null;
+      let task = run ? this.repository.getTask(run.taskId) : null;
+      let supersededTask: WorkbenchTask | null = null;
+      let expiredApprovals: WorkbenchApproval[] = [];
+      if (run) {
+        if (!task) throw new Error('Prepared run task not found.');
+        if (task.sessionId !== input.sessionId) {
+          throw new Error('Prepared run does not belong to this session.');
+        }
+      } else {
+        const activeTask = this.repository.getActiveTaskForSession(input.sessionId);
+        if (activeTask) {
+          expiredApprovals = this.expirePendingApprovalsForSession(
+            input.sessionId,
+            supersededReason,
+          );
+          if (activeTask.activeRunId) {
+            const activeRun = this.repository.getRun(activeTask.activeRunId);
+            if (activeRun && this.isRunActive(activeRun.status)) {
+              this.repository.updateRunStatus(activeRun.id, WorkbenchRunStatus.Cancelled);
+            }
+            if (activeRun) {
+              this.repository.appendRunEvent(activeRun.id, WorkbenchRunEventType.RunCancelled, {
+                reason: supersededReason,
+              });
+            }
+          }
+          supersededTask = this.repository.updateTaskStatus(
+            activeTask.id,
+            WorkbenchTaskStatus.Cancelled,
+            null,
+          );
+        }
+        task = this.repository.createTask(input.sessionId, input.goal, input.contract);
+      }
+      if (!run) {
+        run = this.repository.createRun(task.id, input.trigger ?? WorkbenchRunTrigger.Message);
+      }
+      task = this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Running, run.id);
+      run = this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Running);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.RunStarted);
+      return { task, run, supersededTask, expiredApprovals };
+    });
+    this.resolvePendingApprovals(result.expiredApprovals, supersededReason);
+    if (result.supersededTask) this.emitChanged(result.supersededTask);
+    this.emitChanged(result.task);
+    return { task: result.task, run: result.run };
+  }
+
+  prepareRun(
+    taskId: string,
+    trigger: WorkbenchRunTrigger,
+  ): { task: WorkbenchTask; run: WorkbenchRun } {
+    const result = this.repository.transaction(() => {
+      let task = this.repository.getTask(taskId);
+      if (!task) throw new Error('Workbench task not found.');
+      if (task.activeRunId) {
+        for (const approval of this.repository.listApprovalsForRun(task.activeRunId)) {
+          if (approval.decision !== WorkbenchApprovalDecision.Pending) continue;
+          this.repository.updateApproval(approval.id, {
+            decision: WorkbenchApprovalDecision.Expired,
+            decisionSource: WorkbenchApprovalDecisionSource.Recovery,
+            result: { reason: 'The interrupted approval was superseded by a new run.' },
+          });
+          this.repository.appendRunEvent(approval.runId, WorkbenchRunEventType.ApprovalResolved, {
+            approvalId: approval.id,
+            approved: false,
+            expired: true,
+          });
+        }
+      }
+      const run = this.repository.createRun(task.id, trigger);
+      task = this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Running, run.id);
+      return { task, run };
+    });
+    this.emitChanged(result.task);
+    return result;
+  }
+
+  updateRunContext(runId: string, context: WorkbenchRunContext): WorkbenchRun {
+    const run = this.repository.updateRunContext(runId, context);
+    const task = this.repository.getTask(run.taskId);
+    if (task) this.emitChanged(task);
+    return run;
+  }
+
+  async completeRun(input: {
+    sessionId: string;
+    runId: string;
+    workspaceRoot: string;
+    finalAnswer: string;
+    finalMessageId?: string | null;
+    workflowCompleted?: boolean;
+    workflowSnapshot?: Record<string, unknown> | null;
+    artifactCandidates?: WorkbenchArtifactCandidate[];
+    streamClosedCleanly?: boolean;
+    signal?: AbortSignal;
+  }): Promise<WorkbenchTaskDetail> {
+    const run = this.requireRun(input.runId);
+    const task = this.requireTask(run.taskId);
+    if (task.sessionId !== input.sessionId)
+      throw new Error('The run does not belong to this session.');
+    if (run.status !== WorkbenchRunStatus.Running) {
+      const current = this.repository.getDetail(task.id);
+      if (!current) throw new Error('Workbench task detail disappeared before verification.');
+      return current;
+    }
+    const verificationContext: WorkbenchVerificationContext = {
+      contract: task.contract,
+      finalAnswer: input.finalAnswer,
+      streamClosedCleanly: input.streamClosedCleanly !== false,
+      workflowCompleted: input.workflowCompleted,
+      workflowSnapshot: input.workflowSnapshot,
+    };
+    const result = verifyWorkbenchRun(verificationContext);
+    const toolArtifactCandidates: WorkbenchArtifactCandidate[] = this.repository
+      .listApprovalsForRun(run.id)
+      .filter(approval => approval.effectStatus === WorkbenchApprovalEffectStatus.Succeeded)
+      .flatMap(approval => {
+        const resultDetails =
+          approval.result?.details && typeof approval.result.details === 'object'
+            ? (approval.result.details as Record<string, unknown>)
+            : {};
+        const pathValue =
+          approval.request.path ??
+          approval.request.file_path ??
+          approval.request.filePath ??
+          resultDetails.path ??
+          resultDetails.file_path ??
+          resultDetails.filePath;
+        return typeof pathValue === 'string'
+          ? [
+              {
+                path: pathValue,
+                source: WorkbenchArtifactCandidateSource.ToolEffect,
+                verificationStatus: WorkbenchArtifactVerificationStatus.Pending,
+              },
+            ]
+          : [];
+      });
+    const artifactCandidates = [
+      ...getCurrentDeclaredArtifacts(this.repository.getDetail(task.id)!.artifacts, run.id),
+      ...toolArtifactCandidates,
+      ...(input.artifactCandidates ?? []),
+    ];
+    let collected: Awaited<ReturnType<typeof collectWorkbenchArtifactsAsync>> = [];
+    let finalResult = result;
+    try {
+      collected = await collectWorkbenchArtifactsAsync(
+        {
+          taskId: task.id,
+          runId: run.id,
+          workspaceRoot: input.workspaceRoot,
+          finalAnswer: input.finalAnswer,
+          finalMessageId: input.finalMessageId,
+          workflowSnapshot: input.workflowSnapshot,
+          artifactCandidates,
+        },
+        input.signal,
+      );
+    } catch (error) {
+      console.warn(`[WorkbenchTask] artifact collection failed for run ${run.id}:`, error);
+      finalResult = {
+        ...result,
+        outcome: WorkbenchVerificationOutcome.Failed,
+        summary: t('workbenchArtifactCollectionFailed'),
+      };
+    }
+    if (!this.isRunRunning(run.id) || this.requireTask(task.id).activeRunId !== run.id) {
+      return this.getDetail(task.id)!;
+    }
+    this.repository.transaction(() => {
+      this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Verifying);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.VerificationStarted);
+      for (const artifact of collected) {
+        this.repository.addArtifact(artifact);
+      }
+      const artifacts = this.repository
+        .getDetail(task.id)!
+        .artifacts.filter(artifact => artifact.runId === run.id);
+      finalResult = applyWorkbenchDeliveryGate(finalResult, artifacts, task.contract);
+      if (finalResult.outcome === WorkbenchVerificationOutcome.Passed) {
+        this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Succeeded, {
+          verificationResult: finalResult,
+        });
+        this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Completed, null);
+      } else {
+        this.repository.updateRunStatus(run.id, WorkbenchRunStatus.NeedsReview, {
+          verificationResult: finalResult,
+        });
+        this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.NeedsReview, run.id);
+      }
+      // Keep the completion context so user acceptance can still dispatch the
+      // verified-run memory promotion with the same evidence the automatic
+      // path uses.
+      this.repository.updateFinalAnswer(run.id, input.finalAnswer);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.VerificationFinished, {
+        outcome: finalResult.outcome,
+        summary: finalResult.summary,
+      });
+      this.measurement.recordVerification(run.id, {
+        passed: finalResult.outcome === WorkbenchVerificationOutcome.Passed,
+        outcome: finalResult.outcome,
+        checks: finalResult.checks.map(check => ({ name: check.name, status: check.status })),
+      });
+    });
+    const detail = this.repository.getDetail(task.id);
+    if (!detail) throw new Error('Workbench task detail disappeared after verification.');
+    if (finalResult.outcome === WorkbenchVerificationOutcome.Passed) {
+      const verifiedRun = detail.runs.find(candidate => candidate.id === run.id);
+      if (verifiedRun) {
+        try {
+          this.options.onVerifiedRun?.({
+            task: detail.task,
+            run: verifiedRun,
+            artifacts: detail.artifacts.filter(artifact => artifact.runId === run.id),
+            approvals: detail.approvals.filter(approval => approval.runId === run.id),
+            verificationResult: finalResult,
+            workspaceRoot: input.workspaceRoot,
+            finalAnswer: input.finalAnswer,
+          });
+        } catch (error) {
+          console.warn('[WorkbenchTask] Failed to propose verified run memory:', error);
+        }
+      }
+    }
+    this.emitChanged(detail.task);
+    this.forgetRunScopedState(run.id);
+    return detail;
+  }
+
+  acceptTask(taskId: string): WorkbenchTaskDetail {
+    const detail = this.repository.getDetail(taskId);
+    if (!detail) throw new Error('Workbench task not found.');
+    const run = detail.runs.find(candidate => candidate.id === detail.task.activeRunId);
+    if (
+      detail.task.status !== WorkbenchTaskStatus.NeedsReview ||
+      !run?.verificationResult ||
+      run.verificationResult.outcome !== WorkbenchVerificationOutcome.AcceptanceRequired
+    ) {
+      throw new Error('This task cannot be accepted because deterministic verification failed.');
+    }
+    const runArtifacts = detail.artifacts.filter(artifact => artifact.runId === run.id);
+    if (
+      applyWorkbenchDeliveryGate(run.verificationResult, runArtifacts, detail.task.contract)
+        .outcome === WorkbenchVerificationOutcome.Failed
+    ) {
+      throw new Error('This task cannot be accepted because no final deliverable is ready.');
+    }
+    const acceptedResult: WorkbenchVerificationResult = {
+      ...run.verificationResult,
+      outcome: WorkbenchVerificationOutcome.Passed,
+      checks: [
+        ...run.verificationResult.checks,
+        {
+          name: WorkbenchVerificationCheckName.UserAcceptance,
+          status: WorkbenchVerificationCheckStatus.Passed,
+        },
+      ],
+      summary: 'The user accepted the work result.',
+    };
+    // Recover the completion context persisted at completeRun so acceptance
+    // can dispatch the same verified-run promotion the automatic path uses.
+    const workspaceRoot = run.context?.workspaceRoot ?? '';
+    const finalAnswer = this.repository.getRunFinalAnswer(run.id);
+    this.repository.transaction(() => {
+      this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Succeeded, {
+        verificationResult: acceptedResult,
+      });
+      this.repository.updateTaskStatus(taskId, WorkbenchTaskStatus.Completed, null);
+      // Acceptance attests final deliverables, never intermediate execution evidence.
+      const verifiedArtifacts = this.repository.markArtifactsVerified(
+        run.id,
+        detail.task.contract,
+        runArtifacts,
+      );
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.VerificationFinished, {
+        outcome: acceptedResult.outcome,
+        acceptedByUser: true,
+        verifiedArtifacts,
+      });
+    });
+    const accepted = this.repository.getDetail(taskId);
+    if (!accepted) throw new Error('Workbench task not found after acceptance.');
+    const acceptedRun = accepted.runs.find(candidate => candidate.id === run.id);
+    if (acceptedRun) {
+      try {
+        this.options.onVerifiedRun?.({
+          task: accepted.task,
+          run: acceptedRun,
+          artifacts: accepted.artifacts.filter(artifact => artifact.runId === run.id),
+          approvals: accepted.approvals.filter(approval => approval.runId === run.id),
+          verificationResult: acceptedResult,
+          workspaceRoot,
+          finalAnswer,
+        });
+      } catch (error) {
+        console.warn('[WorkbenchTask] Failed to propose accepted run memory:', error);
+      }
+    }
+    this.emitChanged(accepted.task);
+    return accepted;
+  }
+
+  pauseRun(sessionId: string, reason: string): void {
+    const task = this.repository.getActiveTaskForSession(sessionId);
+    if (!task?.activeRunId) {
+      this.cancelPendingApprovalsForSession(sessionId, reason);
+      return;
+    }
+    const run = this.repository.getRun(task.activeRunId);
+    if (!run || !this.isRunActive(run.status)) {
+      this.cancelPendingApprovalsForSession(sessionId, reason);
+      return;
+    }
+    const expiredApprovals = this.repository.transaction(() => {
+      this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Paused);
+      this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Paused, run.id);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.RunPaused, { reason });
+      return this.expirePendingApprovalsForSession(sessionId, reason);
+    });
+    this.resolvePendingApprovals(expiredApprovals, reason);
+    this.emitChanged(this.requireTask(task.id));
+    this.forgetRunScopedState(run.id);
+  }
+
+  failRun(sessionId: string, failure: WorkbenchJsonObject): void {
+    const task = this.repository.getActiveTaskForSession(sessionId);
+    if (!task?.activeRunId) return;
+    const run = this.repository.getRun(task.activeRunId);
+    if (!run || !this.isRunActive(run.status)) return;
+    this.repository.transaction(() => {
+      this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Failed, { failure });
+      this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Failed, null);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.RunFailed, failure);
+      this.measurement.recordFailure(run.id, {
+        message: typeof failure.message === 'string' ? failure.message : 'Unknown runtime failure',
+        code: typeof failure.code === 'string' ? failure.code : undefined,
+        stage: typeof failure.stage === 'string' ? failure.stage : 'runtime',
+        evidence: failure,
+      });
+    });
+    this.emitChanged(this.requireTask(task.id));
+    this.forgetRunScopedState(run.id);
+  }
+
+  cancelRun(sessionId: string, runId: string): void {
+    const run = this.repository.getRun(runId);
+    const task = run ? this.repository.getTask(run.taskId) : null;
+    if (!run || !task || task.sessionId !== sessionId || !this.isRunActive(run.status)) return;
+    this.repository.transaction(() => {
+      this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Cancelled);
+      this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Cancelled, null);
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.RunCancelled, {
+        reason: 'Cancelled by the coding agent user.',
+      });
+    });
+    this.emitChanged(this.requireTask(task.id));
+    this.forgetRunScopedState(run.id);
+  }
+
+  /**
+   * Records why the last set_task_output call failed for a run. The gate below
+   * reports this back, so a model that already tried to commit the contract
+   * learns what to fix instead of retrying other tools forever.
+   */
+  recordOutputContractFailure(runId: string, message: string): void {
+    const trimmed = message.trim();
+    if (trimmed) this.lastOutputContractErrors.set(runId, trimmed);
+  }
+
+  private forgetRunScopedState(runId: string): void {
+    this.lastOutputContractErrors.delete(runId);
+    this.outputContractDenials.delete(runId);
+  }
+
+  /**
+   * Counts one output-contract denial and returns the reason for it: the exact
+   * failure of the previous commit attempt when there was one, otherwise the
+   * instruction with a copyable example.
+   */
+  private recordOutputContractDenial(runId: string): string {
+    const denials = (this.outputContractDenials.get(runId) ?? 0) + 1;
+    this.outputContractDenials.set(runId, denials);
+    const example = '{"requirements":[{"mode":"text","formats":[]}]}';
+    const lastError = this.lastOutputContractErrors.get(runId);
+    return lastError
+      ? `The output contract is not committed: the previous set_task_output call failed with "${lastError}". Fix that call, then continue — for example ${example} for a written answer.`
+      : `Before executing tools, call set_task_output to declare what this task must deliver — for example ${example} for a written answer.`;
+  }
+
+  async authorizeToolCall(input: {
+    sessionId: string;
+    runId: string;
+    toolCallId: string;
+    toolName: string;
+    toolInput: Record<string, unknown>;
+    approvalMode: WorkbenchApprovalMode;
+  }): Promise<WorkbenchToolAuthorizationResult> {
+    const run = this.requireRun(input.runId);
+    const task = this.requireTask(run.taskId);
+    if (task.sessionId !== input.sessionId) {
+      return { allow: false, reason: 'The tool call does not belong to this session.' };
+    }
+    if (task.activeRunId !== run.id || run.status !== WorkbenchRunStatus.Running) {
+      // The run is already over (failed, paused, cancelled or superseded), so
+      // every further tool call fails. End the turn instead of letting the model
+      // keep asking.
+      return {
+        allow: false,
+        reason: 'The tool call does not belong to the active run.',
+        terminateRun: true,
+      };
+    }
+    const riskLevel = classifyWorkbenchToolRisk(input.toolName, input.toolInput);
+    if (
+      task.contract.kind !== WorkbenchContractKind.Chat &&
+      !task.contract.outputRequirements?.length &&
+      riskLevel !== WorkbenchApprovalRiskLevel.ReadOnly
+    ) {
+      const reason = this.recordOutputContractDenial(run.id);
+      if ((this.outputContractDenials.get(run.id) ?? 0) >= MAX_OUTPUT_CONTRACT_DENIALS) {
+        this.failRun(input.sessionId, {
+          code: 'output_contract_uncommitted',
+          stage: 'contract',
+          message:
+            'Stopped the run: the output contract was never committed, so no tool call could execute.',
+        });
+        return { allow: false, reason, terminateRun: true };
+      }
+      return { allow: false, reason };
+    }
+    if (riskLevel === WorkbenchApprovalRiskLevel.ReadOnly) {
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.ToolRead, {
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+      });
+      return { allow: true };
+    }
+    const idempotencyKey = createToolIdempotencyKey(run.id, input.toolCallId, input.toolInput);
+    const existing = this.repository.getApprovalByIdempotencyKey(idempotencyKey);
+    if (existing) {
+      this.measurement.recordActivation(run.id, {
+        activation: HarnessActivationType.RepeatToolBreakerFired,
+        mechanism: 'tool_effect_idempotency',
+        evidence: { toolCallId: input.toolCallId, toolName: input.toolName },
+      });
+      return { allow: false, reason: this.getDuplicateApprovalReason(existing) };
+    }
+    // Ask prompts for every side effect; Auto auto-approves only reversible
+    // effects while irreversible/unknown ones still prompt; AllowAll means the
+    // user has explicitly disabled tool authorization prompts for this run,
+    // including irreversible effects.
+    const canAutoApprove =
+      input.approvalMode === WorkbenchApprovalMode.AllowAll ||
+      (input.approvalMode === WorkbenchApprovalMode.Auto &&
+        riskLevel === WorkbenchApprovalRiskLevel.Reversible);
+    const approval = this.repository.transaction(() => {
+      const created = this.repository.createApproval({
+        taskId: task.id,
+        runId: run.id,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        riskLevel,
+        decision: canAutoApprove
+          ? WorkbenchApprovalDecision.Approved
+          : WorkbenchApprovalDecision.Pending,
+        decisionSource: canAutoApprove ? WorkbenchApprovalDecisionSource.Policy : null,
+        effectStatus: canAutoApprove
+          ? WorkbenchApprovalEffectStatus.Executing
+          : WorkbenchApprovalEffectStatus.NotStarted,
+        idempotencyKey,
+        request: input.toolInput,
+      });
+      this.repository.appendRunEvent(run.id, WorkbenchRunEventType.ApprovalRequested, {
+        approvalId: created.id,
+        riskLevel,
+        automatic: canAutoApprove,
+      });
+      if (canAutoApprove) {
+        this.repository.appendRunEvent(run.id, WorkbenchRunEventType.ToolEffectStarted, {
+          approvalId: created.id,
+        });
+      } else {
+        this.repository.updateRunStatus(run.id, WorkbenchRunStatus.WaitingApproval);
+      }
+      return created;
+    });
+    this.emitChanged(task);
+    if (canAutoApprove) return { allow: true };
+    this.emit('approvalRequested', { sessionId: input.sessionId, approval });
+    return new Promise(resolve => {
+      this.pendingApprovals.set(approval.id, { resolve });
+    });
+  }
+
+  respondToApproval(input: WorkbenchApprovalResponseInput): WorkbenchApproval {
+    const approval = this.repository.getApproval(input.approvalId);
+    if (!approval) throw new Error('Workbench approval not found.');
+    if (approval.decision !== WorkbenchApprovalDecision.Pending) return approval;
+    const pending = this.pendingApprovals.get(approval.id);
+    if (!pending) {
+      throw new Error('This approval belongs to an interrupted run. Resume the task to try again.');
+    }
+    const updated = this.repository.transaction(() => {
+      const next = this.repository.updateApproval(approval.id, {
+        decision: input.approved
+          ? WorkbenchApprovalDecision.Approved
+          : WorkbenchApprovalDecision.Denied,
+        decisionSource: WorkbenchApprovalDecisionSource.User,
+        effectStatus: input.approved
+          ? WorkbenchApprovalEffectStatus.Executing
+          : WorkbenchApprovalEffectStatus.NotStarted,
+        result: input.reason ? { reason: input.reason } : null,
+      });
+      this.repository.updateRunStatus(
+        approval.runId,
+        input.approved ? WorkbenchRunStatus.Running : WorkbenchRunStatus.Paused,
+      );
+      if (!input.approved) {
+        this.repository.updateTaskStatus(
+          approval.taskId,
+          WorkbenchTaskStatus.Paused,
+          approval.runId,
+        );
+      }
+      this.repository.appendRunEvent(approval.runId, WorkbenchRunEventType.ApprovalResolved, {
+        approvalId: approval.id,
+        approved: input.approved,
+      });
+      if (input.approved) {
+        this.repository.appendRunEvent(approval.runId, WorkbenchRunEventType.ToolEffectStarted, {
+          approvalId: approval.id,
+        });
+      }
+      return next;
+    });
+    this.pendingApprovals.delete(approval.id);
+    pending.resolve(
+      input.approved
+        ? { allow: true }
+        : { allow: false, reason: input.reason || 'The user denied this action.' },
+    );
+    this.emitChanged(this.requireTask(approval.taskId));
+    return updated;
+  }
+
+  isRunRunning(runId: string): boolean {
+    return this.repository.getRun(runId)?.status === WorkbenchRunStatus.Running;
+  }
+
+  recordToolResult(runId: string, toolCallId: string, result: unknown, isError: boolean): void {
+    const approval = this.repository.getApprovalByToolCall(runId, toolCallId);
+    if (!approval || approval.effectStatus !== WorkbenchApprovalEffectStatus.Executing) return;
+    this.repository.transaction(() => {
+      this.repository.updateApproval(approval.id, {
+        effectStatus: isError
+          ? WorkbenchApprovalEffectStatus.Failed
+          : WorkbenchApprovalEffectStatus.Succeeded,
+        result: this.toJsonObject(result),
+      });
+      this.repository.appendRunEvent(runId, WorkbenchRunEventType.ToolEffectFinished, {
+        approvalId: approval.id,
+        success: !isError,
+      });
+    });
+    this.emitChanged(this.requireTask(approval.taskId));
+  }
+
+  recoverInterruptedState(): number {
+    const affectedTaskIds = new Set<string>();
+    const interruptedApprovalIds = new Set<string>();
+    this.repository.transaction(() => {
+      for (const run of this.repository.listRecoverableRuns()) {
+        const task = this.requireTask(run.taskId);
+        if (run.status === WorkbenchRunStatus.WaitingApproval) {
+          for (const approval of this.repository.listApprovalsForRun(run.id)) {
+            if (approval.decision !== WorkbenchApprovalDecision.Pending) continue;
+            interruptedApprovalIds.add(approval.id);
+          }
+          this.repository.updateRunStatus(run.id, WorkbenchRunStatus.Paused);
+          // A task may already require review because another interrupted run
+          // or approval effect was recovered first. Do not downgrade that
+          // stronger recovery state back to paused.
+          if (task.status === WorkbenchTaskStatus.Running) {
+            this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.Paused, run.id);
+          }
+        } else {
+          this.repository.updateRunStatus(run.id, WorkbenchRunStatus.NeedsReview);
+          if (task.status === WorkbenchTaskStatus.Running) {
+            this.repository.updateTaskStatus(task.id, WorkbenchTaskStatus.NeedsReview, run.id);
+          }
+        }
+        this.repository.appendRunEvent(run.id, WorkbenchRunEventType.RecoveryRequired, {
+          previousStatus: run.status,
+        });
+        affectedTaskIds.add(task.id);
+      }
+      for (const approval of this.repository.listExecutingApprovals()) {
+        this.repository.updateApproval(approval.id, {
+          effectStatus: WorkbenchApprovalEffectStatus.NeedsReview,
+          decisionSource: approval.decisionSource ?? WorkbenchApprovalDecisionSource.Recovery,
+        });
+        const run = this.repository.getRun(approval.runId);
+        const task = this.repository.getTask(approval.taskId);
+        if (run && this.isRunActive(run.status)) {
+          this.repository.updateRunStatus(run.id, WorkbenchRunStatus.NeedsReview);
+        }
+        if (task && task.status === WorkbenchTaskStatus.Running) {
+          this.repository.updateTaskStatus(
+            task.id,
+            WorkbenchTaskStatus.NeedsReview,
+            run?.id ?? null,
+          );
+        }
+        affectedTaskIds.add(approval.taskId);
+      }
+    });
+    for (const approvalId of interruptedApprovalIds) {
+      const pending = this.pendingApprovals.get(approvalId);
+      this.pendingApprovals.delete(approvalId);
+      pending?.resolve({
+        allow: false,
+        reason: 'The run was interrupted before the approval was resolved.',
+      });
+    }
+    for (const taskId of affectedTaskIds) this.emitChanged(this.requireTask(taskId));
+    return affectedTaskIds.size;
+  }
+
+  deleteSession(sessionId: string): void {
+    const pendingApprovals = this.repository.listPendingApprovalsForSession(sessionId);
+    this.repository.transaction(() => {
+      this.repository.deleteSessionDomainData(sessionId);
+    });
+    this.resolvePendingApprovals(pendingApprovals, 'The session was deleted.');
+  }
+
+  private cancelPendingApprovalsForSession(sessionId: string, reason: string): void {
+    const expiredApprovals = this.repository.transaction(() =>
+      this.expirePendingApprovalsForSession(sessionId, reason),
+    );
+    this.resolvePendingApprovals(expiredApprovals, reason);
+    for (const taskId of new Set(expiredApprovals.map(approval => approval.taskId))) {
+      const task = this.repository.getTask(taskId);
+      if (task) this.emitChanged(task);
+    }
+  }
+
+  private expirePendingApprovalsForSession(sessionId: string, reason: string): WorkbenchApproval[] {
+    const approvals = this.repository.listPendingApprovalsForSession(sessionId);
+    for (const approval of approvals) {
+      this.repository.updateApproval(approval.id, {
+        decision: WorkbenchApprovalDecision.Expired,
+        decisionSource: WorkbenchApprovalDecisionSource.Recovery,
+        result: { reason },
+      });
+      this.repository.appendRunEvent(approval.runId, WorkbenchRunEventType.ApprovalResolved, {
+        approvalId: approval.id,
+        approved: false,
+        expired: true,
+      });
+    }
+    return approvals;
+  }
+
+  private resolvePendingApprovals(approvals: WorkbenchApproval[], reason: string): void {
+    for (const approval of approvals) {
+      const pending = this.pendingApprovals.get(approval.id);
+      this.pendingApprovals.delete(approval.id);
+      pending?.resolve({ allow: false, reason });
+    }
+  }
+
+  private emitChanged(task: WorkbenchTask): void {
+    const event: WorkbenchTaskChangedEvent = { sessionId: task.sessionId, taskId: task.id };
+    this.emit('changed', event);
+  }
+
+  private requireTask(taskId: string): WorkbenchTask {
+    const task = this.repository.getTask(taskId);
+    if (!task) throw new Error(`Workbench task not found: ${taskId}`);
+    return task;
+  }
+
+  private requireRun(runId: string): WorkbenchRun {
+    const run = this.repository.getRun(runId);
+    if (!run) throw new Error(`Workbench run not found: ${runId}`);
+    return run;
+  }
+
+  private isRunActive(status: WorkbenchRun['status']): boolean {
+    return new Set<WorkbenchRun['status']>([
+      WorkbenchRunStatus.Queued,
+      WorkbenchRunStatus.Running,
+      WorkbenchRunStatus.WaitingApproval,
+      WorkbenchRunStatus.Verifying,
+    ]).has(status);
+  }
+
+  private getDuplicateApprovalReason(approval: WorkbenchApproval): string {
+    if (approval.effectStatus === WorkbenchApprovalEffectStatus.Succeeded) {
+      const persistedResult = approval.result ? JSON.stringify(approval.result) : '{}';
+      return `This side effect was already executed. Reuse the persisted result: ${persistedResult}`;
+    }
+    if (
+      approval.effectStatus === WorkbenchApprovalEffectStatus.Executing ||
+      approval.effectStatus === WorkbenchApprovalEffectStatus.NeedsReview
+    ) {
+      return 'The previous side effect has an uncertain outcome.';
+    }
+    if (approval.decision === WorkbenchApprovalDecision.Pending) {
+      return 'This side effect is already waiting for approval.';
+    }
+    return 'This side effect was already attempted and cannot be replayed in the same run.';
+  }
+
+  private toJsonObject(value: unknown): WorkbenchJsonObject {
+    const seen = new WeakSet<object>();
+    let remainingNodes = MAX_RESULT_NODES;
+    const normalize = (candidate: unknown, depth: number): unknown => {
+      if (candidate === null || typeof candidate === 'boolean') return candidate;
+      if (typeof candidate === 'string') {
+        return candidate.length <= MAX_RESULT_STRING_LENGTH
+          ? candidate
+          : `${candidate.slice(0, MAX_RESULT_STRING_LENGTH)}[Truncated]`;
+      }
+      if (typeof candidate === 'number') {
+        return Number.isFinite(candidate) ? candidate : String(candidate);
+      }
+      if (typeof candidate === 'bigint') return candidate.toString();
+      if (typeof candidate === 'undefined') return null;
+      if (typeof candidate === 'function' || typeof candidate === 'symbol') {
+        return String(candidate);
+      }
+      if (!candidate || typeof candidate !== 'object') return String(candidate);
+      if (remainingNodes <= 0) return '[Truncated]';
+      if (depth >= MAX_RESULT_DEPTH) return '[MaxDepth]';
+      if (seen.has(candidate)) return '[Circular]';
+      seen.add(candidate);
+      remainingNodes -= 1;
+
+      if (candidate instanceof Error) {
+        return {
+          name: candidate.name,
+          message: normalize(candidate.message, depth + 1),
+          stack: normalize(candidate.stack, depth + 1),
+        };
+      }
+      if (Array.isArray(candidate)) {
+        return candidate
+          .slice(0, MAX_RESULT_COLLECTION_ENTRIES)
+          .map(item => normalize(item, depth + 1));
+      }
+
+      const normalized: WorkbenchJsonObject = {};
+      for (const [key, child] of Object.entries(candidate).slice(
+        0,
+        MAX_RESULT_COLLECTION_ENTRIES,
+      )) {
+        try {
+          normalized[key] = normalize(child, depth + 1);
+        } catch {
+          normalized[key] = '[Unreadable]';
+        }
+      }
+      return normalized;
+    };
+
+    const normalized = normalize(value, 0);
+    const object =
+      normalized && typeof normalized === 'object' && !Array.isArray(normalized)
+        ? (normalized as WorkbenchJsonObject)
+        : { value: normalized };
+    const serialized = JSON.stringify(object);
+    if (serialized.length > MAX_RESULT_SERIALIZED_LENGTH) {
+      return {
+        truncated: true,
+        preview: serialized.slice(0, MAX_RESULT_SERIALIZED_LENGTH),
+      };
+    }
+    return object;
+  }
+}

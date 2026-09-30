@@ -1,0 +1,154 @@
+import { expect, test } from 'vitest';
+
+import { TodoSourceType, TodoStatus, TodoView, type Todo } from '../../../shared/todo';
+import {
+  buildTodoCreateInput,
+  countTodosByView,
+  fromDateInputValue,
+  parseTodoInput,
+  toDateInputValue,
+  validateTodoSchedule,
+} from './todoUtils';
+
+const now = new Date(2026, 8, 3, 10, 30, 0, 0);
+
+test('parses Chinese natural-language dates and importance', () => {
+  const parsed = parseTodoInput('明天提交重要报告', now);
+
+  expect(parsed.dueAt).toBe(new Date(2026, 8, 4, 23, 59, 59, 999).getTime());
+  expect(parsed.important).toBe(true);
+});
+
+test('checks day-after-tomorrow before the shorter English token', () => {
+  const parsed = parseTodoInput('finish this day after tomorrow', now);
+
+  expect(parsed.dueAt).toBe(new Date(2026, 8, 5, 23, 59, 59, 999).getTime());
+});
+
+test('resolves 下周X and next weekday to the following week, not today', () => {
+  // 2026-09-03 is a Thursday: the plain rule resolves 周四 to today, while
+  // 下周四 must land on Thursday of the following week.
+  expect(parseTodoInput('下周四交报告', now).dueAt).toBe(
+    new Date(2026, 8, 10, 23, 59, 59, 999).getTime(),
+  );
+  expect(parseTodoInput('下周日', now).dueAt).toBe(
+    new Date(2026, 8, 13, 23, 59, 59, 999).getTime(),
+  );
+  expect(parseTodoInput('下个周五', now).dueAt).toBe(
+    new Date(2026, 8, 11, 23, 59, 59, 999).getTime(),
+  );
+  expect(parseTodoInput('next thu', now).dueAt).toBe(
+    new Date(2026, 8, 10, 23, 59, 59, 999).getTime(),
+  );
+  // Without the prefix the next occurrence (today, for 周四) is kept.
+  expect(parseTodoInput('周四', now).dueAt).toBe(new Date(2026, 8, 3, 23, 59, 59, 999).getTime());
+});
+
+test('rejects invalid calendar dates instead of rolling them forward', () => {
+  expect(fromDateInputValue('2026-02-31')).toBeNull();
+});
+
+test('formats date inputs in the local timezone', () => {
+  const timestamp = new Date(2026, 8, 3, 12, 0, 0, 0).getTime();
+
+  expect(toDateInputValue(timestamp)).toBe('2026-09-03');
+});
+
+test('keeps calendar dates correct across daylight saving transitions', () => {
+  const originalTimezone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    const daylightSavingEnd = new Date(2026, 10, 1, 0, 30, 0, 0);
+
+    expect(parseTodoInput('tomorrow', daylightSavingEnd).dueAt).toBe(
+      new Date(2026, 10, 2, 23, 59, 59, 999).getTime(),
+    );
+    expect(parseTodoInput('mon', daylightSavingEnd).dueAt).toBe(
+      new Date(2026, 10, 2, 23, 59, 59, 999).getTime(),
+    );
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
+  }
+});
+
+test('creates tasks in the active custom list', () => {
+  expect(
+    buildTodoCreateInput(
+      'Review the release',
+      { dueAt: null, important: false },
+      TodoView.All,
+      'release-list',
+      '2026-09-03',
+    ),
+  ).toMatchObject({
+    title: 'Review the release',
+    listId: 'release-list',
+    myDayDate: null,
+  });
+});
+
+test('marks tasks created in the Important view as important', () => {
+  expect(
+    buildTodoCreateInput(
+      'Ship the release',
+      { dueAt: null, important: false },
+      TodoView.Important,
+      null,
+      '2026-09-03',
+    ),
+  ).toMatchObject({
+    title: 'Ship the release',
+    important: true,
+  });
+});
+
+test('validates due and reminder schedule rules', () => {
+  const now = new Date(2026, 8, 3, 10, 0, 0, 0).getTime();
+  const todayEnd = new Date(2026, 8, 3, 23, 59, 59, 999).getTime();
+  const yesterdayEnd = new Date(2026, 8, 2, 23, 59, 59, 999).getTime();
+  const tomorrowEnd = new Date(2026, 8, 4, 23, 59, 59, 999).getTime();
+  const laterReminder = new Date(2026, 8, 4, 12, 0, 0, 0).getTime();
+
+  expect(validateTodoSchedule(yesterdayEnd, null, now)).toBe('todoDueDateMustBeFuture');
+  expect(validateTodoSchedule(todayEnd, null, now)).toBeNull();
+  expect(validateTodoSchedule(tomorrowEnd, now - 1000, now)).toBe('todoReminderMustBeFuture');
+  expect(validateTodoSchedule(tomorrowEnd, tomorrowEnd + 1, now)).toBe('todoReminderMustBeforeDue');
+  expect(validateTodoSchedule(tomorrowEnd, laterReminder, now)).toBeNull();
+});
+
+test('includes completed tasks in contextual counts', () => {
+  const activeTodo = {
+    id: 'active',
+    title: 'Active task',
+    note: '',
+    status: TodoStatus.Active,
+    important: false,
+    dueAt: null,
+    remindAt: null,
+    listId: null,
+    listName: null,
+    myDayDate: null,
+    createdAt: 0,
+    updatedAt: 0,
+    completedAt: null,
+    sourceType: TodoSourceType.Manual,
+    sourceId: null,
+    steps: [],
+  } satisfies Todo;
+
+  const completedTodos = [
+    { ...activeTodo, id: 'completed-important', status: TodoStatus.Completed, important: true },
+    { ...activeTodo, id: 'completed-ordinary', status: TodoStatus.Completed },
+  ];
+  const activeImportant = { ...activeTodo, id: 'active-important', important: true };
+
+  expect(countTodosByView([activeTodo, activeImportant], completedTodos, '2026-09-03')).toEqual({
+    [TodoView.MyDay]: 0,
+    [TodoView.Important]: 2,
+    [TodoView.Planned]: 0,
+    [TodoView.All]: 2,
+    [TodoView.Completed]: 2,
+  });
+  expect(countTodosByView([], [completedTodos[0]!], '2026-09-03')[TodoView.Important]).toBe(1);
+});

@@ -1,0 +1,446 @@
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
+
+import { CoworkSessionMode, CoworkSessionSource } from '../../../shared/cowork/constants';
+import { coworkService } from '../../services/cowork';
+import { i18nService } from '../../services/i18n';
+import { localStore } from '../../services/store';
+import { RootState } from '../../store';
+import {
+  selectCoworkSessions,
+  selectCurrentSessionId,
+  selectStreamingSessionIds,
+  selectUnreadSessionIds,
+} from '../../store/selectors/coworkSelectors';
+import { WorkMode, type WorkMode as WorkModeType } from '../../store/workMode/constants';
+import type { CoworkSessionSummary } from '../../types/cowork';
+import { isScratchWorkspacePath } from '../../utils/path';
+import { resolveSessionDisplayTitle } from '../../utils/sessionTitle';
+import { AgentSidebarPageSize } from './constants';
+import { sortAgentSidebarTasks } from './sessionSort';
+import type {
+  AgentSidebarTaskNode,
+  WorkspaceSidebarNode,
+  WorkspaceSidebarPreferenceState,
+} from './types';
+import { deriveAgentSidebarIndicator } from './useAgentSidebarState';
+import {
+  isSessionOwnedByWorkspace,
+  mergeSessionSummaries,
+  mergeSessionsIntoWorkspacePreviews,
+} from './workspaceSessionPreviews';
+
+const WORKSPACE_SIDEBAR_STATE_KEY = 'workspaceSidebar.state';
+
+const modeMatches = (session: CoworkSessionSummary, workMode: WorkModeType) =>
+  workMode === WorkMode.Chat
+    ? session.mode === CoworkSessionMode.Chat
+    : session.mode !== CoworkSessionMode.Chat;
+
+const isScheduledSession = (session: CoworkSessionSummary): boolean =>
+  session.source === CoworkSessionSource.Scheduled;
+
+const sourcesForGroup = (scheduled: boolean) =>
+  scheduled
+    ? [CoworkSessionSource.Scheduled]
+    : [CoworkSessionSource.Manual, CoworkSessionSource.Im];
+
+const workspaceGroupKey = (workspaceId: string, scheduled: boolean): string =>
+  `${workspaceId}:${scheduled ? CoworkSessionSource.Scheduled : CoworkSessionSource.Manual}`;
+
+const toTaskNode = (
+  session: CoworkSessionSummary,
+  currentSessionId: string | null,
+  unread: Set<string>,
+  streamingSessionIds: ReadonlySet<string>,
+  language: 'zh' | 'en',
+): AgentSidebarTaskNode => ({
+  id: session.id,
+  agentId: session.agentId?.trim() || 'main',
+  workspaceId: session.workspaceId,
+  title: resolveSessionDisplayTitle(session, language),
+  status: session.status,
+  pinned: session.pinned,
+  pinOrder: session.pinOrder ?? null,
+  updatedAt: session.updatedAt,
+  createdAt: session.createdAt,
+  indicator: deriveAgentSidebarIndicator(session, unread, streamingSessionIds),
+  isSelected: session.id === currentSessionId,
+});
+
+export const useWorkspaceSidebarState = (
+  workMode: WorkModeType = WorkMode.Work,
+  searchQuery = '',
+  searchCorpus: CoworkSessionSummary[] = [],
+) => {
+  const workspaces = useSelector((state: RootState) => state.workspace.workspaces);
+  const currentSessionId = useSelector(selectCurrentSessionId);
+  const sessions = useSelector(selectCoworkSessions);
+  const streamingSessionIds = useSelector(selectStreamingSessionIds);
+  const unreadSessionIds = useDeferredValue(useSelector(selectUnreadSessionIds));
+  const unreadSet = useMemo(() => new Set(unreadSessionIds), [unreadSessionIds]);
+  const streamingSessionIdSet = useMemo(() => new Set(streamingSessionIds), [streamingSessionIds]);
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<string[]>([]);
+  const [scheduledExpandedIds, setScheduledExpandedIds] = useState<string[]>([]);
+  const [scheduledExpandedTaskIds, setScheduledExpandedTaskIds] = useState<string[]>([]);
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const [previews, setPreviews] = useState<Record<string, CoworkSessionSummary[]>>({});
+  const [hasMore, setHasMore] = useState<Record<string, boolean>>({});
+  const [loadingKeys, setLoadingKeys] = useState<string[]>([]);
+  const [failedKeys, setFailedKeys] = useState<string[]>([]);
+  // Titles carry a localized prefix, so a runtime language switch must rebuild
+  // the nodes instead of leaving the previous language's prefix on screen.
+  const [language, setLanguage] = useState(i18nService.getLanguage());
+  useEffect(() => i18nService.subscribe(() => setLanguage(i18nService.getLanguage())), []);
+  const loadingKeysRef = useRef(new Set<string>());
+  const loadedGroupsRef = useRef(new Set<string>());
+  const hasStoredPreferenceRef = useRef(false);
+
+  const setLoading = useCallback((key: string, loading: boolean) => {
+    setLoadingKeys(current =>
+      loading
+        ? current.includes(key)
+          ? current
+          : [...current, key]
+        : current.filter(value => value !== key),
+    );
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void localStore
+      .getItem<WorkspaceSidebarPreferenceState>(WORKSPACE_SIDEBAR_STATE_KEY)
+      .then(state => {
+        if (cancelled) return;
+        hasStoredPreferenceRef.current = state !== null && state !== undefined;
+        setExpandedIds(state?.expandedWorkspaceIds ?? []);
+        setExpandedTaskIds(state?.expandedTaskListWorkspaceIds ?? []);
+        setScheduledExpandedIds(state?.scheduledExpandedWorkspaceIds ?? []);
+        setScheduledExpandedTaskIds(state?.scheduledExpandedTaskListWorkspaceIds ?? []);
+        setPreferencesHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const autoExpandInitializedRef = useRef(false);
+
+  useEffect(() => {
+    // Auto-expand the first workspace on initial mount only.
+    // After the user has manually collapsed all workspaces, do NOT
+    // re-expand — doing so causes a flicker / re-expand animation
+    // because toggleExpanded removes the last ID first, then this
+    // effect immediately re-adds it.
+    if (
+      !preferencesHydrated ||
+      hasStoredPreferenceRef.current ||
+      expandedIds.length ||
+      !workspaces.length ||
+      autoExpandInitializedRef.current
+    ) {
+      return;
+    }
+    autoExpandInitializedRef.current = true;
+    setExpandedIds([workspaces[0].id]);
+  }, [expandedIds.length, preferencesHydrated, workspaces]);
+
+  useEffect(() => {
+    if (!preferencesHydrated) return;
+    void localStore.setItem(WORKSPACE_SIDEBAR_STATE_KEY, {
+      expandedWorkspaceIds: expandedIds,
+      expandedTaskListWorkspaceIds: expandedTaskIds,
+      scheduledExpandedWorkspaceIds: scheduledExpandedIds,
+      scheduledExpandedTaskListWorkspaceIds: scheduledExpandedTaskIds,
+    } satisfies WorkspaceSidebarPreferenceState);
+  }, [
+    expandedIds,
+    expandedTaskIds,
+    preferencesHydrated,
+    scheduledExpandedIds,
+    scheduledExpandedTaskIds,
+  ]);
+
+  const loadWorkspaceTasks = useCallback(
+    async (workspaceId: string, scheduled: boolean, offset = 0, replace = offset === 0) => {
+      const groupKey = workspaceGroupKey(workspaceId, scheduled);
+      const requestKey = `${groupKey}:${offset}`;
+      if (loadingKeysRef.current.has(requestKey)) return;
+      loadingKeysRef.current.add(requestKey);
+      setLoading(groupKey, true);
+      setFailedKeys(current => current.filter(key => key !== groupKey));
+      try {
+        const result = await coworkService.listSessionsForWorkspacePreview(
+          workspaceId,
+          AgentSidebarPageSize.Preview,
+          offset,
+          sourcesForGroup(scheduled),
+        );
+        if (!result.success) {
+          setFailedKeys(current => (current.includes(groupKey) ? current : [...current, groupKey]));
+          return;
+        }
+        setPreviews(current => ({
+          ...current,
+          [workspaceId]: replace
+            ? [
+                ...(current[workspaceId] ?? []).filter(
+                  session => isScheduledSession(session) !== scheduled,
+                ),
+                ...(result.sessions ?? []),
+              ]
+            : mergeSessionSummaries(current[workspaceId] ?? [], result.sessions ?? []),
+        }));
+        setHasMore(current => ({ ...current, [groupKey]: result.hasMore ?? false }));
+      } finally {
+        loadingKeysRef.current.delete(requestKey);
+        setLoading(groupKey, false);
+      }
+    },
+    [setLoading],
+  );
+
+  useEffect(() => {
+    workspaces.forEach(workspace => {
+      for (const scheduled of [false, true]) {
+        const groupKey = workspaceGroupKey(workspace.id, scheduled);
+        if (loadedGroupsRef.current.has(groupKey)) continue;
+        loadedGroupsRef.current.add(groupKey);
+        void loadWorkspaceTasks(workspace.id, scheduled);
+      }
+    });
+  }, [loadWorkspaceTasks, workspaces]);
+
+  useEffect(() => {
+    setPreviews(current =>
+      mergeSessionsIntoWorkspacePreviews(
+        current,
+        sessions.filter(session => modeMatches(session, workMode)),
+      ),
+    );
+  }, [sessions, workMode]);
+
+  const toggleExpanded = useCallback((workspaceId: string) => {
+    setExpandedIds(current =>
+      current.includes(workspaceId)
+        ? current.filter(id => id !== workspaceId)
+        : [...current, workspaceId],
+    );
+  }, []);
+  const collapseTasks = useCallback(
+    (workspaceId: string) =>
+      setExpandedTaskIds(current => current.filter(id => id !== workspaceId)),
+    [],
+  );
+  const loadMoreTasks = useCallback(
+    async (workspaceId: string) => {
+      setExpandedTaskIds(current =>
+        current.includes(workspaceId) ? current : [...current, workspaceId],
+      );
+      const groupKey = workspaceGroupKey(workspaceId, false);
+      const offset = (previews[workspaceId] ?? []).filter(
+        session => !isScheduledSession(session),
+      ).length;
+      if (!hasMore[groupKey]) return;
+      await loadWorkspaceTasks(workspaceId, false, offset, false);
+    },
+    [hasMore, loadWorkspaceTasks, previews],
+  );
+  const loadMoreScheduledTasks = useCallback(
+    async (workspaceId: string) => {
+      setScheduledExpandedTaskIds(current =>
+        current.includes(workspaceId) ? current : [...current, workspaceId],
+      );
+      const groupKey = workspaceGroupKey(workspaceId, true);
+      const offset = (previews[workspaceId] ?? []).filter(isScheduledSession).length;
+      if (!hasMore[groupKey]) return;
+      await loadWorkspaceTasks(workspaceId, true, offset, false);
+    },
+    [hasMore, loadWorkspaceTasks, previews],
+  );
+  const retryLoadTasks = useCallback(
+    (workspaceId: string) => loadWorkspaceTasks(workspaceId, false, 0, true),
+    [loadWorkspaceTasks],
+  );
+  const retryLoadScheduledTasks = useCallback(
+    (workspaceId: string) => loadWorkspaceTasks(workspaceId, true, 0, true),
+    [loadWorkspaceTasks],
+  );
+  const patchTaskPreview = useCallback(
+    (
+      sessionId: string,
+      updates: Partial<Pick<CoworkSessionSummary, 'title' | 'pinned' | 'pinOrder' | 'status'>>,
+    ) => {
+      setPreviews(current =>
+        Object.fromEntries(
+          Object.entries(current).map(([id, tasks]) => [
+            id,
+            tasks.map(task =>
+              task.id === sessionId ? { ...task, ...updates, updatedAt: Date.now() } : task,
+            ),
+          ]),
+        ),
+      );
+    },
+    [],
+  );
+  const removeTaskPreview = useCallback((sessionId: string) => {
+    setPreviews(current =>
+      Object.fromEntries(
+        Object.entries(current).map(([id, tasks]) => [
+          id,
+          tasks.filter(task => task.id !== sessionId),
+        ]),
+      ),
+    );
+  }, []);
+
+  const buildWorkspaceNodes = useCallback(
+    (scheduled: boolean, expandedWorkspaceIds: string[], expandedTaskListIds: string[]) =>
+      workspaces
+        .filter(workspace => !workspace.isHidden)
+        .map(workspace => {
+          const groupKey = workspaceGroupKey(workspace.id, scheduled);
+          const filtered = sortAgentSidebarTasks(
+            (previews[workspace.id] ?? []).filter(
+              session =>
+                isSessionOwnedByWorkspace(session, workspace.id) &&
+                modeMatches(session, workMode) &&
+                isScheduledSession(session) === scheduled,
+            ),
+          );
+          const expanded = expandedWorkspaceIds.includes(workspace.id);
+          const taskExpanded = expandedTaskListIds.includes(workspace.id);
+          const visible = taskExpanded ? filtered : filtered.slice(0, AgentSidebarPageSize.Preview);
+          return {
+            id: workspace.id,
+            // The scratch workspace (「不使用文件夹」) displays as 默认对话 instead
+            // of its folder basename.
+            name: isScratchWorkspacePath(workspace.path)
+              ? i18nService.t('defaultConversation')
+              : workspace.name,
+            path: workspace.path,
+            pinned: workspace.pinned,
+            isExpanded: expanded,
+            isTaskListExpanded: taskExpanded,
+            canExpandTasks:
+              !taskExpanded &&
+              ((hasMore[groupKey] ?? false) || filtered.length > AgentSidebarPageSize.Preview),
+            canCollapseTasks: taskExpanded && filtered.length > AgentSidebarPageSize.Preview,
+            isLoadingTasks: loadingKeys.includes(groupKey),
+            hasLoadError: failedKeys.includes(groupKey),
+            tasks: visible.map(session =>
+              toTaskNode(session, currentSessionId, unreadSet, streamingSessionIdSet, language),
+            ),
+          } satisfies WorkspaceSidebarNode;
+        }),
+    [
+      currentSessionId,
+      failedKeys,
+      hasMore,
+      language,
+      loadingKeys,
+      previews,
+      streamingSessionIdSet,
+      unreadSet,
+      workMode,
+      workspaces,
+    ],
+  );
+
+  const workspaceNodes = useMemo<WorkspaceSidebarNode[]>(
+    () => buildWorkspaceNodes(false, expandedIds, expandedTaskIds),
+    [buildWorkspaceNodes, expandedIds, expandedTaskIds],
+  );
+
+  const scheduledWorkspaceNodes = useMemo<WorkspaceSidebarNode[]>(
+    () =>
+      buildWorkspaceNodes(true, scheduledExpandedIds, scheduledExpandedTaskIds).filter(
+        workspace => workspace.tasks.length > 0,
+      ),
+    [buildWorkspaceNodes, scheduledExpandedIds, scheduledExpandedTaskIds],
+  );
+
+  const searching = searchQuery.trim().length > 0;
+  const searchSource = useMemo<Record<string, CoworkSessionSummary[]>>(() => {
+    if (!searching) return {};
+    const byWorkspace = new Map<string, CoworkSessionSummary[]>();
+    for (const session of searchCorpus) {
+      if (!modeMatches(session, workMode)) continue;
+      const key = session.workspaceId ?? '__none__';
+      const list = byWorkspace.get(key);
+      if (list) list.push(session);
+      else byWorkspace.set(key, [session]);
+    }
+    return Object.fromEntries(byWorkspace);
+  }, [searchCorpus, searching, workMode]);
+
+  const searchedWorkspaceNodes = useMemo(() => {
+    if (!searching) return { workspaceNodes, scheduledWorkspaceNodes };
+    const query = searchQuery.trim().toLowerCase();
+    const buildSearchNodes = (nodes: WorkspaceSidebarNode[], scheduled: boolean) =>
+      nodes.flatMap(node => {
+        const tasks = sortAgentSidebarTasks(
+          (searchSource[node.id] ?? []).filter(
+            session =>
+              isScheduledSession(session) === scheduled &&
+              resolveSessionDisplayTitle(session, language).toLowerCase().includes(query),
+          ),
+        );
+        if (tasks.length === 0) return [];
+        return [
+          {
+            ...node,
+            isExpanded: true,
+            isTaskListExpanded: true,
+            canExpandTasks: false,
+            canCollapseTasks: false,
+            tasks: tasks.map(session =>
+              toTaskNode(session, currentSessionId, unreadSet, streamingSessionIdSet, language),
+            ),
+          },
+        ];
+      });
+    return {
+      workspaceNodes: buildSearchNodes(workspaceNodes, false),
+      scheduledWorkspaceNodes: buildSearchNodes(scheduledWorkspaceNodes, true),
+    };
+  }, [
+    currentSessionId,
+    language,
+    searchQuery,
+    searchSource,
+    searching,
+    streamingSessionIdSet,
+    unreadSet,
+    workspaceNodes,
+    scheduledWorkspaceNodes,
+  ]);
+
+  const collapseScheduledTasks = useCallback((workspaceId: string) => {
+    setScheduledExpandedTaskIds(current => current.filter(id => id !== workspaceId));
+  }, []);
+  const toggleScheduledExpanded = useCallback((workspaceId: string) => {
+    setScheduledExpandedIds(current =>
+      current.includes(workspaceId)
+        ? current.filter(id => id !== workspaceId)
+        : [...current, workspaceId],
+    );
+  }, []);
+
+  return {
+    workspaceNodes: searchedWorkspaceNodes.workspaceNodes,
+    scheduledWorkspaceNodes: searchedWorkspaceNodes.scheduledWorkspaceNodes,
+    patchTaskPreview,
+    removeTaskPreview,
+    retryLoadTasks,
+    retryLoadScheduledTasks,
+    loadMoreTasks,
+    loadMoreScheduledTasks,
+    collapseTasks,
+    collapseScheduledTasks,
+    toggleExpanded,
+    toggleScheduledExpanded,
+  };
+};

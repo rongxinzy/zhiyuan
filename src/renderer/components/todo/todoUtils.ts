@@ -1,0 +1,217 @@
+import { TodoStatus, TodoView, type Todo, type TodoCreateInput } from '../../../shared/todo';
+
+const startOfDay = (date: Date): Date => {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+};
+
+const endOfDay = (date: Date): number => {
+  const result = new Date(date);
+  result.setHours(23, 59, 59, 999);
+  return result.getTime();
+};
+
+export const formatDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const todayDateKey = (): string => formatDateKey(new Date());
+
+export const toDateInputValue = (timestamp: number | null): string => {
+  if (timestamp === null) return '';
+  return formatDateKey(new Date(timestamp));
+};
+
+export const toDateTimeInputValue = (timestamp: number | null): string => {
+  if (timestamp === null) return '';
+  const date = new Date(timestamp);
+  const dateKey = formatDateKey(date);
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${dateKey}T${hours}:${minutes}`;
+};
+
+export const fromDateInputValue = (value: string): number | null => {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  if (![year, month, day].every(Number.isInteger)) return null;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return endOfDay(date);
+};
+
+export const fromDateTimeInputValue = (value: string): number | null => {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+export const formatTodoDate = (timestamp: number, language: 'zh' | 'en'): string =>
+  new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(timestamp));
+
+export const formatTodoDateTime = (timestamp: number, language: 'zh' | 'en'): string =>
+  new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+
+export const isTodoOverdue = (todo: Todo, now = Date.now()): boolean =>
+  todo.status === TodoStatus.Active && todo.dueAt !== null && todo.dueAt < now;
+
+export interface ParsedTodoInput {
+  dueAt: number | null;
+  important: boolean;
+}
+
+const dateForWeekday = (now: Date, weekday: number): Date => {
+  const date = startOfDay(now);
+  const offset = (weekday - date.getDay() + 7) % 7;
+  date.setDate(date.getDate() + offset);
+  return date;
+};
+
+// 下周X means the weekday in the week after the current one (Monday-based);
+// the plain "next occurrence" rule would resolve 下周一 to today when run on a
+// Monday.
+const dateForNextWeekWeekday = (now: Date, weekday: number): Date => {
+  const date = startOfDay(now);
+  const daysToNextMonday = 7 - ((date.getDay() + 6) % 7);
+  date.setDate(date.getDate() + daysToNextMonday + ((weekday + 6) % 7));
+  return date;
+};
+
+const dateAfterDays = (now: Date, days: number): Date => {
+  const date = new Date(now);
+  date.setDate(date.getDate() + days);
+  return date;
+};
+
+export const parseTodoInput = (value: string, now = new Date()): ParsedTodoInput => {
+  const normalized = value.toLocaleLowerCase();
+  let dueAt: number | null = null;
+  if (/今天/.test(normalized) || /\btoday\b/.test(normalized)) {
+    dueAt = endOfDay(now);
+  } else if (/后天/.test(normalized) || /\bday after tomorrow\b/.test(normalized)) {
+    dueAt = endOfDay(dateAfterDays(now, 2));
+  } else if (/明天/.test(normalized) || /\btomorrow\b/.test(normalized)) {
+    dueAt = endOfDay(dateAfterDays(now, 1));
+  } else {
+    const weekdayMatch = normalized.match(
+      /(下个|下)?(?:周|星期)(日|天|一|二|三|四|五|六)|\b(next\s+)?(mon|tue|wed|thu|fri|sat|sun)\b/,
+    );
+    if (weekdayMatch) {
+      const weekdayName = weekdayMatch[2] ?? weekdayMatch[4];
+      const nextWeek = Boolean(weekdayMatch[1] ?? weekdayMatch[3]);
+      const weekday = weekdayName
+        ? (
+            {
+              日: 0,
+              天: 0,
+              一: 1,
+              二: 2,
+              三: 3,
+              四: 4,
+              五: 5,
+              六: 6,
+              mon: 1,
+              tue: 2,
+              wed: 3,
+              thu: 4,
+              fri: 5,
+              sat: 6,
+              sun: 0,
+            } as Record<string, number>
+          )[weekdayName]
+        : undefined;
+      if (weekday !== undefined) {
+        dueAt = endOfDay(
+          nextWeek ? dateForNextWeekWeekday(now, weekday) : dateForWeekday(now, weekday),
+        );
+      }
+    }
+  }
+
+  return {
+    dueAt,
+    important: /重要|很重要|\bimportant\b/.test(normalized),
+  };
+};
+
+export const buildTodoCreateInput = (
+  title: string,
+  parsed: ParsedTodoInput,
+  activeView: TodoView,
+  activeListId: string | null,
+  referenceDate: string,
+): TodoCreateInput => ({
+  title,
+  dueAt: parsed.dueAt,
+  // 在「重要」视图底部新建时默认标记为重要
+  important: parsed.important || activeView === TodoView.Important,
+  listId: activeListId,
+  myDayDate: activeView === TodoView.MyDay ? referenceDate : null,
+});
+
+/** 校验截止日期 / 提醒时间；返回 i18n key，通过时返回 null。截止日期允许当天。 */
+export const validateTodoSchedule = (
+  dueAt: number | null,
+  remindAt: number | null,
+  now = Date.now(),
+): string | null => {
+  const todayKey = formatDateKey(new Date(now));
+  if (dueAt !== null) {
+    const dueKey = formatDateKey(new Date(dueAt));
+    if (dueKey < todayKey) return 'todoDueDateMustBeFuture';
+  }
+  if (remindAt !== null) {
+    if (remindAt <= now) return 'todoReminderMustBeFuture';
+    if (dueAt !== null && remindAt >= dueAt) return 'todoReminderMustBeforeDue';
+  }
+  return null;
+};
+
+/** 原生 date / datetime-local 的 min 值（本地时区） */
+export const toDateInputMinValue = (now = new Date()): string => formatDateKey(now);
+
+export const toDateTimeInputMinValue = (now = new Date()): string => {
+  const nextMinute = new Date(now);
+  nextMinute.setSeconds(0, 0);
+  nextMinute.setMinutes(nextMinute.getMinutes() + 1);
+  const dateKey = formatDateKey(nextMinute);
+  const hours = String(nextMinute.getHours()).padStart(2, '0');
+  const minutes = String(nextMinute.getMinutes()).padStart(2, '0');
+  return `${dateKey}T${hours}:${minutes}`;
+};
+
+/** 提醒时间的上限：有截止日期时取当天 23:59 */
+export const toDateTimeInputMaxValue = (dueAt: number | null): string | undefined => {
+  if (dueAt === null) return undefined;
+  const date = new Date(dueAt);
+  return `${formatDateKey(date)}T23:59`;
+};
+
+export const countTodosByView = (
+  activeTodos: Todo[],
+  completedTodos: Todo[],
+  referenceDate: string,
+): Record<TodoView, number> => ({
+  [TodoView.MyDay]: activeTodos.filter(todo => todo.myDayDate === referenceDate).length,
+  [TodoView.Important]:
+    activeTodos.filter(todo => todo.important).length +
+    completedTodos.filter(todo => todo.important).length,
+  [TodoView.Planned]: activeTodos.filter(todo => todo.dueAt !== null || todo.remindAt !== null)
+    .length,
+  [TodoView.All]: activeTodos.length,
+  [TodoView.Completed]: completedTodos.length,
+});

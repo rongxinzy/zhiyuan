@@ -1,0 +1,535 @@
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+
+import { ACP_AUTH_REQUIRED_CODE, AcpErrorCode, AcpRequestError } from './protocol';
+import { CodingErrorDetailMessage, CodingErrorMessage } from '../../../shared/codingAgent';
+import { AcpRequestError as AcpResponseError } from './requestError';
+import { windowsBatchArguments } from './windowsBatchLaunch';
+import {
+  isInteractiveAuthenticationPrompt,
+  passiveAgentEnvironment,
+} from './passiveAuthentication';
+
+const ACP_REQUEST_TIMEOUT_MS = 5_000;
+const MAX_STDOUT_LINE_BYTES = 10 * 1024 * 1024; // 10 MB — session load replays can exceed 1 MB
+const MAX_RESTART_ATTEMPTS = 2;
+const RESTART_DELAY_MS = 250;
+/** Grace window for a killed agent process to exit before dispose() returns. */
+const DISPOSE_EXIT_TIMEOUT_MS = 2_000;
+const MAX_STDERR_CONTEXT_BYTES = 16 * 1024;
+
+type ProcessTreeChild = Pick<ChildProcessWithoutNullStreams, 'pid' | 'kill'>;
+
+interface ProcessTreeTerminationOptions {
+  platform?: NodeJS.Platform;
+  terminateWindowsTree?: (pid: number) => Promise<void>;
+}
+
+const terminateWindowsTree = async (pid: number): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    execFile('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, error =>
+      error ? reject(error) : resolve(),
+    );
+  });
+};
+
+const terminateChild = (child: ProcessTreeChild): void => {
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    // The process may have exited between the PID check and the signal.
+  }
+};
+
+export const terminateProcessTree = async (
+  child: ProcessTreeChild,
+  options: ProcessTreeTerminationOptions = {},
+): Promise<void> => {
+  const pid = child.pid;
+  if (!pid) return;
+
+  if ((options.platform ?? process.platform) === 'win32') {
+    try {
+      await (options.terminateWindowsTree ?? terminateWindowsTree)(pid);
+    } catch {
+      terminateChild(child);
+    }
+    return;
+  }
+
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    terminateChild(child);
+  }
+};
+
+export interface AcpConnectionLaunchOptions {
+  executable: string;
+  args: string[];
+  cwd: string;
+  environment: Record<string, string | undefined>;
+}
+
+type PendingRequest = {
+  method: string;
+  startedAt: number;
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout> | null;
+  /** Watchdog budget in ms; null when the request opted out of a timeout. */
+  watchdogMs: number | null;
+  /** Budget left while the watchdog is held; unused while it is armed. */
+  watchdogRemainingMs: number;
+  /** Wall clock the armed watchdog counts from. */
+  watchdogArmedAt: number;
+  /** Ceiling no progress or hold may extend; null when the request has none. */
+  absoluteTimeout: ReturnType<typeof setTimeout> | null;
+};
+
+type JsonRpcRequestId = number | string;
+
+type RequestHandler = (
+  method: string,
+  params: Record<string, unknown>,
+) => Promise<Record<string, unknown>>;
+
+/**
+ * Owns one ACP stdio process. It deliberately treats stdout as newline-delimited
+ * JSON-RPC and keeps stderr diagnostic-only, so accidental diagnostic output can
+ * never become protocol input.
+ */
+export class AcpConnectionSupervisor {
+  private child: ChildProcessWithoutNullStreams | null = null;
+  private stdoutBuffer = '';
+  private requestId = 0;
+  private readonly pending = new Map<JsonRpcRequestId, PendingRequest>();
+  private notificationHandler: ((method: string, params: Record<string, unknown>) => void) | null =
+    null;
+  private requestHandler: RequestHandler | null = null;
+  private launchOptions: AcpConnectionLaunchOptions | null = null;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartAttempts = 0;
+  private disposed = false;
+  private connectionGeneration = 0;
+  private stderrContext = '';
+  private watchdogHoldCount = 0;
+  private authenticationFailure: Error | null = null;
+  private authenticationTermination: Promise<void> | null = null;
+
+  get generation(): number {
+    return this.connectionGeneration;
+  }
+
+  get processId(): number | undefined {
+    return this.child?.pid;
+  }
+
+  onNotification(handler: (method: string, params: Record<string, unknown>) => void): void {
+    this.notificationHandler = handler;
+  }
+  onRequest(handler: RequestHandler): void {
+    this.requestHandler = handler;
+  }
+
+  isRunning(): boolean {
+    return this.child?.exitCode === null && this.child.stdin.writable;
+  }
+
+  async start(options: AcpConnectionLaunchOptions): Promise<void> {
+    await this.authenticationTermination;
+    this.authenticationTermination = null;
+    this.disposed = false;
+    this.authenticationFailure = null;
+    this.launchOptions = {
+      ...options,
+      args: [...options.args],
+      environment: { ...options.environment },
+    };
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    if (this.child && this.child.exitCode === null && this.child.signalCode === null) {
+      // A just-exited child's 'exit' event may still be queued; give the event
+      // loop a turn before deciding the process is alive.
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    if (
+      this.child &&
+      (this.child.exitCode !== null ||
+        this.child.signalCode !== null ||
+        this.child.killed ||
+        !this.child.stdin.writable)
+    ) {
+      const staleChild = this.child;
+      this.child = null;
+      await terminateProcessTree(staleChild);
+    }
+    if (this.child) return;
+    this.restartAttempts = 0;
+    await this.startProcess(this.launchOptions);
+  }
+
+  private async startProcess(options: AcpConnectionLaunchOptions): Promise<void> {
+    this.stdoutBuffer = '';
+    this.stderrContext = '';
+    const env = Object.fromEntries(
+      Object.entries(passiveAgentEnvironment(options.environment)).filter(
+        (entry): entry is [string, string] => Boolean(entry[1]),
+      ),
+    );
+    const isWindowsBatch =
+      process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(options.executable);
+    const child = spawn(
+      isWindowsBatch ? process.env.ComSpec || 'cmd.exe' : options.executable,
+      isWindowsBatch ? windowsBatchArguments(options.executable, options.args) : options.args,
+      {
+        cwd: options.cwd,
+        env,
+        shell: false,
+        // Windows tree cleanup uses taskkill; detaching allocates a visible
+        // console for CLI agents. Unix still needs a separate process group.
+        detached: process.platform !== 'win32',
+        windowsHide: true,
+        windowsVerbatimArguments: isWindowsBatch,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
+    this.child = child;
+    this.connectionGeneration += 1;
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', chunk => {
+      if (this.child !== child) return;
+      if (this.rejectInteractiveAuthentication(`${this.stdoutBuffer}${String(chunk)}`)) return;
+      this.consumeStdout(String(chunk));
+    });
+    child.stderr.on('data', chunk => {
+      if (this.child !== child) return;
+      const text = String(chunk);
+      this.stderrContext = `${this.stderrContext}${text}`.slice(-MAX_STDERR_CONTEXT_BYTES);
+      if (this.rejectInteractiveAuthentication(this.stderrContext)) return;
+      console.debug('[AcpConnection] agent stderr:', text);
+    });
+    // An agent that exits mid-write rejects the pending write asynchronously;
+    // without a listener that becomes an unhandled stream error.
+    child.stdin.on('error', error => {
+      if (this.child !== child) return;
+      console.warn('[AcpConnection] agent stdin closed unexpectedly:', error);
+    });
+    child.once('exit', (code, signal) => {
+      if (this.child !== child) return;
+      this.child = null;
+      this.failAll(
+        new Error(`${CodingErrorDetailMessage.AcpAgentExited} (${code ?? signal ?? 'unknown'}).`),
+      );
+      void terminateProcessTree(child).finally(() => this.scheduleRestart());
+    });
+    child.once('error', error => {
+      if (this.child !== child) return;
+      this.child = null;
+      this.failAll(error);
+      void terminateProcessTree(child).finally(() => this.scheduleRestart());
+    });
+  }
+
+  async request<T>(
+    method: string,
+    params: Record<string, unknown>,
+    options: { timeoutMs?: number | null; absoluteTimeoutMs?: number | null } = {},
+  ): Promise<T> {
+    if (!this.child?.stdin.writable)
+      throw this.authenticationFailure ?? new Error(CodingErrorMessage.AcpConnectionNotRunning);
+    const id = ++this.requestId;
+    const startedAt = Date.now();
+    console.debug(`[AcpConnection] sent request ${method} (${id})`);
+    const response = new Promise<T>((resolve, reject) => {
+      const timeoutMs =
+        options.timeoutMs === undefined ? ACP_REQUEST_TIMEOUT_MS : options.timeoutMs;
+      const absoluteTimeoutMs = options.absoluteTimeoutMs ?? null;
+      const pending: PendingRequest = {
+        method,
+        startedAt,
+        resolve: value => resolve(value as T),
+        reject,
+        timeout: null,
+        watchdogMs: timeoutMs,
+        watchdogRemainingMs: timeoutMs ?? 0,
+        watchdogArmedAt: startedAt,
+        absoluteTimeout: null,
+      };
+      this.pending.set(id, pending);
+      if (absoluteTimeoutMs !== null) {
+        pending.absoluteTimeout = setTimeout(() => {
+          pending.absoluteTimeout = null;
+          if (pending.timeout) clearTimeout(pending.timeout);
+          this.pending.delete(id);
+          console.warn(
+            `[AcpConnection] request exceeded the maximum duration: ${method} (${id}) after ${Date.now() - startedAt} ms`,
+          );
+          reject(new Error(`ACP request timed out: ${method} after the maximum turn duration.`));
+        }, absoluteTimeoutMs);
+      }
+      // A request created while the watchdog is held must not start its clock
+      // either, otherwise approval wait time leaks back into the budget.
+      if (timeoutMs !== null && this.watchdogHoldCount === 0) this.armWatchdog(id, pending);
+    });
+    this.writeLine(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`, method);
+    return await response;
+  }
+
+  /**
+   * Stops the watchdog clock of every in-flight request. Tool approvals wait on
+   * the user for an unbounded time, and that think time must not be charged
+   * against the budget that protects a turn from a hung agent.
+   */
+  holdRequestTimeouts(): void {
+    this.watchdogHoldCount += 1;
+    if (this.watchdogHoldCount > 1) return;
+    const now = Date.now();
+    for (const pending of this.pending.values()) {
+      if (!pending.timeout) continue;
+      clearTimeout(pending.timeout);
+      pending.timeout = null;
+      pending.watchdogRemainingMs = Math.max(
+        0,
+        pending.watchdogRemainingMs - (now - pending.watchdogArmedAt),
+      );
+    }
+  }
+
+  /**
+   * Restarts the watchdog budget of in-flight requests for one method. Agents
+   * report progress through notifications, so a turn that keeps working must
+   * never be killed for taking long; only silence is a hang. A request created
+   * while held keeps the renewed budget for its release.
+   */
+  touchRequestTimeouts(method: string): void {
+    for (const [id, pending] of this.pending) {
+      if (pending.method !== method || pending.watchdogMs === null) continue;
+      if (pending.timeout) clearTimeout(pending.timeout);
+      pending.timeout = null;
+      pending.watchdogRemainingMs = pending.watchdogMs;
+      if (this.watchdogHoldCount === 0) this.armWatchdog(id, pending);
+    }
+  }
+
+  /** Resumes the watchdog clock stopped by {@link holdRequestTimeouts}. */
+  releaseRequestTimeouts(): void {
+    if (this.watchdogHoldCount === 0) return;
+    this.watchdogHoldCount -= 1;
+    if (this.watchdogHoldCount > 0) return;
+    for (const [id, pending] of this.pending) {
+      if (pending.timeout || pending.watchdogMs === null) continue;
+      this.armWatchdog(id, pending);
+    }
+  }
+
+  notify(method: string, params: Record<string, unknown>): void {
+    if (!this.child?.stdin.writable) throw new Error(CodingErrorMessage.AcpConnectionNotRunning);
+    this.writeLine(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`, method);
+  }
+
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    this.launchOptions = null;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    const child = this.child;
+    this.child = null;
+    this.failAll(new Error(CodingErrorMessage.AcpAgentConnectionDisposed));
+    if (!child) {
+      await this.authenticationTermination;
+      this.authenticationTermination = null;
+      return;
+    }
+    await terminateProcessTree(child);
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    // Wait for the process to actually exit: on Windows the agent keeps its
+    // cwd (the workspace root) locked until it is gone.
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, DISPOSE_EXIT_TIMEOUT_MS);
+      child.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  private consumeStdout(chunk: string): void {
+    this.stdoutBuffer += chunk;
+    if (Buffer.byteLength(this.stdoutBuffer) > MAX_STDOUT_LINE_BYTES) {
+      this.failAll(new Error(CodingErrorMessage.AcpOversizedMessage));
+      void this.dispose();
+      return;
+    }
+    let newline = this.stdoutBuffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = this.stdoutBuffer.slice(0, newline).trim();
+      this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
+      if (line) this.consumeMessage(line);
+      newline = this.stdoutBuffer.indexOf('\n');
+    }
+  }
+
+  private consumeMessage(line: string): void {
+    // Gemini can prefix ACP output with terminal screen controls.
+    const protocolLine = line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').trim();
+    if (!protocolLine) return;
+    try {
+      const message = JSON.parse(protocolLine) as {
+        id?: unknown;
+        method?: unknown;
+        params?: unknown;
+        result?: unknown;
+        error?: { code?: unknown; message?: unknown; data?: unknown };
+      };
+      if (typeof message.method === 'string') {
+        const params = (message.params ?? {}) as Record<string, unknown>;
+        if (typeof message.id === 'number' || typeof message.id === 'string') {
+          void this.respondToAgentRequest(message.id, message.method, params);
+        } else {
+          this.notificationHandler?.(message.method, params);
+        }
+        return;
+      }
+      if (typeof message.id !== 'number' && typeof message.id !== 'string') return;
+      const pending = this.pending.get(message.id);
+      if (!pending) return;
+      this.pending.delete(message.id);
+      if (pending.timeout) clearTimeout(pending.timeout);
+      if (pending.absoluteTimeout) clearTimeout(pending.absoluteTimeout);
+      console.debug(
+        `[AcpConnection] received response for ${pending.method} (${String(message.id)}) after ${Date.now() - pending.startedAt} ms`,
+      );
+      if (message.error) {
+        const detail = String(message.error.message ?? 'ACP request failed.');
+        const code =
+          typeof message.error.code === 'number' || typeof message.error.code === 'string'
+            ? ` (code ${message.error.code})`
+            : '';
+        const data =
+          message.error.data && typeof message.error.data === 'object'
+            ? ` Data: ${JSON.stringify(message.error.data).slice(0, 4000)}`
+            : '';
+        const context = this.stderrContext.trim();
+        const suffix = context ? ` Agent diagnostics: ${context.slice(-2000)}` : '';
+        pending.reject(
+          new AcpResponseError(
+            `ACP request ${pending.method} failed${code}: ${detail}.${data}${suffix}`,
+            message.error.code,
+          ),
+        );
+      } else pending.resolve(message.result);
+    } catch (error) {
+      console.warn('[AcpConnection] ignored malformed stdout protocol message:', error);
+    }
+  }
+
+  private async respondToAgentRequest(
+    id: JsonRpcRequestId,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      if (!this.requestHandler) {
+        throw new AcpRequestError(
+          AcpErrorCode.MethodNotFound,
+          `Unsupported ACP agent request: ${method}.`,
+        );
+      }
+      const result = await this.requestHandler(method, params);
+      this.writeMessage({ jsonrpc: '2.0', id, result });
+    } catch (error) {
+      const code = error instanceof AcpRequestError ? error.code : AcpErrorCode.InternalError;
+      if (code === AcpErrorCode.InternalError) {
+        console.warn(`[AcpConnection] failed to handle the agent request ${method}:`, error);
+      }
+      this.writeMessage({
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private writeMessage(message: Record<string, unknown>): void {
+    this.writeLine(`${JSON.stringify(message)}\n`, 'response');
+  }
+
+  /**
+   * Writes one newline-delimited JSON-RPC message. The write callback absorbs
+   * EPIPE from an agent that exited mid-write, which would otherwise surface as
+   * an unhandled stream error in the main process.
+   */
+  private writeLine(line: string, label: string): void {
+    const stdin = this.child?.stdin;
+    if (!stdin?.writable) return;
+    stdin.write(line, error => {
+      if (error) console.warn(`[AcpConnection] failed to write ${label} to the agent:`, error);
+    });
+  }
+
+  private armWatchdog(id: JsonRpcRequestId, pending: PendingRequest): void {
+    pending.watchdogArmedAt = Date.now();
+    pending.timeout = setTimeout(() => {
+      pending.timeout = null;
+      if (pending.absoluteTimeout) clearTimeout(pending.absoluteTimeout);
+      pending.absoluteTimeout = null;
+      this.pending.delete(id);
+      console.warn(
+        `[AcpConnection] request timed out: ${pending.method} (${id}) after ${Date.now() - pending.startedAt} ms`,
+      );
+      pending.reject(new Error(`ACP request timed out: ${pending.method}.`));
+    }, pending.watchdogRemainingMs);
+  }
+
+  private failAll(error: Error): void {
+    // A dead connection can no longer settle an approval, so a hold must not
+    // outlive it and silently disable every later watchdog.
+    this.watchdogHoldCount = 0;
+    for (const [id, pending] of this.pending) {
+      this.pending.delete(id);
+      if (pending.timeout) clearTimeout(pending.timeout);
+      if (pending.absoluteTimeout) clearTimeout(pending.absoluteTimeout);
+      pending.reject(error);
+    }
+  }
+
+  private rejectInteractiveAuthentication(output: string): boolean {
+    if (!isInteractiveAuthenticationPrompt(output)) return false;
+    const error = new AcpResponseError(CodingErrorMessage.AgentAuthRequired, ACP_AUTH_REQUIRED_CODE);
+    this.authenticationFailure = error;
+    this.disposed = true;
+    const child = this.child;
+    this.child = null;
+    this.failAll(error);
+    if (child) this.authenticationTermination = terminateProcessTree(child);
+    return true;
+  }
+
+  private scheduleRestart(): void {
+    if (
+      this.disposed ||
+      !this.launchOptions ||
+      this.restartTimer ||
+      this.restartAttempts >= MAX_RESTART_ATTEMPTS
+    ) {
+      return;
+    }
+    this.restartAttempts += 1;
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      const options = this.launchOptions;
+      if (!options || this.disposed || this.child) return;
+      void this.startProcess(options).catch(error => {
+        console.warn('[AcpConnection] failed to restart the ACP agent:', error);
+        this.scheduleRestart();
+      });
+    }, RESTART_DELAY_MS);
+  }
+}

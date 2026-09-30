@@ -1,0 +1,48 @@
+import { Message, MessageContent } from '@shared/components/ai-elements/message';
+import React, { useState } from 'react';
+
+import type { CoworkMessage, CoworkMessageMetadata } from '../../../types/cowork';
+import { formatMessageDateTime } from '../../../utils/tokenFormat';
+import ImagePreviewModal, { type ImagePreviewSource } from '../ImagePreviewModal';
+import { StreamingMarkdownResponse } from './StreamingMarkdownResponse';
+
+const getMessageModelLabel = (metadata?: CoworkMessageMetadata | null): string | null => {
+  const model = typeof metadata?.model === 'string' ? metadata.model.trim() : '';
+  if (!model) return null;
+  return model.includes('/') ? model.split('/').pop() || model : model;
+};
+
+export const AssistantBubble: React.FC<{
+  message: CoworkMessage;
+  resolveLocalFilePath?: (href: string, text: string) => string | null;
+  mapDisplayText?: (value: string) => string;
+  turnMetadata?: CoworkMessageMetadata | null;
+}> = ({ message, mapDisplayText, resolveLocalFilePath, turnMetadata }) => {
+  const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
+  const rawContent = mapDisplayText ? mapDisplayText(message.content) : message.content;
+  // An empty streaming bubble is a leftover placeholder, not an in-flight answer.
+  const isStreaming = Boolean(message.metadata?.isStreaming) && rawContent.trim().length > 0;
+  const modelLabel = getMessageModelLabel(turnMetadata);
+
+  return (
+    <div className="py-1 focus:outline-none">
+      <Message from="assistant">
+        <MessageContent>
+          {/* 2026/09/20 lixiang  下传本地路径解析，使盘符路径可点打开（issue #805） */}
+          <StreamingMarkdownResponse
+            content={rawContent}
+            isStreaming={isStreaming}
+            resolveLocalFilePath={resolveLocalFilePath}
+          />
+        </MessageContent>
+      </Message>
+      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{formatMessageDateTime(message.timestamp)}</span>
+        {modelLabel && <span>{modelLabel}</span>}
+      </div>
+      {expandedImage && (
+        <ImagePreviewModal image={expandedImage} onClose={() => setExpandedImage(null)} />
+      )}
+    </div>
+  );
+};

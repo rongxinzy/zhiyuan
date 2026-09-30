@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      MODELSCOPE_TOKENS:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      linux-install: ${{ steps.plan.outputs.linux-install }}
+      windows-install: ${{ steps.plan.outputs.windows-install }}
+      memory-leak: ${{ steps.plan.outputs.memory-leak }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - name: Select expensive checks from the complete PR diff
+        id: plan
+        run: node scripts/ci/gates/plan.ts
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install checksum-pinned workflow validator
+        run: |
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          curl --fail --location --retry 3 --max-time 60 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            -o "$RUNNER_TEMP/actionlint/archive.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint/archive.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint/archive.tar.gz" -C "$RUNNER_TEMP/actionlint" actionlint
+      - name: Validate workflow syntax and job dependencies
+        # ShellCheck policy is separate; this gate validates every workflow's
+        # YAML, expressions, reusable-workflow inputs and dependency graph.
+        run: '"$RUNNER_TEMP/actionlint/actionlint" -shellcheck='
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Restore Bun package cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-1.4.0-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run apply:patches
+      - name: Validate bundled Skill frontmatter
+        run: bun run validate:skills
+      - name: Enforce retired runtime decoupling
+        run: bun run check:openclaw-decoupling
+      - name: Lint
+        run: bun run lint
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Restore Bun and Electron caches
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: test-${{ runner.os }}-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            test-${{ runner.os }}-1.4.0-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run apply:patches
+      - name: Compile Electron sources used by integration tests
+        run: bun run compile:electron
+      - name: Install Electron for native ABI integration tests
+        # Dependency lifecycle scripts are disabled above; the ABI probe needs
+        # the actual target runtime, rather than a host Node approximation.
+        run: node node_modules/electron/install.js
+      - name: Run tests
+        run: bun run test
+      - name: Verify Presentation Studio compiler and validator
+        run: |
+          npm ci --prefix SKILLs/presentation-studio --ignore-scripts
+          npm test --prefix SKILLs/presentation-studio
+
+  bundle-budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Restore Bun package cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-1.4.0-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-1.4.0-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run apply:patches
+      - name: Typecheck renderer sources
+        run: bun run build:tsc
+      - name: Build renderer bundle
+        run: bun run build:vite
+        env:
+          VITE_SKIP_ELECTRON: '1'
+      - name: Enforce renderer bundle budgets
+        run: bun run test:bundle-budget
+
+  memory-leak:
+    needs: changes
+    if: needs.changes.outputs.memory-leak == 'true'
+    uses: ./.github/workflows/memory-regression.yml
+
+  linux-install:
+    needs: changes
+    if: needs.changes.outputs.linux-install == 'true'
+    uses: ./.github/workflows/linux-install-pr.yml
+    secrets:
+      MODELSCOPE_TOKENS: ${{ secrets.MODELSCOPE_TOKENS }}
+
+  windows-install:
+    needs: changes
+    if: needs.changes.outputs.windows-install == 'true'
+    uses: ./.github/workflows/windows-installer-pr.yml
+
+  merge-gate:
+    name: merge-gate
+    if: always()
+    needs: [changes, lint, test, bundle-budget, memory-leak, linux-install, windows-install]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - name: Require every selected check to succeed
+        run: node scripts/ci/gates/verify.ts
+        env:
+          GATE_PLAN: ${{ needs.changes.outputs.plan }}
+          GATE_RESULTS: ${{ toJSON(needs) }}

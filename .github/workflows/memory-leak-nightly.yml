@@ -1,0 +1,15 @@
+name: Memory Leak Nightly
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memory-leak:
+    uses: ./.github/workflows/memory-regression.yml
+    with:
+      analyze-heap: true

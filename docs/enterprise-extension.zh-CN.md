@@ -1,0 +1,45 @@
+# Zhiyuan 企业扩展宿主
+
+[English](enterprise-extension.md)
+
+Zhiyuan 社区构建与闭源企业模块分别保存在独立仓库。公开应用只从固定制品位置加载可选、版本化的主进程扩展，不包含 AEP 地址、租户配置、客户策略或私有实现代码。
+
+## API v1
+
+企业构建将独立 CommonJS bundle 放置在：
+
+```text
+resources/zhiyuan-enterprise/extension.cjs
+```
+
+Bundle 导出 `createZhiyuanEnterpriseExtension`。返回对象声明 `apiVersion: 1`、稳定的小写 ID，以及异步 `initialize` 和 `dispose` 生命周期方法。初始化会收到冻结的上下文，其中只包含 Zhiyuan 版本、运行平台、是否已打包、资源目录和用户数据目录。
+
+社区安装包不包含该资源，因此会继续正常启动。已打包应用永远不接受环境变量控制的模块路径；只有开发构建可以通过 `ZHIYUAN_ENTERPRISE_EXTENSION_DEV_PATH` 指定绝对 bundle 路径。
+
+如果扩展文件存在但无效或版本不兼容，应用会关闭启动门，不能带病继续初始化。退出时宿主只调用一次 `dispose`，使私有服务可以在应用数据库关闭前停止轮询并释放本地状态。
+
+## 构建边界
+
+私有仓库负责扩展 bundle、企业测试、发布清单、签名输入和 Electron Builder 覆盖配置，并必须锁定准确的 Zhiyuan tag 与 commit。企业构建不能覆盖 `src/` 文件、不能在打包时修改公开应用源码，也不能依赖未版本化分支。
+
+API v1 有意只开放生命周期和非敏感宿主上下文。认证 IPC、托管模型投影、Skill 收敛和管控事件操作必须作为明确的版本化能力逐步加入，不能直接导入 Renderer 状态或应用私有内部模块。
+
+### 会话能力 v1
+
+API v1 上下文提供可选、独立版本化的 `capabilities.session` 对象。企业扩展可以注册一个密码会话 provider，并必须在退出时注销。社区构建保留相同的固定 Renderer 接口，但未注册 provider 时只返回 `UNAVAILABLE`。
+
+Preload 桥只允许 `snapshot`、`login`、`changePassword` 和 `logout`。主进程会复制并校验有长度边界的输入字段、规范化身份快照、禁止返回任何 token，并在进入 Renderer 前将 provider 异常替换为通用错误。该桥不开放任意扩展方法或任意 IPC channel 名称。
+
+### 设置页与受管供应商能力 v1
+
+企业扩展可以使用稳定 ID 注册多个设置页。Zhiyuan 会把每个页面渲染为设置侧边栏中的独立入口，因此企业账户和企业模型即使复用同一个 Renderer bundle，也保持为两个同级目的地。
+
+`capabilities.managedProvider` 只接受一个受管配置源。配置源必须使用现有 `custom_` 供应商命名空间，并返回公开应用标准的 `ProviderConfig`。宿主把该配置同步到 `app_config.providers`，模型选择、OpenAI 兼容传输、能力判断、reasoning 兼容和 Pi runtime 均复用用户自建自定义供应商的同一条代码路径。独占配置源会隐藏可编辑供应商和本地推理入口，但不会建立第二套模型运行时。
+
+## Windows 安装包中央签名
+
+未签名的企业安装包由私有仓库的 `Build Windows enterprise package` 工作流构建。本仓库的 `Sign Zhiyuan Enterprise Windows package` 工作流把一次成功的未签名构建转成签名安装包：在 main 上手动触发，输入未签名构建的 run ID、可选且必须与未签名构建一致的 `release_version`，以及要写入 `resources/zhiyuan-enterprise/config.json` 的 AEP base URL。prepare 作业会先校验来源仓库、工作流、run 结论、必需构建步骤和未过期的未签名 artifact，再确定来源 commit 与包版本。
+
+sign 作业按精确来源 commit 重建：按来源 commit 检出私有仓库、按 `build/build-manifest.json` 锁定的 `zhiyuanCore.commit` 检出本仓库，重新构建并验证扩展、渲染 AEP 配置，然后用 `build/electron-builder.overlay-signed.cjs` 打包，使应用可执行文件和 NSIS 安装包在一次构建中完成 Authenticode 签名。上传前会校验打包版本、证书指纹、注入的企业资源和干净 PATH 下的运行时，签名安装包与 `SHA256SUMS.txt` 作为 Actions artifact 保留 14 天。
+
+签名完全复用本仓库 `release` 环境既有的 Certum 凭据，私有仓库和调用方都不需要配置任何 secret。

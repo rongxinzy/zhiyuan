@@ -1,0 +1,41 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { expect, test } from 'vitest';
+
+// Normalise line endings: the multi-line assertions below are written with \n
+// and the checked-out source uses CRLF on Windows.
+const source = readFileSync(
+  fileURLToPath(new URL('./CodingWorkspaceSidebar.tsx', import.meta.url)),
+  'utf8',
+).replace(/\r\n/g, '\n');
+
+test('uses the animated folder-plus icon for the add workspace action', () => {
+  expect(source).toContain(
+    "import {\n  AnimatedFolderPlusIcon,\n  type AnimatedFolderPlusIconHandle,\n} from '../icons/AnimatedFolderPlusIcon';",
+  );
+  expect(source).toContain(
+    'const addWorkspaceIconRef = useRef<AnimatedFolderPlusIconHandle>(null);',
+  );
+  expect(source).toContain('<AnimatedFolderPlusIcon ref={addWorkspaceIconRef} />');
+});
+
+test('animates the add workspace icon on hover but respects reduced motion', () => {
+  expect(source).toContain(
+    'if (!prefersReducedMotion) addWorkspaceIconRef.current?.startAnimation();',
+  );
+  expect(source).toContain('onMouseLeave={() => addWorkspaceIconRef.current?.stopAnimation()}');
+});
+
+test('does not fall back to the static lucide plus icon', () => {
+  expect(source).not.toContain('Plus,');
+  expect(source).not.toContain('<Plus />');
+});
+
+test('opens agent management before the add workspace action in the sidebar header', () => {
+  expect(source).toContain('new CustomEvent(CodingUiEvent.ManageAgents)');
+  expect(source).toContain('<Settings2 />');
+  expect(source.indexOf("i18nService.t('codingAgentManageAgents')")).toBeLessThan(
+    source.indexOf("i18nService.t('codingWorkspaceAdd')"),
+  );
+});

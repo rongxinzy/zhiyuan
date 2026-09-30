@@ -1,0 +1,127 @@
+name: Validate Certum cloud signing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: certum-signing-smoke
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  sign-smoke:
+    name: Authenticate, sign, and verify
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+      - name: Connect Certum SimplySign
+        id: certum
+        uses: ./.github/actions/setup-certum-signing
+        with:
+          user-id: ${{ secrets.CERTUM_USER_ID }}
+          otp-uri: ${{ secrets.CERTUM_OTP_URI }}
+          certificate-thumbprint: ${{ secrets.CERTUM_CERT_THUMBPRINT }}
+
+      - name: Sign and verify an ephemeral executable
+        shell: pwsh
+        env:
+          CERTUM_CERT_THUMBPRINT: ${{ steps.certum.outputs.thumbprint }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $thumbprint = $env:CERTUM_CERT_THUMBPRINT
+          $certificate = @(
+            Get-ChildItem Cert:\CurrentUser\My |
+              Where-Object {
+                ($_.Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() -eq
+                  $thumbprint
+              }
+          )
+          if ($certificate.Count -ne 1) {
+            throw "Expected exactly one certificate for the configured thumbprint; found $($certificate.Count)."
+          }
+          if (-not $certificate[0].HasPrivateKey) {
+            throw 'The Certum certificate is visible but its cloud private key is unavailable.'
+          }
+          if ($certificate[0].NotAfter -le [DateTime]::UtcNow) {
+            throw 'The Certum certificate has expired.'
+          }
+
+          $hasCodeSigningEku = @(
+            $certificate[0].Extensions |
+              Where-Object { $_.Oid.Value -eq '2.5.29.37' } |
+              ForEach-Object { $_.EnhancedKeyUsages } |
+              Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }
+          ).Count -gt 0
+          if (-not $hasCodeSigningEku) {
+            throw 'The configured certificate does not permit code signing.'
+          }
+
+          $signTool = Get-ChildItem -Path `
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName |
+            Select-Object -Last 1 -ExpandProperty FullName
+          if (-not $signTool) {
+            throw 'Microsoft SignTool was not found on the Windows runner.'
+          }
+
+          $smokeExecutable = Join-Path $env:RUNNER_TEMP 'certum-signing-smoke.exe'
+          $smokeSource = Join-Path $env:RUNNER_TEMP 'certum-signing-smoke.cs'
+          $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            throw 'The Windows C# compiler was not found on the runner.'
+          }
+          [IO.File]::WriteAllText(
+            $smokeSource,
+            'public static class SigningSmoke { public static int Main() { return 0; } }'
+          )
+          & $compiler /nologo /target:exe "/out:$smokeExecutable" $smokeSource
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $smokeExecutable)) {
+            throw 'Failed to compile the ephemeral unsigned executable.'
+          }
+
+          $unsignedSignature = Get-AuthenticodeSignature -FilePath $smokeExecutable
+          if ($unsignedSignature.Status -ne 'NotSigned') {
+            throw "The smoke executable unexpectedly starts with status $($unsignedSignature.Status)."
+          }
+          try {
+            & $signTool sign /v /fd sha256 /sha1 $thumbprint `
+              /tr http://time.certum.pl /td sha256 $smokeExecutable
+            if ($LASTEXITCODE -ne 0) {
+              throw "SignTool failed with exit code $LASTEXITCODE."
+            }
+
+            & $signTool verify /pa /v $smokeExecutable
+            if ($LASTEXITCODE -ne 0) {
+              throw "SignTool verification failed with exit code $LASTEXITCODE."
+            }
+
+            $signature = Get-AuthenticodeSignature -FilePath $smokeExecutable
+            if ($signature.Status -ne 'Valid') {
+              throw "Authenticode status is $($signature.Status), expected Valid."
+            }
+            $expectedCertificateDer = [Convert]::ToBase64String($certificate[0].RawData)
+            $actualCertificateDer = [Convert]::ToBase64String(
+              $signature.SignerCertificate.RawData
+            )
+            if ($actualCertificateDer -ne $expectedCertificateDer) {
+              throw 'The Authenticode signer does not match the configured Certum certificate.'
+            }
+            if ($null -eq $signature.TimeStamperCertificate) {
+              throw 'The Authenticode signature does not contain a trusted timestamp.'
+            }
+
+            Write-Output 'Certum cloud signing smoke test passed.'
+          }
+          finally {
+            Remove-Item -LiteralPath $smokeExecutable, $smokeSource `
+              -Force -ErrorAction SilentlyContinue
+            Set-Clipboard -Value ' '
+          }
