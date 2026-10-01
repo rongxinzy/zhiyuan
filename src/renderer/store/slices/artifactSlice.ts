@@ -22,9 +22,6 @@ export type ArtifactLayoutMode = (typeof ArtifactLayoutMode)[keyof typeof Artifa
 interface ArtifactSessionViewState {
   selectedArtifactId: string | null;
   isPanelOpen: boolean;
-  /** The user closed the panel explicitly in this session; only a newly added
-   *  artifact may open it again by itself. */
-  panelSuppressed: boolean;
   activeTab: ArtifactActiveTab;
   panelView: ArtifactPanelView;
   layoutMode: ArtifactLayoutMode;
@@ -37,7 +34,6 @@ interface ArtifactState {
   viewStateBySession: Record<string, ArtifactSessionViewState>;
   selectedArtifactId: string | null;
   isPanelOpen: boolean;
-  panelSuppressed: boolean;
   activeTab: ArtifactActiveTab;
   panelView: ArtifactPanelView;
   panelWidth: number;
@@ -51,7 +47,6 @@ const initialState: ArtifactState = {
   viewStateBySession: {},
   selectedArtifactId: null,
   isPanelOpen: false,
-  panelSuppressed: false,
   activeTab: 'preview',
   panelView: ArtifactPanelView.Files,
   panelWidth: DEFAULT_PANEL_WIDTH,
@@ -61,7 +56,6 @@ const initialState: ArtifactState = {
 const DEFAULT_SESSION_VIEW_STATE: ArtifactSessionViewState = {
   selectedArtifactId: null,
   isPanelOpen: false,
-  panelSuppressed: false,
   activeTab: 'preview',
   panelView: ArtifactPanelView.Files,
   layoutMode: ArtifactLayoutMode.Split,
@@ -77,7 +71,6 @@ function saveActiveSessionView(state: ArtifactState) {
   state.viewStateBySession[state.activeSessionId] = {
     selectedArtifactId: state.selectedArtifactId,
     isPanelOpen: state.isPanelOpen,
-    panelSuppressed: state.panelSuppressed,
     activeTab: state.activeTab,
     panelView: state.panelView,
     layoutMode: state.layoutMode,
@@ -87,7 +80,6 @@ function saveActiveSessionView(state: ArtifactState) {
 function restoreSessionView(state: ArtifactState, viewState: ArtifactSessionViewState) {
   state.selectedArtifactId = viewState.selectedArtifactId;
   state.isPanelOpen = viewState.isPanelOpen;
-  state.panelSuppressed = viewState.panelSuppressed;
   state.activeTab = viewState.activeTab;
   state.panelView = viewState.panelView;
   state.layoutMode = viewState.layoutMode;
@@ -137,85 +129,50 @@ function mergeArtifact(existing: Artifact, incoming: Artifact): Artifact {
     : merged;
 }
 
-/**
- * A merge reveals when the caller certified a live delivery (the artifact may
- * already be in the store from the persisted-seeding pass, in which case the
- * merge is a no-op), or when the merge itself completed a delivery: an
- * intermediate became a deliverable, or its previewable content arrived.
- */
-function shouldRevealMergedArtifact(
-  previous: Artifact,
-  next: Artifact,
-  revealRequested: boolean,
-): boolean {
-  // Only deliverables may open the panel by themselves, whatever the caller's
-  // event says: a merged code block or an intermediate file never does.
-  if (!revealRequested || next.role !== ArtifactRole.Deliverable) return false;
-  if (next.declared === true) return true;
+// 2026/09/17 lixiang  交付物首次出现或升级时自动打开右侧产物面板
+function shouldRevealArtifactPanel(previous: Artifact | undefined, next: Artifact): boolean {
+  if (next.role !== ArtifactRole.Deliverable) return false;
+  if (!previous) return true;
   return (
     previous.role !== ArtifactRole.Deliverable ||
+    (!previous.declared && Boolean(next.declared)) ||
     (!previous.content && Boolean(next.content))
   );
 }
 
-/**
- * Whether a freshly detected artifact may open the panel by itself.
- *
- * Automatic opening is a live-delivery signal: the agent must have declared the
- * artifact as a deliverable during a run the user is watching, and the file must
- * be readable. Heuristic candidates, backfilled history, and unreadable paths
- * only appear in the list.
- */
-export const shouldRevealLiveArtifact = (
-  artifact: Artifact,
-  context: { isLiveSession: boolean; previewable: boolean },
-): boolean =>
-  context.isLiveSession &&
-  context.previewable &&
-  artifact.declared === true &&
-  artifact.role === ArtifactRole.Deliverable;
-
-/** What kind of event asked for the reveal; suppression only mutes promotions. */
-const RevealKind = {
-  /** The artifact was just added to the session. */
-  New: 'new',
-  /** An existing artifact grew (content, or a declaration arrived later). */
-  Promotion: 'promotion',
-} as const;
-type RevealKind = (typeof RevealKind)[keyof typeof RevealKind];
-
-function revealArtifactInPanel(
-  state: ArtifactState,
-  sessionId: string,
-  kind: RevealKind,
-  fallbackArtifactId: string,
-) {
-  // Only the artifact view the user is actually looking at may open itself; a
-  // background session must not steal the panel.
-  if (state.activeSessionId !== sessionId) return;
-  // Respect an explicit close: only a newly added artifact opens the panel again,
-  // a later merge into an artifact the user already dismissed does not.
-  if (kind === RevealKind.Promotion && state.panelSuppressed) return;
-
+function revealArtifactInPanel(state: ArtifactState, sessionId: string, fallbackArtifactId: string) {
   const artifacts = state.artifactsBySession[sessionId] ?? [];
   const deliverables = artifacts.filter(artifact => artifact.role === ArtifactRole.Deliverable);
-  const selectedId =
-    kind === RevealKind.Promotion
-      ? fallbackArtifactId
-      : // Newest first: a run may add several deliverables and the last one is the
-        // one the user is waiting for.
-        (deliverables[deliverables.length - 1]?.id ?? fallbackArtifactId);
+  const firstDeliverableId = deliverables[0]?.id ?? fallbackArtifactId;
+  // 2026/09/17 lixiang  仅一个交付物时强制预览该文件；多个时保留已有选中，否则选第一个
+  const onlyOneDeliverable = deliverables.length === 1;
 
-  const wasOpen = state.isPanelOpen;
-  state.panelSuppressed = false;
-  state.selectedArtifactId = selectedId;
-  state.isPanelOpen = true;
-  // Keep the view the user is already in — a reveal must not pull them out of the
-  // code tab or out of a previously chosen panel view.
-  if (!wasOpen) {
-    state.panelView = ArtifactPanelView.Preview;
-    state.activeTab = 'preview';
+  if (state.activeSessionId !== sessionId) {
+    const view = state.viewStateBySession[sessionId] ?? getDefaultSessionViewState();
+    const keepSelection =
+      !onlyOneDeliverable &&
+      view.isPanelOpen &&
+      view.selectedArtifactId &&
+      artifacts.some(artifact => artifact.id === view.selectedArtifactId);
+    state.viewStateBySession[sessionId] = {
+      ...view,
+      selectedArtifactId: keepSelection ? view.selectedArtifactId : firstDeliverableId,
+      isPanelOpen: true,
+      panelView: ArtifactPanelView.Preview,
+      activeTab: 'preview',
+    };
+    return;
   }
+
+  const keepSelection =
+    !onlyOneDeliverable &&
+    state.isPanelOpen &&
+    state.selectedArtifactId &&
+    artifacts.some(artifact => artifact.id === state.selectedArtifactId);
+  state.selectedArtifactId = keepSelection ? state.selectedArtifactId : firstDeliverableId;
+  state.isPanelOpen = true;
+  state.panelView = ArtifactPanelView.Preview;
+  state.activeTab = 'preview';
 }
 
 const artifactSlice = createSlice({
@@ -243,17 +200,8 @@ const artifactSlice = createSlice({
       state.artifactsBySession[action.payload.sessionId] = action.payload.artifacts;
     },
 
-    /**
-     * `reveal` means the caller certifies this event as a delivery worth showing
-     * (cowork: `shouldRevealLiveArtifact`). The slice does not re-derive that
-     * policy, so every surface states its own: cowork only reveals live declared
-     * deliverables, the coding page keeps revealing its own stream artifacts.
-     */
-    addArtifact(
-      state,
-      action: PayloadAction<{ sessionId: string; artifact: Artifact; reveal?: boolean }>,
-    ) {
-      const { sessionId, artifact, reveal = false } = action.payload;
+    addArtifact(state, action: PayloadAction<{ sessionId: string; artifact: Artifact }>) {
+      const { sessionId, artifact } = action.payload;
       const projection = state.activeProjectionBySession[sessionId];
       const projectedArtifact =
         projection?.runId && !artifact.taskId && !artifact.runId
@@ -270,9 +218,9 @@ const artifactSlice = createSlice({
         const merged = mergeArtifact(old, projectedArtifact);
         if (merged !== old) {
           state.artifactsBySession[sessionId][existing] = merged;
-        }
-        if (shouldRevealMergedArtifact(old, merged, reveal)) {
-          revealArtifactInPanel(state, sessionId, RevealKind.Promotion, merged.id);
+          if (shouldRevealArtifactPanel(old, merged)) {
+            revealArtifactInPanel(state, sessionId, merged.id);
+          }
         }
         return;
       }
@@ -288,17 +236,17 @@ const artifactSlice = createSlice({
           const merged = mergeArtifact(old, projectedArtifact);
           if (merged !== old) {
             state.artifactsBySession[sessionId][dupIndex] = merged;
-          }
-          if (shouldRevealMergedArtifact(old, merged, reveal)) {
-            revealArtifactInPanel(state, sessionId, RevealKind.Promotion, merged.id);
+            if (shouldRevealArtifactPanel(old, merged)) {
+              revealArtifactInPanel(state, sessionId, merged.id);
+            }
           }
           return;
         }
       }
 
       state.artifactsBySession[sessionId].push(projectedArtifact);
-      if (reveal && projectedArtifact.role === ArtifactRole.Deliverable) {
-        revealArtifactInPanel(state, sessionId, RevealKind.New, projectedArtifact.id);
+      if (shouldRevealArtifactPanel(undefined, projectedArtifact)) {
+        revealArtifactInPanel(state, sessionId, projectedArtifact.id);
       }
     },
 
@@ -317,7 +265,6 @@ const artifactSlice = createSlice({
     selectArtifact(state, action: PayloadAction<string | null>) {
       state.selectedArtifactId = action.payload;
       if (action.payload) {
-        state.panelSuppressed = false;
         state.panelView = ArtifactPanelView.Preview;
         state.isPanelOpen = true;
         state.activeTab = 'preview';
@@ -328,18 +275,16 @@ const artifactSlice = createSlice({
       state.isPanelOpen = !state.isPanelOpen;
       if (!state.isPanelOpen) {
         state.layoutMode = ArtifactLayoutMode.Split;
-        state.panelSuppressed = true;
         return;
       }
 
-      state.panelSuppressed = false;
       // 2026/09/17 lixiang  打开面板且仅有一个交付物时，直接进入该文件预览
       if (!state.activeSessionId) return;
       const deliverables = (state.artifactsBySession[state.activeSessionId] ?? []).filter(
         artifact => artifact.role === ArtifactRole.Deliverable,
       );
       if (deliverables.length === 1) {
-        state.selectedArtifactId = deliverables[deliverables.length - 1].id;
+        state.selectedArtifactId = deliverables[0].id;
         state.panelView = ArtifactPanelView.Preview;
         state.activeTab = 'preview';
       }
@@ -347,7 +292,6 @@ const artifactSlice = createSlice({
 
     closePanel(state) {
       state.isPanelOpen = false;
-      state.panelSuppressed = true;
       state.layoutMode = ArtifactLayoutMode.Split;
     },
 

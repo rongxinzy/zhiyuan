@@ -51,14 +51,14 @@ test('interruption resume control sits inline as a theme button', () => {
   expect(turnSource).not.toContain('RotateCcw');
 });
 
-test('does not manufacture a running state before the resume Pi event', () => {
+test('marks the session running before the resume IPC returns', () => {
   const clearEmbed = hookSource.indexOf('setInterruption(null);');
+  const runningBefore = hookSource.indexOf('CoworkSessionStatusValue.Running');
   const resumeInvoke = hookSource.indexOf('window.electron.workbenchTask.resume');
 
   expect(clearEmbed).toBeGreaterThanOrEqual(0);
-  expect(resumeInvoke).toBeGreaterThan(clearEmbed);
-  expect(hookSource).not.toContain('updateSessionStatus');
-  expect(hookSource).not.toContain('CoworkSessionStatusValue.Running');
+  expect(runningBefore).toBeGreaterThan(clearEmbed);
+  expect(resumeInvoke).toBeGreaterThan(runningBefore);
 });
 
 test('retains the resume context when starting the replacement run fails', () => {

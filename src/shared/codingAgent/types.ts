@@ -1,8 +1,6 @@
 import type {
   CodingAgentDriverKind,
   CodingAgentProfileStatus,
-  CodingAgentCheckPhase,
-  CodingAgentCheckFailure,
   CodingAssignmentStatus,
   CodingEventKind,
   CodingElicitationStatus,
@@ -93,12 +91,6 @@ export interface CodingAgentProfile {
   args: string[];
   environment: Record<string, string>;
   isBuiltin: boolean;
-  /** Session-only diagnostics; never contains credentials or raw agent stderr. */
-  connectionCheck?: {
-    phase: CodingAgentCheckPhase;
-    failure?: CodingAgentCheckFailure;
-    checkedAt?: number;
-  };
 }
 
 export interface CodingRoom {
@@ -167,25 +159,6 @@ export interface CodingEvent {
   createdAt: number;
 }
 
-export interface CodingEventWindow {
-  laneId: string;
-  oldestSequence: number | null;
-  newestSequence: number | null;
-  hasMore: boolean;
-}
-
-export interface CodingEventPage {
-  laneId: string;
-  events: CodingEvent[];
-  hasMore: boolean;
-  nextCursor: number | null;
-}
-
-export interface CodingRoomEventDelta {
-  workspaceRoot: string;
-  events: CodingEvent[];
-}
-
 export interface CodingPermissionResponse {
   requestId: string;
   outcome: CodingPermissionOutcome;
@@ -231,7 +204,6 @@ export interface CodingRoomSnapshot {
   lanes: CodingAgentLane[];
   assignments: CodingAssignment[];
   events: CodingEvent[];
-  eventWindows?: CodingEventWindow[];
   elicitations: CodingElicitation[];
 }
 

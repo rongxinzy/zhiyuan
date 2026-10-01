@@ -3,7 +3,6 @@ import path from 'path';
 import type Database from 'better-sqlite3';
 
 import {
-  CodingErrorMessage,
   CodingAssignmentStatus,
   CodingEventKind,
   CodingAgentProfileId,
@@ -133,10 +132,6 @@ export class CodingRoomRepository {
   private static readonly STREAM_FLUSH_MAX_BACKOFF_MS = 30_000;
 
   constructor(private readonly db: Database.Database) {}
-
-  getDatabase(): Database.Database {
-    return this.db;
-  }
   listRooms(): CodingRoom[] {
     return (
       this.db
@@ -159,7 +154,7 @@ export class CodingRoomRepository {
     return row ? rowRoom(row) : null;
   }
   getOrCreateRoom(workspaceRoot: string): CodingRoom {
-    if (!workspaceRoot.trim()) throw new Error(CodingErrorMessage.WorkspaceRootRequired);
+    if (!workspaceRoot.trim()) throw new Error('Coding workspace root is required.');
     const found = this.getRoomByRoot(workspaceRoot);
     if (found) return found;
     const now = Date.now();
@@ -188,9 +183,9 @@ export class CodingRoomRepository {
   }
   createWorkspace(name: string, sourceFolders: string[], defaultProfileId: string): CodingRoom {
     const primaryRoot = sourceFolders[0];
-    if (!primaryRoot) throw new Error(CodingErrorMessage.WorkspaceSourceRequired);
+    if (!primaryRoot) throw new Error('A coding workspace requires at least one source folder.');
     if (this.getRoomByRoot(primaryRoot)) {
-      throw new Error(CodingErrorMessage.WorkspacePrimaryInUse);
+      throw new Error('A coding workspace already uses this primary source folder.');
     }
     const now = Date.now();
     const room: CodingRoom = {
@@ -239,7 +234,7 @@ export class CodingRoomRepository {
     defaultProfileId: string,
   ): CodingRoom {
     const primaryRoot = sourceFolders[0];
-    if (!primaryRoot) throw new Error(CodingErrorMessage.WorkspaceSourceRequired);
+    if (!primaryRoot) throw new Error('A coding workspace requires at least one source folder.');
     const now = Date.now();
     const update = this.db.transaction(() => {
       this.db
@@ -257,7 +252,7 @@ export class CodingRoomRepository {
     });
     update();
     const room = this.getRoomById(roomId);
-    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+    if (!room) throw new Error('Coding workspace was not found.');
     return room;
   }
   deleteWorkspace(roomId: string): void {
@@ -893,7 +888,7 @@ export class CodingRoomRepository {
       )
       .get(roomId, sourceRoot) as { lane_id: string | null } | undefined;
     if (lease?.lane_id && lease.lane_id !== laneId)
-      throw new Error(CodingErrorMessage.WriterLeaseHeld);
+      throw new Error('Another agent lane holds the workspace writer lease.');
     this.db
       .prepare(
         'INSERT INTO coding_source_writer_leases (room_id, source_root, lane_id, acquired_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id, source_root) DO UPDATE SET lane_id = excluded.lane_id, acquired_at = excluded.acquired_at',

@@ -7,18 +7,14 @@ import {
   CodingAgentEnvironmentKey,
   CodingAgentProfileId,
   CodingAgentProfileStatus,
-  CodingAgentCheckPhase,
-  CodingErrorMessage,
   type CodingAgentCapabilities,
   type CodingAgentProfile,
 } from '../../shared/codingAgent';
 import { AcpDiscoveryService, type AcpDiscoveryOptions } from './acp/discoveryService';
 import { BUNDLED_ACP_ADAPTERS, bundledAdapterDefinition } from './acp/bundledAdapters';
-import { AcpProbeFailureError, AcpProbeService } from './acp/probeService';
+import { AcpProbeService } from './acp/probeService';
 import { AcpProtocolIncompatibleError } from './acp/protocol';
 import type { CodingAgentProfileRepository } from './codingAgentProfileRepository';
-import { classifyProbeFailure } from './acp/probeFailure';
-import { getCodingAgentEnvironment } from './agentEnvironment';
 
 const BUILTIN_CAPABILITIES: CodingAgentCapabilities = {
   supportsLoadSession: false,
@@ -34,7 +30,6 @@ const BUILTIN_CAPABILITIES: CodingAgentCapabilities = {
 
 export class CodingAgentRegistry extends EventEmitter {
   private readonly profiles = new Map<string, CodingAgentProfile>();
-  private readonly probing = new Set<string>();
 
   constructor(
     private readonly repository?: CodingAgentProfileRepository,
@@ -67,7 +62,7 @@ export class CodingAgentRegistry extends EventEmitter {
   }
   refreshBuiltinReadiness(): CodingAgentProfile {
     const profile = this.profiles.get(CodingAgentProfileId.Builtin);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileBuiltinNotFound);
+    if (!profile) throw new Error('The built-in coding agent profile was not found.');
     const status = this.isBuiltinReady()
       ? CodingAgentProfileStatus.Ready
       : CodingAgentProfileStatus.NeedsConfiguration;
@@ -103,10 +98,10 @@ export class CodingAgentRegistry extends EventEmitter {
   }): CodingAgentProfile {
     const command = input.command.trim();
     if (!path.isAbsolute(command))
-      throw new Error(CodingErrorMessage.ProfileCommandAbsolute);
-    if (!input.name.trim()) throw new Error(CodingErrorMessage.ProfileNameRequired);
+      throw new Error('Custom coding agent commands must use an absolute path.');
+    if (!input.name.trim()) throw new Error('Coding agent name is required.');
     if (command.includes('\0') || input.args.some(arg => !arg || arg.includes('\0'))) {
-      throw new Error(CodingErrorMessage.ProfileArgumentsInvalid);
+      throw new Error('Custom coding agent command arguments are invalid.');
     }
     return this.registerExternal({
       name: input.name.trim(),
@@ -134,7 +129,7 @@ export class CodingAgentRegistry extends EventEmitter {
   trust(profileId: string): CodingAgentProfile {
     const profile = this.profiles.get(profileId);
     if (!profile || profile.isBuiltin)
-      throw new Error(CodingErrorMessage.ProfileNotTrustable);
+      throw new Error('The coding agent profile cannot be trusted.');
     const updated = { ...profile, status: CodingAgentProfileStatus.Detected };
     this.profiles.set(updated.id, updated);
     this.repository?.save(updated);
@@ -145,7 +140,7 @@ export class CodingAgentRegistry extends EventEmitter {
   markNeedsAuth(profileId: string): CodingAgentProfile {
     const profile = this.profiles.get(profileId);
     if (!profile || profile.isBuiltin)
-      throw new Error(CodingErrorMessage.ProfileNotAuthenticatable);
+      throw new Error('The coding agent profile cannot require external authentication.');
     const updated = { ...profile, status: CodingAgentProfileStatus.NeedsAuth };
     this.profiles.set(updated.id, updated);
     this.repository?.save(updated);
@@ -155,7 +150,7 @@ export class CodingAgentRegistry extends EventEmitter {
 
   markReady(profileId: string): CodingAgentProfile {
     const profile = this.profiles.get(profileId);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+    if (!profile) throw new Error('The coding agent profile was not found.');
     const updated = { ...profile, status: CodingAgentProfileStatus.Ready };
     this.profiles.set(updated.id, updated);
     this.repository?.save(updated);
@@ -169,66 +164,44 @@ export class CodingAgentRegistry extends EventEmitter {
       !profile ||
       profile.isBuiltin ||
       !profile.command ||
-      this.probing.has(profileId) ||
       // NeedsAuth is probeable too: a successful probe means the agent is
       // reachable again, and if it still needs login the next session
       // creation will mark it NeedsAuth once more.
       (profile.status !== CodingAgentProfileStatus.Detected &&
         profile.status !== CodingAgentProfileStatus.Unavailable &&
-        profile.status !== CodingAgentProfileStatus.NeedsAuth &&
-        profile.status !== CodingAgentProfileStatus.Ready &&
-        profile.status !== CodingAgentProfileStatus.Incompatible)
+        profile.status !== CodingAgentProfileStatus.NeedsAuth)
     ) {
-      throw new Error(CodingErrorMessage.ProfileNotProbeable);
+      throw new Error('The coding agent profile cannot be probed.');
     }
-    this.probing.add(profileId);
     try {
       const result = await new AcpProbeService().probe({
         executable: profile.command,
         args: profile.args,
         cwd,
-        environment: { ...getCodingAgentEnvironment(), ...profile.environment },
-        onPhase: phase => {
-          this.profiles.set(profileId, { ...profile, connectionCheck: { phase } });
-          this.emit('changed');
-        },
+        environment: { ...this.allowedEnvironment(), ...profile.environment },
       });
       const updated = {
         ...profile,
         capabilities: result.capabilities,
         authMethods: result.authMethods,
         status: CodingAgentProfileStatus.Ready,
-        connectionCheck: { phase: CodingAgentCheckPhase.Complete, checkedAt: Date.now() },
       };
       this.profiles.set(updated.id, updated);
       this.repository?.save(updated);
       this.emit('changed');
       return updated;
     } catch (error) {
-      // Only an explicit authentication failure means sign-in is required.
-      // Advertising login methods does not prove why a model returned no answer.
-      const needsAuth = error instanceof AcpProbeFailureError && error.needsAuth;
       const updated = {
         ...profile,
-        connectionCheck: {
-          phase: CodingAgentCheckPhase.Failed,
-          failure: classifyProbeFailure(error),
-          checkedAt: Date.now(),
-        },
-        ...(error instanceof AcpProbeFailureError ? { authMethods: error.authMethods } : {}),
         status:
           error instanceof AcpProtocolIncompatibleError
             ? CodingAgentProfileStatus.Incompatible
-            : needsAuth
-              ? CodingAgentProfileStatus.NeedsAuth
-              : CodingAgentProfileStatus.Unavailable,
+            : CodingAgentProfileStatus.Unavailable,
       };
       this.profiles.set(updated.id, updated);
       this.repository?.save(updated);
       this.emit('changed');
       throw error;
-    } finally {
-      this.probing.delete(profileId);
     }
   }
 
@@ -256,7 +229,6 @@ export class CodingAgentRegistry extends EventEmitter {
         authMethods: launchUnchanged ? existing.authMethods : profile.authMethods,
         id: existing.id,
         isBuiltin: false,
-        connectionCheck: launchUnchanged ? existing.connectionCheck : undefined,
       });
       this.removeUnreferencedDuplicates(matchingProfiles, existing.id);
     }
@@ -267,7 +239,6 @@ export class CodingAgentRegistry extends EventEmitter {
         ...existing,
         description: `${adapter.profileName} is not currently installed on this device.`,
         status: CodingAgentProfileStatus.Unavailable,
-        connectionCheck: undefined,
         command: null,
         args: [],
         environment: {
@@ -365,5 +336,10 @@ export class CodingAgentRegistry extends EventEmitter {
     this.profiles.set(profile.id, profile);
     this.repository?.save(profile);
     this.emit('changed');
+  }
+
+  private allowedEnvironment(): Record<string, string | undefined> {
+    const keys = ['PATH', 'HOME', 'USER', 'SHELL', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL'];
+    return Object.fromEntries(keys.map(key => [key, process.env[key]]));
   }
 }

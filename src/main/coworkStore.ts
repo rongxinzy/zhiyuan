@@ -9,9 +9,7 @@ import { normalizeAgentAvatarIcon } from '../shared/agent/avatar';
 import {
   COWORK_MESSAGE_PAGE_SIZE,
   COWORK_SESSION_PAGE_SIZE,
-  CoworkExecutionMode,
   CoworkPermissionMode,
-  DEFAULT_COWORK_PERMISSION_MODE,
   CoworkSessionMode,
   CoworkSessionSource,
   type CoworkPermissionMode as CoworkPermissionModeType,
@@ -87,7 +85,7 @@ function parseBooleanConfig(value: string | undefined, fallback: boolean): boole
 
 function normalizePermissionMode(value: string | undefined): CoworkPermissionModeType {
   if (value === CoworkPermissionMode.Ask || value === CoworkPermissionMode.AllowAll) return value;
-  return DEFAULT_COWORK_PERMISSION_MODE;
+  return CoworkPermissionMode.Ask;
 }
 
 function parseEmbeddingVectorWeight(value: string | undefined): number {
@@ -309,7 +307,7 @@ function shouldAutoDeleteMemoryText(text: string): boolean {
 // Types mirroring src/types/cowork.ts for main process use
 export type CoworkSessionStatus = 'idle' | 'running' | 'completed' | 'error';
 export type CoworkMessageType = 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
-export type { CoworkExecutionMode } from '../shared/cowork/constants';
+export type CoworkExecutionMode = 'auto' | 'local' | 'sandbox';
 
 export type AgentSource = 'custom' | 'preset' | 'expert-package' | 'expert-package-member';
 
@@ -391,11 +389,6 @@ export interface CoworkMessageMetadata {
     requestStartedAt?: number;
     firstVisibleTextAt?: number;
     completedAt?: number;
-    sessionCreatedAt?: number;
-    agentStartedAt?: number;
-    sessionCreateToAgentStartMs?: number;
-    agentStartToFirstTokenMs?: number;
-    sessionCreateToFirstTokenMs?: number;
     toolDurationMs?: number;
   };
   contextPercent?: number;
@@ -413,8 +406,6 @@ export interface CoworkMessage {
   type: CoworkMessageType;
   content: string;
   timestamp: number;
-  /** Monotonic persisted order within a session. */
-  sequence?: number;
   metadata?: CoworkMessageMetadata;
 }
 
@@ -429,6 +420,7 @@ export interface CoworkSession {
   id: string;
   title: string;
   titleUserRenamed: boolean;
+  claudeSessionId: string | null;
   status: CoworkSessionStatus;
   mode?: 'work' | 'chat';
   pinned: boolean;
@@ -774,7 +766,7 @@ export class CoworkStore {
     title: string,
     cwd: string,
     systemPrompt: string = '',
-    executionMode: CoworkExecutionMode = CoworkExecutionMode.Local,
+    executionMode: CoworkExecutionMode = 'local',
     activeSkillIds: string[] = [],
     agentId: string = 'main',
     modelOverride: string = '',
@@ -795,8 +787,8 @@ export class CoworkStore {
     if (!workspace) throw new Error('Workspace not found');
 
     const insertSession = this.db.prepare(`
-      INSERT INTO cowork_sessions (id, title, title_user_renamed, status, mode, cwd, system_prompt, model_override, execution_mode, active_skill_ids, workspace_id, agent_id, pinned, source, created_at, updated_at)
-      VALUES (?, ?, 0, 'idle', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+      INSERT INTO cowork_sessions (id, title, title_user_renamed, claude_session_id, status, mode, cwd, system_prompt, model_override, execution_mode, active_skill_ids, workspace_id, agent_id, pinned, source, created_at, updated_at)
+      VALUES (?, ?, 0, NULL, 'idle', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
     `);
     const insertExpert = this.db.prepare(`
       INSERT INTO cowork_session_experts
@@ -840,6 +832,7 @@ export class CoworkStore {
       id: sessionId,
       title,
       titleUserRenamed: false,
+      claudeSessionId: null,
       status: 'idle',
       mode,
       pinned: false,
@@ -874,6 +867,7 @@ export class CoworkStore {
       id: string;
       title: string;
       title_user_renamed?: number | null;
+      claude_session_id: string | null;
       status: string;
       mode: string | null;
       pinned?: number | null;
@@ -892,7 +886,7 @@ export class CoworkStore {
 
     const row = this.getOne<SessionRow>(
       `
-      SELECT id, title, title_user_renamed, status, mode, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, workspace_id, agent_id, source, created_at, updated_at
+      SELECT id, title, title_user_renamed, claude_session_id, status, mode, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, workspace_id, agent_id, source, created_at, updated_at
       FROM cowork_sessions
       WHERE id = ?
     `,
@@ -984,6 +978,7 @@ export class CoworkStore {
       id: row.id,
       title: row.title,
       titleUserRenamed: Boolean(row.title_user_renamed),
+      claudeSessionId: row.claude_session_id,
       status: row.status as CoworkSessionStatus,
       mode: (row.mode as 'work' | 'chat') || 'work',
       pinned: Boolean(row.pinned),
@@ -991,9 +986,7 @@ export class CoworkStore {
       cwd: row.cwd,
       systemPrompt: row.system_prompt,
       modelOverride: row.model_override || '',
-      executionMode: row.execution_mode === CoworkExecutionMode.Auto
-        ? CoworkExecutionMode.Auto
-        : CoworkExecutionMode.Local,
+      executionMode: (row.execution_mode as CoworkExecutionMode) || 'local',
       activeSkillIds,
       workspaceId: row.workspace_id || this.ensureWorkspace(row.cwd).id,
       agentId: row.agent_id || 'main',
@@ -1018,6 +1011,7 @@ export class CoworkStore {
       Pick<
         CoworkSession,
         | 'title'
+        | 'claudeSessionId'
         | 'status'
         | 'cwd'
         | 'systemPrompt'
@@ -1042,6 +1036,10 @@ export class CoworkStore {
       if (options.userInitiatedTitleChange) {
         setClauses.push('title_user_renamed = 1');
       }
+    }
+    if (updates.claudeSessionId !== undefined) {
+      setClauses.push('claude_session_id = ?');
+      values.push(updates.claudeSessionId);
     }
     if (updates.status !== undefined) {
       setClauses.push('status = ?');
@@ -1349,7 +1347,6 @@ export class CoworkStore {
       type: row.type as CoworkMessageType,
       content: row.content,
       timestamp: row.created_at,
-      ...(row.sequence != null ? { sequence: row.sequence } : {}),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
     }));
   }
@@ -1385,7 +1382,6 @@ export class CoworkStore {
         type: row.type as CoworkMessageType,
         content: row.content,
         timestamp: row.created_at,
-        ...(row.sequence != null ? { sequence: row.sequence } : {}),
         metadata,
       };
     });
@@ -1430,7 +1426,6 @@ export class CoworkStore {
       type: message.type,
       content: message.content,
       timestamp: now,
-      sequence,
       metadata: message.metadata,
     };
   }
@@ -1472,10 +1467,7 @@ export class CoworkStore {
         sequence,
       );
     this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
-    return {
-      ...message,
-      sequence,
-    };
+    return message;
   }
 
   /**
@@ -1536,7 +1528,6 @@ export class CoworkStore {
       type: message.type,
       content: message.content,
       timestamp: now,
-      sequence: targetSequence,
       metadata: message.metadata,
     };
   }
@@ -1704,7 +1695,7 @@ export class CoworkStore {
     return {
       workingDirectory: cfg.get('workingDirectory') || getDefaultWorkingDirectory(),
       systemPrompt: getDefaultSystemPrompt(),
-      executionMode: CoworkExecutionMode.Local,
+      executionMode: 'local' as CoworkExecutionMode,
       permissionMode: normalizePermissionMode(cfg.get('permissionMode')),
       permissionModeBySession: (() => {
         try {

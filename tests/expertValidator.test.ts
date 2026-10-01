@@ -52,7 +52,7 @@ function writeAgent(body: string): string {
   return agentPath;
 }
 
-test('rejects removed production tools without banning progress checklists', () => {
+test('rejects imported experts that own workflow progress', () => {
   const result = new ValidationResult();
   const agentPath = writeAgent(
     [
@@ -69,7 +69,8 @@ test('rejects removed production tools without banning progress checklists', () 
 
   expect(result.warnings).toEqual([]);
   expect(result.errors).toEqual([
-    'test-expert.md: removed production workflow tools are unavailable (production_loop, skip_workflow)',
+    'test-expert.md: Markdown progress checklists conflict with runtime-owned production progress (任务进度)',
+    'test-expert.md: production workflow tools are runtime-owned (production_loop, skip_workflow)',
   ]);
 });
 
@@ -132,14 +133,15 @@ test('allows checkboxes inside delivery templates and domain QA sections', () =>
   expect(result.errors).toEqual([]);
 });
 
-test('allows progress checklists without a production state machine', () => {
+test('rejects progress checklists under English progress headings', () => {
   for (const heading of ['## Task Progress', '## Execution Status', '## Phase Status']) {
     const result = new ValidationResult();
     const agentPath = writeAgent(['# Test expert', '', heading, '- [ ] Track phase'].join('\n'));
 
     validateAgentMd(agentPath, result);
 
-    expect(result.errors).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('Markdown progress checklists');
   }
 });
 

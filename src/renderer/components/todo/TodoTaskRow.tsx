@@ -11,8 +11,6 @@ import { formatTodoDate, isTodoOverdue } from './todoUtils';
 interface TodoTaskRowProps {
   todo: Todo;
   language: 'zh' | 'en';
-  /** 当前列表内不展示列表名；其他视图才展示所属列表 */
-  showListName?: boolean;
   onOpen: () => void;
   onToggleComplete: (completed: boolean) => void;
   onToggleImportant: () => void;
@@ -21,7 +19,6 @@ interface TodoTaskRowProps {
 const TodoTaskRow: React.FC<TodoTaskRowProps> = ({
   todo,
   language,
-  showListName = true,
   onOpen,
   onToggleComplete,
   onToggleImportant,
@@ -64,7 +61,7 @@ const TodoTaskRow: React.FC<TodoTaskRowProps> = ({
           {todo.title}
         </p>
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          {showListName && todo.listName ? <span className="truncate">{todo.listName}</span> : null}
+          {todo.listName ? <span className="truncate">{todo.listName}</span> : null}
           {todo.dueAt !== null ? (
             <span className={cn('inline-flex items-center gap-1', overdue && 'text-destructive')}>
               <CalendarDays className="size-3" aria-hidden="true" />

@@ -3,9 +3,11 @@ export const PiSubagentProfileId = {
   Scout: 'scout',
   Planner: 'planner',
   Reviewer: 'reviewer',
+  ProductionReviewer: 'production-reviewer',
 } as const;
 
-export type PiSubagentProfileId = (typeof PiSubagentProfileId)[keyof typeof PiSubagentProfileId];
+export type PiSubagentProfileId =
+  (typeof PiSubagentProfileId)[keyof typeof PiSubagentProfileId];
 
 export const PiSubagentToolName = 'subagent';
 

@@ -1,14 +1,11 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import { statSync } from 'fs';
 import { readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises';
 import path from 'path';
-import { getCodingAgentEnvironment } from './agentEnvironment';
 
 import {
   CodingAgentDriverKind,
-  CodingErrorDetailMessage,
-  CodingErrorMessage,
   CodingAssignmentStatus,
   CodingWorkflowStage,
   CodingEventKind,
@@ -39,8 +36,6 @@ import {
   type CodingLaneViewStateInput,
   type CodingPermissionResponse,
   CodingElicitationStatus,
-  CodingEventWindowPageSize,
-  type CodingEventPage,
   type CodingElicitationResponse,
   type CodingPromptAttachment,
   type CodingPromptInput,
@@ -59,8 +54,6 @@ import { CollaborationService } from './collaborationService';
 import { CodingGitController } from './codingGitController';
 import { WorkspaceBroker } from './workspaceBroker';
 import { CodingRoomRepository } from './codingRoomRepository';
-import { CodingEventWindowReader } from './codingEventWindowReader';
-import { CodingEventDeltaBatcher } from './codingEventDeltaBatcher';
 import { isAssistantResponseEvent } from './codingTurnResponse';
 import {
   persistCodingSessionRecord,
@@ -83,7 +76,6 @@ import {
 } from './builtinCodingMcpReport';
 import type { CoworkSessionInterruption } from '../../shared/cowork/interruption';
 import { WorkbenchApprovalMode } from '../../shared/workbenchTask';
-import { inspectWorkspaceContentAsync } from '../workbenchTask/artifactWorkerPool';
 import type { CoworkPendingMessage } from '../../shared/cowork/pendingMessageQueue';
 import {
   CoworkQueueDelivery,
@@ -180,6 +172,29 @@ export interface CodingRoomRuntime {
 
 type DriverSession = { id: string; connectionGeneration: number | null };
 
+const ACP_ENVIRONMENT_KEYS = [
+  'PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'LANG',
+  'LC_ALL',
+  // Windows-specific variables needed for npm global resolution, shell
+  // helpers, and credential stores used by ACP agents (e.g. Kimi Code CLI).
+  'APPDATA',
+  'LOCALAPPDATA',
+  'COMSPEC',
+  'PATHEXT',
+  'SystemRoot',
+  'USERPROFILE',
+  'USERNAME',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+] as const;
+
 export class CodingRoomService extends EventEmitter {
   private readonly drivers = new Map<string, CodingAgentDriver>();
   private readonly driverSessionIds = new Map<string, DriverSession>();
@@ -192,14 +207,15 @@ export class CodingRoomService extends EventEmitter {
   private readonly collaboration = new CollaborationService();
   private readonly authTerminals = new AuthTerminalService();
   private readonly git: CodingGitController;
-  private readonly eventWindowReader: CodingEventWindowReader;
-  private readonly eventDeltaBatcher: CodingEventDeltaBatcher;
   private readonly laneTurnGenerations = new Map<string, number>();
   private readonly cancelledTurnGenerations = new Map<string, number>();
   private readonly acpPendingMessages = new Map<string, CoworkPendingMessage[]>();
   private readonly stagedLaneIds = new Set<string>();
   /** Maps builtin sessionId → laneId to avoid scanning all rooms per event. */
   private readonly builtinSessionLaneMap = new Map<string, string>();
+  /** Per-workspace throttle timers so streamed events publish snapshots in batches. */
+  private readonly publishTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly PUBLISH_THROTTLE_MS = 100;
 
   constructor(
     private readonly repository: CodingRoomRepository,
@@ -209,10 +225,6 @@ export class CodingRoomService extends EventEmitter {
   ) {
     super();
     this.git = new CodingGitController(repository);
-    this.eventWindowReader = new CodingEventWindowReader(repository.getDatabase());
-    this.eventDeltaBatcher = new CodingEventDeltaBatcher(delta =>
-      this.emit('eventDelta', delta),
-    );
     const patchBuiltinSession = this.runtime.patchBuiltinSession?.bind(this.runtime);
     const listCommandChoices = this.runtime.listCommandChoices?.bind(this.runtime);
     const commandCatalogGeneration = this.runtime.commandCatalogGeneration?.bind(this.runtime);
@@ -237,7 +249,10 @@ export class CodingRoomService extends EventEmitter {
         listCommandChoices,
         commandCatalogGeneration,
       },
-      acpEnvironment,
+      {
+        ...Object.fromEntries(ACP_ENVIRONMENT_KEYS.map(key => [key, process.env[key]])),
+        ...acpEnvironment,
+      },
     );
     registry.on('changed', () => {
       for (const room of this.repository.listRooms()) this.publish(room.workspaceRoot);
@@ -248,45 +263,21 @@ export class CodingRoomService extends EventEmitter {
     });
   }
 
-  bootstrap(
-    workspaceRoot: string,
-    options: { eventLimitPerLane?: number } = {},
-  ): CodingRoomSnapshot {
+  bootstrap(workspaceRoot: string): CodingRoomSnapshot {
     this.registry.refreshBuiltinReadiness();
     const room = this.repository.getOrCreateRoom(workspaceRoot);
     const missions = this.repository.listMissions(room.id);
     const lanes = this.repository.listLanes(missions.map(mission => mission.id));
     const assignments = this.repository.listAssignments(missions.map(mission => mission.id));
-    const eventWindow =
-      options.eventLimitPerLane === undefined
-        ? { events: this.repository.listEvents(lanes.map(lane => lane.id)), windows: [] }
-        : this.eventWindowReader.listRecent(
-            lanes.map(lane => lane.id),
-            options.eventLimitPerLane,
-          );
     return {
       room,
       profiles: this.registry.list(),
       missions,
       lanes,
       assignments,
-      events: eventWindow.events,
-      ...(eventWindow.windows.length > 0 ? { eventWindows: eventWindow.windows } : {}),
+      events: this.repository.listEvents(lanes.map(lane => lane.id)),
       elicitations: this.repository.listElicitations(lanes.map(lane => lane.id)),
     };
-  }
-
-  loadEventPage(
-    workspaceRoot: string,
-    laneId: string,
-    beforeSequence: number | null,
-  ): CodingEventPage {
-    const room = this.repository.getRoomByRoot(workspaceRoot);
-    const laneRoom = this.repository.getRoomByLaneId(laneId);
-    if (!room || !laneRoom || laneRoom.id !== room.id) {
-      throw new Error('The coding event lane does not belong to this workspace.');
-    }
-    return this.eventWindowReader.loadPage(laneId, beforeSequence, CodingEventWindowPageSize);
   }
 
   listProfiles() {
@@ -347,7 +338,7 @@ export class CodingRoomService extends EventEmitter {
     const sourceFolders = this.requireSourceFolders(input.sourceFolders);
     const defaultProfileId = this.requireProfile(input.defaultProfileId).id;
     if (sourceFolders.some(source => this.repository.findWorkspaceIdBySource(source))) {
-      throw new Error(CodingErrorMessage.WorkspaceSourceInUse);
+      throw new Error('A source folder already belongs to another coding workspace.');
     }
     this.repository.createWorkspace(name, sourceFolders, defaultProfileId);
     return this.listWorkspaces();
@@ -355,7 +346,7 @@ export class CodingRoomService extends EventEmitter {
 
   updateWorkspace(input: UpdateCodingWorkspaceInput): CodingWorkspaceSummary[] {
     const room = this.repository.getRoomById(input.workspaceId);
-    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+    if (!room) throw new Error('Coding workspace was not found.');
     const name = this.requireWorkspaceName(input.name);
     const sourceFolders = this.requireSourceFolders(input.sourceFolders);
     const defaultProfileId = this.requireProfile(input.defaultProfileId).id;
@@ -364,10 +355,10 @@ export class CodingRoomService extends EventEmitter {
     const referencedSources = new Set(lanes.map(lane => path.resolve(lane.sourceRoot)));
     const nextSources = new Set(sourceFolders);
     if ([...referencedSources].some(source => !nextSources.has(source))) {
-      throw new Error(CodingErrorMessage.WorkspaceSourceNotRemovable);
+      throw new Error('A source folder with existing coding sessions cannot be removed.');
     }
     if (missions.length > 0 && sourceFolders[0] !== path.resolve(room.workspaceRoot)) {
-      throw new Error(CodingErrorMessage.WorkspacePrimaryLocked);
+      throw new Error('The primary source folder cannot change after a coding session is created.');
     }
     if (
       sourceFolders.some(source => {
@@ -375,11 +366,11 @@ export class CodingRoomService extends EventEmitter {
         return owner !== null && owner !== room.id;
       })
     ) {
-      throw new Error(CodingErrorMessage.WorkspaceSourceInUse);
+      throw new Error('A source folder already belongs to another coding workspace.');
     }
     const conflict = this.repository.getRoomByRoot(sourceFolders[0]);
     if (conflict && conflict.id !== room.id) {
-      throw new Error(CodingErrorMessage.WorkspacePrimaryInUse);
+      throw new Error('A coding workspace already uses this primary source folder.');
     }
     this.repository.updateWorkspace(room.id, name, sourceFolders, defaultProfileId);
     return this.listWorkspaces();
@@ -387,7 +378,7 @@ export class CodingRoomService extends EventEmitter {
 
   deleteWorkspace(workspaceId: string): CodingWorkspaceSummary[] {
     const room = this.repository.getRoomById(workspaceId);
-    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+    if (!room) throw new Error('Coding workspace was not found.');
     const missions = this.repository.listMissions(room.id);
     const lanes = this.repository.listLanes(missions.map(mission => mission.id));
     if (
@@ -398,7 +389,7 @@ export class CodingRoomService extends EventEmitter {
           lane.status === CodingLaneStatus.WaitingElicitation,
       )
     ) {
-      throw new Error(CodingErrorMessage.WorkspaceSessionsRunning);
+      throw new Error('Stop all running coding sessions before removing this workspace.');
     }
     for (const lane of lanes) {
       void this.drivers.get(lane.id)?.dispose();
@@ -416,17 +407,17 @@ export class CodingRoomService extends EventEmitter {
     const room =
       this.repository.getRoomByRoot(workspaceRoot) ??
       this.repository.getRoomByRoot(path.resolve(workspaceRoot));
-    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+    if (!room) throw new Error('Coding workspace was not found.');
     const missions = this.repository.listMissions(room.id);
     const lanes = this.repository.listLanes(missions.map(mission => mission.id));
     const lane = lanes.find(candidate => candidate.id === laneId);
-    if (!lane) throw new Error(CodingErrorMessage.SessionNotFound);
+    if (!lane) throw new Error('The coding session was not found.');
     if (
       lane.status === CodingLaneStatus.Running ||
       lane.status === CodingLaneStatus.WaitingApproval ||
       lane.status === CodingLaneStatus.WaitingElicitation
     ) {
-      throw new Error(CodingErrorMessage.SessionRunning);
+      throw new Error('Stop the running coding session before deleting it.');
     }
     const missionLanes = lanes.filter(candidate => candidate.missionId === lane.missionId);
     const implementationLaneId = this.repository
@@ -475,7 +466,7 @@ export class CodingRoomService extends EventEmitter {
 
   async startSession(input: StartCodingSessionInput): Promise<CodingRoomSnapshot> {
     const prompt = input.prompt.trim();
-    if (!prompt) throw new Error(CodingErrorMessage.PromptRequired);
+    if (!prompt) throw new Error('Prompt is required.');
     const selectedProfile = this.registry.get(input.profileId);
     if (
       selectedProfile &&
@@ -548,9 +539,9 @@ export class CodingRoomService extends EventEmitter {
   async createMission(input: CreateCodingMissionInput): Promise<CodingRoomSnapshot> {
     this.registry.refreshBuiltinReadiness();
     const profile = this.registry.get(input.profileId);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+    if (!profile) throw new Error('Coding agent profile was not found.');
     if (profile.status !== CodingAgentProfileStatus.Ready) {
-      throw new Error(CodingErrorMessage.ProfileNotReady);
+      throw new Error('The selected coding agent is not ready to run.');
     }
     const room = this.repository.getOrCreateRoom(input.workspaceRoot);
     const mission = this.repository.createMission(
@@ -628,7 +619,7 @@ export class CodingRoomService extends EventEmitter {
     text: string,
   ): { success: boolean; item?: CoworkPendingMessage; error?: string } {
     const normalized = text.trim();
-    if (!normalized) return { success: false, error: CodingErrorMessage.MessageTextRequired };
+    if (!normalized) return { success: false, error: 'Message text is required.' };
     const item: CoworkPendingMessage = {
       id: randomUUID(),
       text: normalized,
@@ -649,12 +640,12 @@ export class CodingRoomService extends EventEmitter {
     text: string,
   ): { success: boolean; error?: string } {
     const normalized = text.trim();
-    if (!normalized) return { success: false, error: CodingErrorMessage.MessageTextRequired };
+    if (!normalized) return { success: false, error: 'Message text is required.' };
     const items = this.acpPendingMessages.get(laneId) ?? [];
     const item = items.find(candidate => candidate.id === itemId);
-    if (!item) return { success: false, error: CodingErrorMessage.PendingMessageNotFound };
+    if (!item) return { success: false, error: 'Pending message was not found.' };
     if (item.status === CoworkQueueItemStatus.Sending) {
-      return { success: false, error: CodingErrorMessage.PendingMessageEditWhileSending };
+      return { success: false, error: 'A pending message cannot be edited while sending.' };
     }
     item.text = normalized;
     item.status = CoworkQueueItemStatus.Pending;
@@ -667,7 +658,7 @@ export class CodingRoomService extends EventEmitter {
     const items = this.acpPendingMessages.get(laneId) ?? [];
     const next = items.filter(item => item.id !== itemId);
     if (next.length === items.length)
-      return { success: false, error: CodingErrorMessage.PendingMessageNotFound };
+      return { success: false, error: 'Pending message was not found.' };
     if (next.length) this.acpPendingMessages.set(laneId, next);
     else this.acpPendingMessages.delete(laneId);
     this.emitPendingMessagesChanged(laneId);
@@ -681,9 +672,9 @@ export class CodingRoomService extends EventEmitter {
   ): Promise<CodingRoomSnapshot> {
     const items = this.acpPendingMessages.get(laneId) ?? [];
     const item = items.find(candidate => candidate.id === itemId);
-    if (!item) throw new Error(CodingErrorMessage.PendingMessageNotFound);
+    if (!item) throw new Error('Pending message was not found.');
     if (item.status === CoworkQueueItemStatus.Sending) {
-      throw new Error(CodingErrorMessage.PendingMessageSending);
+      throw new Error('A pending message is already being sent.');
     }
     item.delivery = CoworkQueueDelivery.Steer;
     item.status = CoworkQueueItemStatus.Sending;
@@ -706,12 +697,12 @@ export class CodingRoomService extends EventEmitter {
     const item = (this.acpPendingMessages.get(laneId) ?? []).find(
       candidate => candidate.id === itemId,
     );
-    if (!item) throw new Error(CodingErrorMessage.PendingMessageNotFound);
+    if (!item) throw new Error('Pending message was not found.');
     if (item.delivery !== CoworkQueueDelivery.FollowUp) {
-      throw new Error(CodingErrorMessage.PendingMessageSteerOnly);
+      throw new Error('This pending message must be sent as a steer.');
     }
     if (item.status === CoworkQueueItemStatus.Sending) {
-      throw new Error(CodingErrorMessage.PendingMessageSending);
+      throw new Error('A pending message is already being sent.');
     }
     item.status = CoworkQueueItemStatus.Sending;
     delete item.error;
@@ -743,7 +734,7 @@ export class CodingRoomService extends EventEmitter {
     ) {
       const profile = this.registry.get(lane.profileId);
       const prompt = input.prompt.trim();
-      if (!prompt) throw new Error(CodingErrorMessage.PromptRequired);
+      if (!prompt) throw new Error('Prompt is required.');
       if (profile?.driverKind === CodingAgentDriverKind.Builtin) {
         const driver = this.getDriver(lane);
         const session = await this.ensureDriverSession(
@@ -754,30 +745,30 @@ export class CodingRoomService extends EventEmitter {
         if (input.delivery === CodingPromptDelivery.Steer) {
           const result = await this.runtime.steerBuiltinMessage?.(session.id, prompt);
           if (result?.success) return this.publish(workspaceRoot);
-          throw new Error(result?.error ?? CodingErrorMessage.SteerFailed);
+          throw new Error(result?.error ?? 'Failed to steer the coding agent.');
         }
         const result = this.runtime.enqueueBuiltinMessage?.(session.id, prompt);
         if (result?.success) return this.publish(workspaceRoot);
-        throw new Error(result?.error ?? CodingErrorMessage.QueuePromptFailed);
+        throw new Error(result?.error ?? 'Failed to queue the coding prompt.');
       }
       if (profile?.driverKind === CodingAgentDriverKind.Acp) {
         const queued = this.enqueuePendingMessage(lane.id, prompt);
         if (!queued.success || !queued.item)
-          throw new Error(queued.error ?? CodingErrorMessage.QueuePromptFailed);
+          throw new Error(queued.error ?? 'Failed to queue the coding prompt.');
         if (input.delivery === CodingPromptDelivery.Steer) {
           return await this.steerPendingMessage(workspaceRoot, lane.id, queued.item.id);
         }
         return this.publish(workspaceRoot);
       }
-      throw new Error(CodingErrorMessage.LaneTurnActive);
+      throw new Error('This coding agent lane already has an active turn.');
     }
     const profile = this.registry.get(lane.profileId);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+    if (!profile) throw new Error('Coding agent profile was not found.');
     if (profile.status !== CodingAgentProfileStatus.Ready) {
-      throw new Error(CodingErrorMessage.ProfileNotReady);
+      throw new Error('The selected coding agent is not ready to run.');
     }
     const prompt = input.prompt.trim();
-    if (!prompt) throw new Error(CodingErrorMessage.PromptRequired);
+    if (!prompt) throw new Error('Prompt is required.');
 
     const executionRoot = this.executionRoot(lane, workspaceRoot);
     if (this.requiresWriterLease(lane.sourceRoot, executionRoot)) {
@@ -837,7 +828,6 @@ export class CodingRoomService extends EventEmitter {
       this.repository.updateLaneStatus(lane.id, failureStatus);
       this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.Failed);
       this.updateLaneAssignmentStatus(snapshot, lane.id, CodingAssignmentStatus.Failed);
-      console.error('[CodingRoom] turn failed:', error);
       this.repository.appendEvent(lane.id, CodingEventKind.TurnFailed, {
         error: this.errorMessage(error),
       });
@@ -856,10 +846,10 @@ export class CodingRoomService extends EventEmitter {
     const lane = this.requireLane(snapshot.lanes, laneId);
     const profile = this.registry.get(lane.profileId);
     if (!profile || profile.status !== CodingAgentProfileStatus.Ready) {
-      throw new Error(CodingErrorMessage.ProfileNotReady);
+      throw new Error('The selected coding agent is not ready to run.');
     }
     if (!lane.pendingRecoveryPrompt || !lane.pendingRecoveryContext) {
-      throw new Error(CodingErrorMessage.RecoveryNotRequired);
+      throw new Error('The coding session does not require recovery confirmation.');
     }
     const executionRoot = this.executionRoot(lane, workspaceRoot);
     if (this.requiresWriterLease(lane.sourceRoot, executionRoot)) {
@@ -981,7 +971,7 @@ export class CodingRoomService extends EventEmitter {
     const source = this.requireLane(snapshot.lanes, sourceLaneId);
     const target = this.requireLane(snapshot.lanes, targetLaneId);
     if (source.missionId !== target.missionId) {
-      throw new Error(CodingErrorMessage.HandoffSameMission);
+      throw new Error('Handoffs require lanes in the same coding mission.');
     }
     return this.collaboration.buildHandoff({
       snapshot,
@@ -1003,7 +993,7 @@ export class CodingRoomService extends EventEmitter {
     const source = this.requireLane(snapshot.lanes, sourceLaneId);
     const target = this.requireLane(snapshot.lanes, targetLaneId);
     if (source.missionId !== target.missionId) {
-      throw new Error(CodingErrorMessage.HandoffSameMission);
+      throw new Error('Handoffs require lanes in the same coding mission.');
     }
     const content = await this.previewHandoff(workspaceRoot, sourceLaneId, targetLaneId);
     const handoffId = this.repository.createHandoff(
@@ -1034,15 +1024,15 @@ export class CodingRoomService extends EventEmitter {
     this.registry.refreshBuiltinReadiness();
     const snapshot = this.bootstrap(workspaceRoot);
     if (!snapshot.missions.some(mission => mission.id === missionId)) {
-      throw new Error(CodingErrorMessage.MissionNotFound);
+      throw new Error('Coding mission was not found.');
     }
     const profile = this.registry.get(profileId);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+    if (!profile) throw new Error('Coding agent profile was not found.');
     if (profile.status !== CodingAgentProfileStatus.Ready) {
-      throw new Error(CodingErrorMessage.ProfileNotReady);
+      throw new Error('The selected coding agent is not ready to run.');
     }
     if (!this.runtime.createIsolatedWorkspace) {
-      throw new Error(CodingErrorMessage.RuntimeIsolatedUnsupported);
+      throw new Error('The coding runtime cannot create an isolated workspace.');
     }
     const mission = snapshot.missions.find(candidate => candidate.id === missionId);
     const laneId = randomUUID();
@@ -1074,16 +1064,16 @@ export class CodingRoomService extends EventEmitter {
   ): Promise<CodingRoomSnapshot> {
     const snapshot = this.bootstrap(input.workspaceRoot);
     const mission = snapshot.missions.find(candidate => candidate.id === input.missionId);
-    if (!mission) throw new Error(CodingErrorMessage.MissionNotFound);
+    if (!mission) throw new Error('Coding mission was not found.');
     if (!this.runtime.createIsolatedWorkspace) {
-      throw new Error(CodingErrorMessage.RuntimeIsolatedUnsupported);
+      throw new Error('The coding runtime cannot create an isolated workspace.');
     }
     const implementation = snapshot.assignments.find(
       assignment =>
         assignment.missionId === mission.id &&
         assignment.workflowStage === CodingWorkflowStage.Implementation,
     );
-    if (!implementation) throw new Error(CodingErrorMessage.MissionNoImplementation);
+    if (!implementation) throw new Error('The coding mission has no implementation assignment.');
     const stages = [
       {
         profileId: input.reviewerProfileId,
@@ -1102,9 +1092,9 @@ export class CodingRoomService extends EventEmitter {
     let previousAssignmentId = implementation.id;
     for (const stage of stages) {
       const profile = this.registry.get(stage.profileId);
-      if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+      if (!profile) throw new Error('Coding agent profile was not found.');
       if (profile.status !== CodingAgentProfileStatus.Ready) {
-        throw new Error(CodingErrorMessage.ProfileNotReady);
+        throw new Error('The selected coding agent is not ready to run.');
       }
       const laneId = randomUUID();
       const sourceRoot =
@@ -1157,16 +1147,16 @@ export class CodingRoomService extends EventEmitter {
     const snapshot = this.bootstrap(workspaceRoot);
     const lane = this.requireLane(snapshot.lanes, input.laneId);
     const option = lane.configOptions.find(candidate => candidate.id === input.configId);
-    if (!option) throw new Error(CodingErrorMessage.ConfigOptionNotFound);
+    if (!option) throw new Error('The coding agent configuration option was not found.');
     if (option.type === 'select') {
       if (
         typeof input.value !== 'string' ||
         !option.options?.some(candidate => candidate.value === input.value)
       ) {
-        throw new Error(CodingErrorMessage.ConfigValueInvalid);
+        throw new Error('The selected coding agent configuration value is invalid.');
       }
     } else if (typeof input.value !== 'boolean') {
-      throw new Error(CodingErrorMessage.ConfigValueInvalid);
+      throw new Error('The selected coding agent configuration value is invalid.');
     }
     const driver = this.getDriver(lane);
     const session = await this.ensureDriverSession(
@@ -1189,7 +1179,7 @@ export class CodingRoomService extends EventEmitter {
     const lane = this.requireLane(snapshot.lanes, laneId);
     const profile = this.registry.get(lane.profileId);
     if (profile?.driverKind !== CodingAgentDriverKind.Builtin) {
-      throw new Error(CodingErrorMessage.ModelSwitchBuiltinOnly);
+      throw new Error('Only the built-in coding agent supports switching models here.');
     }
     const normalized = modelOverride?.trim() || null;
     this.repository.updateLaneModelOverride(lane.id, normalized);
@@ -1207,10 +1197,10 @@ export class CodingRoomService extends EventEmitter {
     const lane = this.requireLane(snapshot.lanes, laneId);
     const executionRoot = this.executionRoot(lane, workspaceRoot);
     if (this.requiresWriterLease(lane.sourceRoot, executionRoot)) {
-      throw new Error(CodingErrorMessage.CollaboratorPreviewIsolatedOnly);
+      throw new Error('Only isolated collaborator worktrees can be previewed for application.');
     }
     if (!this.runtime.getIsolatedWorkspaceDiff) {
-      throw new Error(CodingErrorMessage.RuntimeIsolatedDiffUnsupported);
+      throw new Error('The coding runtime cannot inspect isolated workspace changes.');
     }
     return { laneId: lane.id, diff: await this.runtime.getIsolatedWorkspaceDiff(executionRoot) };
   }
@@ -1220,13 +1210,13 @@ export class CodingRoomService extends EventEmitter {
     const lane = this.requireLane(snapshot.lanes, laneId);
     const executionRoot = this.executionRoot(lane, workspaceRoot);
     if (this.requiresWriterLease(lane.sourceRoot, executionRoot)) {
-      throw new Error(CodingErrorMessage.CollaboratorApplyIsolatedOnly);
+      throw new Error('Only isolated collaborator worktrees can be applied.');
     }
     if (this.repository.getWriterLease(snapshot.room.id, lane.sourceRoot)) {
-      throw new Error(CodingErrorMessage.WorkspaceWriterBusy);
+      throw new Error('Wait for the active workspace writer before applying collaborator changes.');
     }
     if (!this.runtime.applyIsolatedWorkspaceDiff) {
-      throw new Error(CodingErrorMessage.RuntimeIsolatedApplyUnsupported);
+      throw new Error('The coding runtime cannot apply isolated workspace changes.');
     }
     await this.runtime.applyIsolatedWorkspaceDiff({
       workspaceRoot: lane.sourceRoot,
@@ -1287,7 +1277,7 @@ export class CodingRoomService extends EventEmitter {
     const relativePath = this.requireWorkspaceRelativePath(input.path);
     const directoryPath = await broker.resolveTarget(relativePath);
     const directory = await stat(directoryPath);
-    if (!directory.isDirectory()) throw new Error(CodingErrorMessage.WorkspacePathNotDirectory);
+    if (!directory.isDirectory()) throw new Error('The requested workspace path is not a directory.');
 
     const entries = await readdir(directoryPath, { withFileTypes: true });
     return entries
@@ -1307,42 +1297,40 @@ export class CodingRoomService extends EventEmitter {
   async readWorkspaceFile(input: CodingWorkspaceFileInput): Promise<CodingWorkspaceFileContent> {
     const { sourceRoot, broker } = this.resolveWorkspaceBrowser(input);
     const relativePath = this.requireWorkspaceRelativePath(input.path);
-    if (!relativePath) throw new Error(CodingErrorMessage.FilePreviewNotSelected);
+    if (!relativePath) throw new Error('Select a workspace file to preview.');
     const filePath = await broker.resolveTarget(relativePath);
     const file = await stat(filePath);
-    if (!file.isFile()) throw new Error(CodingErrorMessage.WorkspacePathNotFile);
-    if (file.size > 512 * 1024) throw new Error(CodingErrorMessage.FilePreviewTooLarge);
+    if (!file.isFile()) throw new Error('The requested workspace path is not a file.');
+    if (file.size > 512 * 1024) throw new Error('Files larger than 512 KB cannot be previewed.');
 
     const content = await readFile(filePath);
-    const inspected = await inspectWorkspaceContentAsync(content);
-    if (inspected.binary) throw new Error(CodingErrorMessage.FilePreviewBinary);
+    if (content.includes(0)) throw new Error('Binary files cannot be previewed.');
     return {
       path: path.relative(sourceRoot, filePath),
-      content: inspected.text,
-      sha256: inspected.sha256,
+      content: content.toString('utf8'),
+      sha256: createHash('sha256').update(content).digest('hex'),
     };
   }
 
   async writeWorkspaceFile(input: CodingWorkspaceFileWriteInput): Promise<CodingWorkspaceFileContent> {
-    if (typeof input.content !== 'string') throw new Error(CodingErrorMessage.FileEditTextRequired);
+    if (typeof input.content !== 'string') throw new Error('Workspace file content must be text.');
     const content = Buffer.from(input.content, 'utf8');
-    if (content.length > 512 * 1024) throw new Error(CodingErrorMessage.FileEditTooLarge);
+    if (content.length > 512 * 1024) throw new Error('Files larger than 512 KB cannot be edited.');
     const { sourceRoot, broker, roomId } = this.resolveWorkspaceBrowser(input);
     const relativePath = this.requireWorkspaceRelativePath(input.path);
-    if (!relativePath) throw new Error(CodingErrorMessage.FileEditNotSelected);
+    if (!relativePath) throw new Error('Select a workspace file to edit.');
     if (this.repository.getWriterLease(roomId, sourceRoot)) {
-      throw new Error(CodingErrorMessage.FileEditWriterBusy);
+      throw new Error('Wait for the active workspace writer before saving this file.');
     }
     const filePath = await broker.resolveTarget(relativePath);
     const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) throw new Error(CodingErrorMessage.WorkspacePathNotFile);
+    if (!fileStat.isFile()) throw new Error('The requested workspace path is not a file.');
     const current = await readFile(filePath);
-    const currentInspection = await inspectWorkspaceContentAsync(current);
-    if (currentInspection.sha256 !== input.expectedSha256) {
-      throw new Error(CodingErrorMessage.FileEditChanged);
+    const currentSha256 = createHash('sha256').update(current).digest('hex');
+    if (currentSha256 !== input.expectedSha256) {
+      throw new Error('The file changed outside the editor. Reload it before saving.');
     }
-    if (currentInspection.binary) throw new Error(CodingErrorMessage.FileEditBinary);
-    const nextInspection = await inspectWorkspaceContentAsync(content);
+    if (current.includes(0)) throw new Error('Binary files cannot be edited.');
     const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporaryPath, content, { mode: fileStat.mode });
@@ -1353,7 +1341,7 @@ export class CodingRoomService extends EventEmitter {
     return {
       path: path.relative(sourceRoot, filePath),
       content: input.content,
-      sha256: nextInspection.sha256,
+      sha256: createHash('sha256').update(content).digest('hex'),
     };
   }
 
@@ -1368,57 +1356,42 @@ export class CodingRoomService extends EventEmitter {
       this.repository
         .listRooms()
         .find(candidate => path.resolve(candidate.workspaceRoot) === workspaceRoot);
-    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+    if (!room) throw new Error('Coding workspace was not found.');
 
     const sourceRoot = path.resolve(input.sourceRoot || room.workspaceRoot);
     const source = this.repository
       .listWorkspaceSources(room.id)
       .find(candidate => path.resolve(candidate.path) === sourceRoot);
-    if (!source) throw new Error(CodingErrorMessage.FileAccessNotInWorkspace);
+    if (!source) throw new Error('File access is limited to folders in the coding workspace.');
     return { roomId: room.id, sourceRoot, broker: new WorkspaceBroker(sourceRoot) };
   }
 
   private requireWorkspaceRelativePath(value: string | undefined): string {
     const relativePath = value?.trim() ?? '';
     if (path.isAbsolute(relativePath) || relativePath.split(path.sep).includes('..')) {
-      throw new Error(CodingErrorMessage.WorkspaceRelativePath);
+      throw new Error('Workspace paths must stay inside the selected source folder.');
     }
     return relativePath;
   }
 
-  /**
-   * Agent profiles are global configuration, so the manager has to keep working
-   * before any workspace exists. Only a real workspace gets a refreshed room
-   * snapshot back; otherwise the caller refreshes profiles with `listProfiles`.
-   */
-  private publishProfilesOrSnapshot(workspaceRoot: string): CodingRoomSnapshot | null {
-    if (!workspaceRoot.trim()) {
-      this.registry.refreshBuiltinReadiness();
-      return null;
-    }
+  async probeAgent(workspaceRoot: string, profileId: string): Promise<CodingRoomSnapshot> {
+    await this.registry.probe(profileId, workspaceRoot);
     return this.publish(workspaceRoot);
   }
 
-  async probeAgent(workspaceRoot: string, profileId: string): Promise<CodingRoomSnapshot | null> {
-    // Connectivity only needs a directory to start the agent in; it does not
-    // depend on which workspace is open.
-    await this.registry.probe(profileId, workspaceRoot.trim() || process.cwd());
-    return this.publishProfilesOrSnapshot(workspaceRoot);
-  }
-
-  async discoverAgents(workspaceRoot: string): Promise<CodingRoomSnapshot | null> {
+  async discoverAgents(workspaceRoot: string): Promise<CodingRoomSnapshot> {
     await this.registry.discoverExternalAgents();
-    return this.publishProfilesOrSnapshot(workspaceRoot);
+    return this.publish(workspaceRoot);
   }
 
-  addProfile(workspaceRoot: string, input: AddCodingAgentProfileInput): CodingRoomSnapshot | null {
+  addProfile(workspaceRoot: string, input: AddCodingAgentProfileInput): CodingRoomSnapshot {
     this.registry.addUntrustedProfile(input);
-    return this.publishProfilesOrSnapshot(workspaceRoot);
+    return this.publish(workspaceRoot);
   }
 
-  trustProfile(workspaceRoot: string, profileId: string): CodingRoomSnapshot | null {
+  trustProfile(workspaceRoot: string, profileId: string): CodingRoomSnapshot {
     this.registry.trust(profileId);
-    return this.publishProfilesOrSnapshot(workspaceRoot);
+    return this.publish(workspaceRoot);
   }
 
   async authenticateProfile(
@@ -1428,20 +1401,20 @@ export class CodingRoomService extends EventEmitter {
   ): Promise<CodingRoomSnapshot> {
     const profile = this.registry.get(profileId);
     if (!profile || profile.isBuiltin || profile.status !== CodingAgentProfileStatus.NeedsAuth) {
-      throw new Error(CodingErrorMessage.ProfileNotAwaitingAuth);
+      throw new Error('The coding agent profile is not waiting for authentication.');
     }
     const method = profile.authMethods.find(candidate => candidate.id === methodId);
-    if (!method) throw new Error(CodingErrorMessage.AuthMethodNotFound);
+    if (!method) throw new Error('The coding agent authentication method was not found.');
     if (method.type === 'terminal') {
-      throw new Error(CodingErrorMessage.AgentTerminalAuthRequired);
+      throw new Error('This coding agent requires interactive terminal authentication.');
     }
     const driver = this.driverFactory.create(profile);
     try {
       await driver.authenticate({ methodId, workspaceRoot });
+      this.registry.markReady(profileId);
     } finally {
       await driver.dispose();
     }
-    await this.registry.probe(profileId, workspaceRoot);
     return this.publish(workspaceRoot);
   }
 
@@ -1452,11 +1425,11 @@ export class CodingRoomService extends EventEmitter {
   ): { id: string; profileId: string; methodId: string } {
     const profile = this.registry.get(profileId);
     if (!profile || profile.isBuiltin || profile.status !== CodingAgentProfileStatus.NeedsAuth) {
-      throw new Error(CodingErrorMessage.ProfileNotAwaitingAuth);
+      throw new Error('The coding agent profile is not waiting for authentication.');
     }
     const method = profile.authMethods.find(candidate => candidate.id === methodId);
     if (!method || method.type !== 'terminal' || !profile.command) {
-      throw new Error(CodingErrorMessage.TerminalAuthUnavailable);
+      throw new Error('The coding agent terminal authentication method is not available.');
     }
     return this.authTerminals.start({
       profileId,
@@ -1492,12 +1465,12 @@ export class CodingRoomService extends EventEmitter {
         candidate.kind === CodingEventKind.Permission &&
         candidate.payload.requestId === response.requestId,
     );
-    if (!event) throw new Error(CodingErrorMessage.PermissionRequestNotFound);
+    if (!event) throw new Error('The coding permission request was not found.');
     const lane = this.requireLane(snapshot.lanes, event.laneId);
     console.debug(`[CodingRoom] received permission response for lane ${lane.id}`);
     if (this.registry.get(lane.profileId)?.driverKind === CodingAgentDriverKind.Builtin) {
       if (!this.runtime.respondBuiltinPermission) {
-        throw new Error(CodingErrorMessage.BuiltinPermissionUnsupported);
+        throw new Error('The built-in coding runtime cannot respond to permissions.');
       }
       this.runtime.respondBuiltinPermission(
         response.requestId,
@@ -1688,7 +1661,7 @@ export class CodingRoomService extends EventEmitter {
     kind: (typeof CodingEventKind)[keyof typeof CodingEventKind],
     payload: Record<string, unknown>,
   ): void {
-    const event = this.repository.appendOrMergeStreamEvent(lane.id, kind, payload);
+    this.repository.appendOrMergeStreamEvent(lane.id, kind, payload);
     if (kind === CodingEventKind.Permission) {
       this.repository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingApproval);
       this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.WaitingApproval);
@@ -1710,7 +1683,24 @@ export class CodingRoomService extends EventEmitter {
       this.publish(workspaceRoot);
       return;
     }
-    this.eventDeltaBatcher.enqueue(workspaceRoot, event);
+    // Throttle streaming events to avoid flooding the renderer with publishes.
+    this.schedulePublish(workspaceRoot);
+  }
+
+  private schedulePublish(workspaceRoot: string): void {
+    if (this.publishTimers.has(workspaceRoot) || this.isDisposed) return;
+    const timer = setTimeout(() => {
+      this.publishTimers.delete(workspaceRoot);
+      if (!this.isDisposed) {
+        try {
+          this.publish(workspaceRoot);
+        } catch (error) {
+          // The database may have been closed during test teardown.
+          console.debug('[CodingRoom] Skipped publish because the service is disposed:', error);
+        }
+      }
+    }, this.PUBLISH_THROTTLE_MS);
+    this.publishTimers.set(workspaceRoot, timer);
   }
 
   private isDisposed = false;
@@ -1736,7 +1726,6 @@ export class CodingRoomService extends EventEmitter {
 
   async dispose(): Promise<void> {
     this.isDisposed = true;
-    this.eventDeltaBatcher.dispose();
     this.repository.flushPendingStreamWrites();
     await Promise.all([...this.drivers.values()].map(driver => driver.dispose()));
     this.drivers.clear();
@@ -1745,13 +1734,15 @@ export class CodingRoomService extends EventEmitter {
     this.driverSessionPromises.clear();
     this.authTerminals.dispose();
     this.builtinSessionLaneMap.clear();
+    for (const timer of this.publishTimers.values()) clearTimeout(timer);
+    this.publishTimers.clear();
   }
 
   private getDriver(lane: CodingAgentLane): CodingAgentDriver {
     const existing = this.drivers.get(lane.id);
     if (existing) return existing;
     const profile = this.registry.get(lane.profileId);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+    if (!profile) throw new Error('Coding agent profile was not found.');
     const driver = this.driverFactory.create(profile);
     this.registerDriver(lane, profile, driver);
     return driver;
@@ -2030,11 +2021,7 @@ export class CodingRoomService extends EventEmitter {
         modelOverride: lane.modelOverride,
       })) {
         if (isAssistantResponseEvent(event)) receivedAssistantResponse = true;
-        const storedEvent = this.repository.appendOrMergeStreamEvent(
-          lane.id,
-          event.kind,
-          event.payload,
-        );
+        this.repository.appendOrMergeStreamEvent(lane.id, event.kind, event.payload);
         this.repository.updateLaneConfigOptions(lane.id, driver.getSessionConfigOptions(sessionId));
         this.repository.updateLaneAvailableCommands(
           lane.id,
@@ -2054,21 +2041,16 @@ export class CodingRoomService extends EventEmitter {
             );
           }
         }
-        if (event.kind === CodingEventKind.Permission) {
-          this.publish(roomWorkspaceRoot);
-        } else {
-          this.eventDeltaBatcher.enqueue(roomWorkspaceRoot, storedEvent);
-        }
+        // Rebuilding and broadcasting a full snapshot per streamed event makes
+        // streaming cost grow with session size, so publish in batches instead.
+        this.schedulePublish(roomWorkspaceRoot);
       }
       if (this.consumeCancelledTurn(lane.id, turnGeneration)) {
         if (queuedItemId) this.deletePendingMessage(lane.id, queuedItemId);
         return;
       }
       if (driverKind !== CodingAgentDriverKind.Builtin && !receivedAssistantResponse) {
-        // The agent answered the prompt with nothing. ACP agents do not report
-        // an unusable credential, so the renderer copy names the likely causes
-        // (not signed in / missing or invalid API key / unreachable endpoint).
-        throw new Error(CodingErrorMessage.AgentNoOutput);
+        throw new Error(t('codingAgentNoAssistantResponse'));
       }
       if (driverKind === CodingAgentDriverKind.Builtin) {
         const workbench = this.runtime.getBuiltinWorkbenchLink(lane.localSessionId);
@@ -2108,7 +2090,6 @@ export class CodingRoomService extends EventEmitter {
           error: this.errorMessage(error),
         });
       }
-      console.error('[CodingRoom] turn failed:', error);
       this.repository.appendEvent(lane.id, CodingEventKind.TurnFailed, {
         error: this.errorMessage(error),
       });
@@ -2285,7 +2266,7 @@ export class CodingRoomService extends EventEmitter {
       typeof handoff.implementationDiff === 'string' ? handoff.implementationDiff : null;
     if (implementationDiff?.trim()) {
       if (!this.runtime.applyWorkspacePatch) {
-        throw new Error(CodingErrorMessage.CollaboratorPatchUnsupported);
+        throw new Error('The coding runtime cannot materialize a collaborator patch.');
       }
       await this.runtime.applyWorkspacePatch({
         workspaceRoot: this.executionRoot(target, workspaceRoot),
@@ -2328,19 +2309,14 @@ export class CodingRoomService extends EventEmitter {
   }
 
   private publish(workspaceRoot: string): CodingRoomSnapshot {
-    this.eventDeltaBatcher.flush(workspaceRoot);
-    const snapshot = this.bootstrap(workspaceRoot, {
-      eventLimitPerLane: CodingEventWindowPageSize,
-    });
+    const snapshot = this.bootstrap(workspaceRoot);
     this.emit('changed', snapshot);
     return snapshot;
   }
 
   private publishLane(laneId: string): void {
     for (const workspaceRoot of this.knownRooms()) {
-      const snapshot = this.bootstrap(workspaceRoot, {
-        eventLimitPerLane: CodingEventWindowPageSize,
-      });
+      const snapshot = this.bootstrap(workspaceRoot);
       if (!snapshot.lanes.some(lane => lane.id === laneId)) continue;
       this.emit('changed', snapshot);
       return;
@@ -2349,7 +2325,7 @@ export class CodingRoomService extends EventEmitter {
 
   private requireLane(lanes: CodingAgentLane[], laneId: string): CodingAgentLane {
     const lane = lanes.find(candidate => candidate.id === laneId);
-    if (!lane) throw new Error(CodingErrorMessage.LaneNotFound);
+    if (!lane) throw new Error('Coding agent lane was not found.');
     return lane;
   }
 
@@ -2383,20 +2359,19 @@ export class CodingRoomService extends EventEmitter {
 
   private requireMissionBaseline(mission: { gitBaseline: string | null } | undefined): string {
     if (!mission?.gitBaseline) {
-      throw new Error(CodingErrorMessage.CollaboratorBaselineRequired);
+      throw new Error('Parallel collaborators require a Git workspace with a frozen baseline.');
     }
     return mission.gitBaseline;
   }
 
   private allowedEnvironment(): Record<string, string | undefined> {
-    return getCodingAgentEnvironment();
+    return Object.fromEntries(ACP_ENVIRONMENT_KEYS.map(key => [key, process.env[key]]));
   }
 
   private async completeTerminalAuthentication(event: {
     id: string;
     profileId: string;
     methodId: string;
-    workspaceRoot: string;
     exitCode: number;
     signal?: number;
   }): Promise<void> {
@@ -2414,13 +2389,18 @@ export class CodingRoomService extends EventEmitter {
           '[CodingRoom] Authentication completed for an unavailable coding agent profile.',
         );
       } else {
+        const driver = this.driverFactory.create(profile);
         try {
-          await this.registry.probe(event.profileId, event.workspaceRoot);
+          await driver.getAuthState();
+          this.registry.markReady(event.profileId);
         } catch (error) {
           console.warn(
-            '[CodingRoom] Model reply verification after terminal authentication failed:',
+            '[CodingRoom] ACP reinitialization after terminal authentication failed:',
             error,
           );
+          this.registry.markNeedsAuth(event.profileId);
+        } finally {
+          await driver.dispose();
         }
       }
     } else {
@@ -2431,14 +2411,14 @@ export class CodingRoomService extends EventEmitter {
 
   private requireWorkspaceName(value: string): string {
     const name = value.trim();
-    if (!name) throw new Error(CodingErrorMessage.WorkspaceNameRequired);
+    if (!name) throw new Error('Coding workspace name is required.');
     return name;
   }
 
   private requireProfile(profileId: string): CodingAgentProfile {
     this.registry.refreshBuiltinReadiness();
     const profile = this.registry.get(profileId);
-    if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
+    if (!profile) throw new Error('Coding agent profile was not found.');
     return profile;
   }
 
@@ -2451,19 +2431,19 @@ export class CodingRoomService extends EventEmitter {
           .map(value => path.resolve(value)),
       ),
     ];
-    if (!folders.length) throw new Error(CodingErrorMessage.WorkspaceSourceRequired);
+    if (!folders.length) throw new Error('A coding workspace requires at least one source folder.');
     for (const folder of folders) {
       if (path.parse(folder).root === folder) {
-        throw new Error(CodingErrorMessage.WorkspaceSourceRootForbidden);
+        throw new Error('A filesystem root cannot be used as a coding workspace source.');
       }
       let stat;
       try {
         stat = statSync(folder);
       } catch {
-        throw new Error(`${CodingErrorDetailMessage.WorkspaceSourceMissing} ${folder}`);
+        throw new Error(`Coding workspace source does not exist: ${folder}`);
       }
       if (!stat.isDirectory()) {
-        throw new Error(`${CodingErrorDetailMessage.WorkspaceSourceNotDirectory} ${folder}`);
+        throw new Error(`Coding workspace source is not a directory: ${folder}`);
       }
     }
     return folders;

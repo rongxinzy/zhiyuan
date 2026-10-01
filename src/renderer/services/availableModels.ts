@@ -172,16 +172,12 @@ export function mergeAvailableModels(
 async function buildHiddenConfiguredModelKeys(
   config: AppConfig,
   allowedProviderKeys?: ReadonlySet<string>,
-  managedProviderKeys?: ReadonlySet<string>,
 ): Promise<Set<string>> {
   const hiddenModelKeys = new Set<string>();
   if (!config.providers) return hiddenModelKeys;
 
   for (const [providerName, providerConfig] of Object.entries(config.providers)) {
     if (allowedProviderKeys && !allowedProviderKeys.has(providerName)) continue;
-    // Managed provider access is gated by host entitlement, not by a user connection test;
-    // the managed projection never carries connectionTest metadata.
-    if (managedProviderKeys?.has(providerName)) continue;
     if (
       providerName === ProviderName.LlamaCpp ||
       providerName === ProviderName.Zhiyuan ||
@@ -224,14 +220,9 @@ async function buildHiddenConfiguredModelKeys(
 }
 export async function collectAvailableModels(config: AppConfig): Promise<Model[]> {
   const policy = await getManagedProviderAccessPolicy();
-  const managedProviderKeys = new Set(policy.providerKeys);
   const allowedProviderKeys =
-    policy.mode === ManagedProviderAccessMode.Exclusive ? managedProviderKeys : undefined;
-  const hiddenModelKeys = await buildHiddenConfiguredModelKeys(
-    config,
-    allowedProviderKeys,
-    managedProviderKeys,
-  );
+    policy.mode === ManagedProviderAccessMode.Exclusive ? new Set(policy.providerKeys) : undefined;
+  const hiddenModelKeys = await buildHiddenConfiguredModelKeys(config, allowedProviderKeys);
   const configuredModels = buildConfiguredAvailableModels(
     config,
     allowedProviderKeys,

@@ -17,17 +17,7 @@ import { ArtifactRole, isBinaryArtifactFile, type Artifact } from '../../types/a
  * already covered by the diff view and the git panel, and listing them as
  * artifacts would flood the panel.
  */
-const COLLECTIBLE_TYPES = new Set([
-  'html',
-  'svg',
-  'mermaid',
-  'markdown',
-  'text',
-  'image',
-  'document',
-  'model',
-  'unsupported',
-]);
+const COLLECTIBLE_TYPES = new Set(['html', 'svg', 'mermaid', 'markdown', 'text', 'image', 'document']);
 
 export interface CodingFileArtifact {
   artifact: Artifact;

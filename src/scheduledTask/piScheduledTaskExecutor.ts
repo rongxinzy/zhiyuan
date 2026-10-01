@@ -1,12 +1,9 @@
 import type { CoworkStore } from '../main/coworkStore';
 import type { CoworkError } from '../common/coworkError';
-import type { PiContinueOptions, PiRuntime } from '../main/libs/agentEngine/piRuntimeTypes';
+import type { PiRuntime } from '../main/libs/agentEngine/piRuntimeTypes';
 import { getDefaultConversationWorkspacePath } from '../main/defaultConversationWorkspace';
 import { parseManagedSessionKey } from '../main/libs/channelSessionKey';
-import {
-  buildScheduledSessionTitle,
-  CoworkSessionSource,
-} from '../shared/cowork/constants';
+import { CoworkSessionSource } from '../shared/cowork/constants';
 import { WorkbenchApprovalMode } from '../shared/workbenchTask';
 
 import { PayloadKind, SessionTarget } from './constants';
@@ -53,7 +50,7 @@ export class PiScheduledTaskExecutor {
       session.id,
       task.payload.kind === PayloadKind.AgentTurn ? task.payload.timeoutSeconds : undefined,
     );
-    const options: PiContinueOptions = {
+    const options = {
       systemPrompt: session.systemPrompt,
       skillIds: session.activeSkillIds,
       workspaceRoot: session.cwd,
@@ -96,7 +93,7 @@ export class PiScheduledTaskExecutor {
     const config = this.coworkStore.getConfig();
     const workspace = task.workspaceId ? this.coworkStore.getWorkspace(task.workspaceId) : null;
     return this.coworkStore.createSession(
-      buildScheduledSessionTitle(task.name),
+      `Scheduled: ${task.name}`,
       workspace?.path || getDefaultConversationWorkspacePath(),
       config.systemPrompt,
       config.executionMode,

@@ -10,7 +10,6 @@ import {
 import type { EnterpriseSessionResult } from '../../shared/enterpriseSession';
 
 const MAX_REQUEST_ID_LENGTH = 128;
-const MAX_AEP_BASE_URL_LENGTH = 2048;
 
 export function isEnterpriseRendererReadyMessage(
   value: unknown,
@@ -98,29 +97,10 @@ export async function executeEnterpriseModelCatalogRequest(): Promise<Enterprise
 function isLoginInput(value: unknown): boolean {
   const input = asRecord(value);
   return (
-    isAepBaseUrl(input?.aepBaseUrl) &&
     typeof input?.enterpriseId === 'string' &&
     typeof input.username === 'string' &&
     typeof input.password === 'string'
   );
-}
-
-function isAepBaseUrl(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  const candidate = value.trim();
-  if (candidate.length === 0 || candidate.length > MAX_AEP_BASE_URL_LENGTH) return false;
-  try {
-    const url = new URL(candidate);
-    return (
-      (url.protocol === 'https:' || url.protocol === 'http:') &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash
-    );
-  } catch {
-    return false;
-  }
 }
 
 function isPasswordChangeInput(value: unknown): boolean {

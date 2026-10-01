@@ -1,10 +1,9 @@
-import { CoworkExecutionMode } from '../../shared/cowork/constants';
 import { configureStore, type UnknownAction } from '@reduxjs/toolkit';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import { CoworkSessionMode, CoworkSessionSource } from '../../shared/cowork/constants';
-import coworkReducer, { addSession, updateSessionStatus } from '../store/slices/coworkSlice';
+import coworkReducer, { addSession } from '../store/slices/coworkSlice';
 import { CoworkSessionStatusValue, type CoworkSession } from '../types/cowork';
 import { coworkService } from './cowork';
 import { workspaceService } from './workspace';
@@ -38,13 +37,14 @@ const temporarySessionId = 'temp-startup';
 const makeSession = (id: string, mode: CoworkSession['mode']): CoworkSession => ({
   id,
   title: 'Same title',
+  claudeSessionId: null,
   status: CoworkSessionStatusValue.Running,
   mode,
   pinned: false,
   cwd: '/workspace',
   systemPrompt: '',
   modelOverride: '',
-  executionMode: CoworkExecutionMode.Local,
+  executionMode: 'local',
   activeSkillIds: [],
   workspaceId: 'workspace-1',
   agentId: 'main',
@@ -94,9 +94,6 @@ for (const mode of [CoworkSessionMode.Work, CoworkSessionMode.Chat]) {
       temporarySessionId,
     );
     await vi.waitFor(() => expect(workspaceService.refreshWorkspaces).toHaveBeenCalledOnce());
-    testStore.dispatch(
-      updateSessionStatus({ sessionId: real.id, status: CoworkSessionStatusValue.Running }),
-    );
     expect(listIds()).toEqual([real.id]);
     expect(snapshots.every(ids => ids.length === 1)).toBe(true);
     const state = testStore.getState().cowork;
@@ -139,26 +136,16 @@ test('does not remove a successful replacement if workspace refresh rejects', as
 
 test('replaces only the specified placeholder and preserves other sessions and streams', () => {
   testStore.dispatch(addSession(makeSession('other-session', CoworkSessionMode.Chat)));
-  testStore.dispatch(
-    updateSessionStatus({ sessionId: 'other-session', status: CoworkSessionStatusValue.Running }),
-  );
   testStore.dispatch(addSession(makeSession(temporarySessionId, CoworkSessionMode.Work)));
   const real = makeSession('real-session', CoworkSessionMode.Work);
   testStore.dispatch(addSession(real, temporarySessionId));
   expect(listIds()).toEqual([real.id, 'other-session']);
-  expect(testStore.getState().cowork.streamingSessionIds).toEqual(['other-session']);
-  testStore.dispatch(
-    updateSessionStatus({ sessionId: real.id, status: CoworkSessionStatusValue.Running }),
-  );
   expect(testStore.getState().cowork.streamingSessionIds).toEqual(['other-session', real.id]);
 });
 
 test('keeps existing add and same-identity direct-chat save behavior', () => {
   const session = makeSession('direct-session', CoworkSessionMode.Chat);
   testStore.dispatch(addSession(session));
-  testStore.dispatch(
-    updateSessionStatus({ sessionId: session.id, status: CoworkSessionStatusValue.Running }),
-  );
   testStore.dispatch(addSession({ ...session, title: 'Updated title' }, session.id));
   expect(listIds()).toEqual([session.id]);
   expect(testStore.getState().cowork.currentSession?.title).toBe('Updated title');

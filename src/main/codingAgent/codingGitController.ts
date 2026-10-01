@@ -4,7 +4,6 @@ import {
   CodingLaneStatus,
   type CodingGitCommitAndPushInput,
   type CodingGitCommitAndPushResult,
-  CodingErrorMessage,
   type CodingGitCommitInput,
   type CodingGitBranchInput,
   type CodingGitPullRequestInput,
@@ -95,10 +94,12 @@ export class CodingGitController {
   private resolveMutableTarget(input: CodingGitTargetInput): ResolvedGitTarget {
     const target = this.resolveTarget(input);
     if (target.isIsolated) {
-      throw new Error(CodingErrorMessage.GitIsolatedReadOnly);
+      throw new Error('Isolated collaborator worktrees are read-only in the Git panel.');
     }
     if (target.isBusy) {
-      throw new Error(CodingErrorMessage.GitAgentBusy);
+      throw new Error(
+        'Wait for the active coding agent write operation before changing Git state.',
+      );
     }
     return target;
   }
@@ -121,14 +122,14 @@ export class CodingGitController {
       this.repository
         .listRooms()
         .find(candidate => path.resolve(candidate.workspaceRoot) === workspaceRoot);
-    if (!room) throw new Error(CodingErrorMessage.WorkspaceNotFound);
+    if (!room) throw new Error('Coding workspace was not found.');
 
     if (input.laneId) {
       const missions = this.repository.listMissions(room.id);
       const lane = this.repository
         .listLanes(missions.map(mission => mission.id))
         .find(candidate => candidate.id === input.laneId);
-      if (!lane) throw new Error(CodingErrorMessage.SessionNotFoundInWorkspace);
+      if (!lane) throw new Error('Coding session was not found in this workspace.');
       const sourceRoot = path.resolve(lane.sourceRoot || room.workspaceRoot);
       const targetRoot = path.resolve(lane.executionRoot || sourceRoot);
       return {
@@ -146,7 +147,7 @@ export class CodingGitController {
     const source = this.repository
       .listWorkspaceSources(room.id)
       .find(candidate => path.resolve(candidate.path) === requestedSource);
-    if (!source) throw new Error(CodingErrorMessage.GitSourceNotInWorkspace);
+    if (!source) throw new Error('Git access is limited to folders in the coding workspace.');
     return {
       targetRoot: requestedSource,
       sourceRoot: requestedSource,

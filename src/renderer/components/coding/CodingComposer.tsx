@@ -40,6 +40,7 @@ interface CodingComposerProps {
   disabled: boolean;
   isRunning: boolean;
   isSubmitting?: boolean;
+  hasError?: boolean;
   prompt: string;
   focusRequestKey?: number;
   attachments: CodingPromptAttachment[];
@@ -67,6 +68,7 @@ export const CodingComposer = ({
   disabled,
   isRunning,
   isSubmitting = false,
+  hasError = false,
   prompt,
   focusRequestKey = 0,
   attachments,
@@ -364,7 +366,9 @@ export const CodingComposer = ({
                   ? CodingComposerStatus.Streaming
                   : isSubmitting
                     ? CodingComposerStatus.Submitted
-                    : undefined
+                    : hasError
+                      ? CodingComposerStatus.Error
+                      : undefined
               }
               onStop={isRunning ? onStop : undefined}
               disabled={disabled || isSubmitting || (!isRunning && !prompt.trim())}

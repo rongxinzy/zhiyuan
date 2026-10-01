@@ -2,8 +2,7 @@
 /**
  * Regenerate the case-library thumbnails in public/case-previews/.
  *
- * Two kinds of sources can feed the output directory, but only cases referenced
- * by public/quick-actions.json are rendered:
+ * Two kinds of sources feed one output directory:
  *   - scripts/case-previews/*.html  cover mockups for cases that produce an
  *     artifact but ship no live template (slides, sheets, reports, documents)
  *   - SKILLs/frontend-design/templates/*.html  the live case templates themselves
@@ -25,7 +24,6 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, '..');
 const coverDir = join(scriptDir, 'case-previews');
 const templateDir = join(projectRoot, 'SKILLs', 'frontend-design', 'templates');
-const quickCaseDir = join(templateDir, 'quick-cases');
 const outputDir = join(projectRoot, 'public', 'case-previews');
 const cataloguePath = join(projectRoot, 'public', 'quick-actions.json');
 
@@ -34,17 +32,7 @@ const OUTPUT_WIDTH = 800;
 const OUTPUT_HEIGHT = 500;
 const WEBP_QUALITY = 0.8;
 
-const LOCAL_BROWSER_PATHS = [
-  // macOS
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-  // Linux
-  '/usr/bin/google-chrome',
-  '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-  '/usr/bin/microsoft-edge',
-  // Windows
+const WINDOWS_BROWSER_PATHS = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -52,7 +40,7 @@ const LOCAL_BROWSER_PATHS = [
 ];
 
 async function launchBrowser() {
-  const attempts = [{}, ...LOCAL_BROWSER_PATHS.map(executablePath => ({ executablePath }))];
+  const attempts = [{}, ...WINDOWS_BROWSER_PATHS.map(executablePath => ({ executablePath }))];
   let lastError = null;
 
   for (const options of attempts) {
@@ -83,21 +71,7 @@ function collectSources() {
     }
   }
 
-  for (const file of readdirSync(quickCaseDir).sort()) {
-    if (file.endsWith('.html')) {
-      sources.push({ name: file.replace(/\.html$/, ''), path: join(quickCaseDir, file) });
-    }
-  }
-
-  // The redesigned catalogue has an explicit source directory. Prefer it when
-  // an ID also exists in the older archive so the card and detail view agree.
-  const byName = new Map();
-  for (const source of sources) {
-    if (source.path.startsWith(quickCaseDir) || !byName.has(source.name)) {
-      byName.set(source.name, source);
-    }
-  }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return sources;
 }
 
 async function encodeWebp(context, pngBuffer) {
@@ -143,7 +117,7 @@ function removeStalePreviews(rendered) {
  * Every case that declares a preview in public/quick-actions.json must have a
  * rendered file, otherwise the gallery silently falls back to a text-only card.
  */
-function findMissingPreviews(rendered, requestedNames = new Set()) {
+function findMissingPreviews(rendered) {
   const catalogue = JSON.parse(readFileSync(cataloguePath, 'utf8'));
   const missing = new Set();
 
@@ -152,7 +126,6 @@ function findMissingPreviews(rendered, requestedNames = new Set()) {
       if (!prompt.preview) continue;
 
       const name = prompt.preview.replace(/^\.\/case-previews\//, '');
-      if (requestedNames.size > 0 && !requestedNames.has(name.replace(/\.webp$/, ''))) continue;
       if (!rendered.has(name)) missing.add(name);
     }
   }
@@ -161,24 +134,7 @@ function findMissingPreviews(rendered, requestedNames = new Set()) {
 }
 
 async function main() {
-  const requestedNames = new Set(process.argv.slice(2));
-  const allSources = collectSources();
-  const catalogue = JSON.parse(readFileSync(cataloguePath, 'utf8'));
-  const catalogueNames = new Set(
-    (catalogue.actions ?? []).flatMap(action =>
-      (action.prompts ?? [])
-        .map(prompt => prompt.preview?.replace(/^\.\/case-previews\//, '').replace(/\.webp$/, ''))
-        .filter(Boolean),
-    ),
-  );
-  const targetNames = requestedNames.size > 0 ? requestedNames : catalogueNames;
-  const sources = allSources.filter(source => targetNames.has(source.name));
-  const unknownNames = [...requestedNames].filter(
-    name => !allSources.some(source => source.name === name),
-  );
-  if (unknownNames.length > 0) {
-    throw new Error(`Unknown case preview source(s): ${unknownNames.join(', ')}`);
-  }
+  const sources = collectSources();
   if (!sources.length) {
     throw new Error('No preview sources found to render.');
   }
@@ -198,13 +154,7 @@ async function main() {
       // finish, otherwise the card captures half-animated numbers.
       await page.waitForTimeout(1500);
 
-      // Document cases stack one 1100x688 page per section, and the card shows the first page: clip
-      // to it instead of to whatever the viewport happens to cover. Web cases ship a live template
-      // with no page sections and keep the viewport capture.
-      const firstPage = page.locator('[data-page="1"]');
-      const png = (await firstPage.count())
-        ? await firstPage.first().screenshot()
-        : await page.screenshot();
+      const png = await page.screenshot();
       const webp = await encodeWebp(encoderContext, png);
       const buffer = Buffer.from(webp, 'base64');
 
@@ -217,7 +167,7 @@ async function main() {
     await browser.close();
   }
 
-  const removed = requestedNames.size > 0 ? [] : removeStalePreviews(rendered);
+  const removed = removeStalePreviews(rendered);
   console.log(
     `Rendered ${sources.length} previews into public/case-previews (${(totalBytes / 1024).toFixed(1)} KB).`,
   );
@@ -226,7 +176,7 @@ async function main() {
     console.log(`Removed ${removed.length} stale preview(s): ${removed.join(', ')}`);
   }
 
-  const missing = findMissingPreviews(rendered, requestedNames);
+  const missing = findMissingPreviews(rendered);
   if (missing.length) {
     throw new Error(
       `public/quick-actions.json references ${missing.length} preview(s) with no source: ${missing.join(', ')}`,

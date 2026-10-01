@@ -1,12 +1,13 @@
 import type { CoworkError } from '../../../common/coworkError';
-import type { RuntimeRetryNotice } from '../../../common/runtimeNotice';
 import type { CoworkToolActivityEvent } from '../../../shared/cowork/toolActivity';
 import type { CoworkMessage } from '../../coworkStore';
 import type { CoworkPendingMessage } from '../../../shared/cowork/pendingMessageQueue';
 import type { CoworkQueueDelivery } from '../../../shared/cowork/pendingMessageQueue';
+import type { ProductionLoopMode } from '../../../shared/productionLoop';
 import type { CoworkSessionInterruption } from '../../../shared/cowork/interruption';
 import type { WorkbenchApprovalMode } from '../../../shared/workbenchTask';
 import type { PiPlanEntry } from './piPlanTool';
+import type { PiRunProgressEvent } from './piRunState';
 
 /**
  * Pi-native workbench runtime types (issue #225).
@@ -38,7 +39,7 @@ export interface PiPermissionRequest {
 }
 
 export interface PiRuntimeEvents {
-  started: (sessionId: string) => void;
+  executionEvent: (sessionId: string, event: PiRunProgressEvent) => void;
   message: (sessionId: string, message: CoworkMessage) => void;
   messageUpdate: (
     sessionId: string,
@@ -56,13 +57,8 @@ export interface PiRuntimeEvents {
   ) => void;
   /** A plan-mode turn published its structured plan. */
   plan: (sessionId: string, plan: { entries: PiPlanEntry[] }) => void;
-  complete: (sessionId: string) => void;
+  complete: (sessionId: string, claudeSessionId: string | null) => void;
   error: (sessionId: string, error: CoworkError) => void;
-  /**
-   * Pi is retrying a failed attempt. Transient by nature: the renderer shows it
-   * as a shared prompt and never persists it.
-   */
-  retryNotice: (sessionId: string, notice: Omit<RuntimeRetryNotice, 'sessionId'>) => void;
   sessionStopped: (sessionId: string) => void;
   sessionInterrupted: (event: CoworkSessionInterruption) => void;
   queueUpdated: (sessionId: string, items: CoworkPendingMessage[]) => void;
@@ -95,15 +91,7 @@ export type PiConversationHistoryMessage = {
 
 export type PiStartOptions = {
   skipInitialUserMessage?: boolean;
-  /** Execution skill set for this session (user selection plus expert preset). */
   skillIds?: string[];
-  /**
-   * Skills the user attached to this one input, persisted on the user message so
-   * the transcript shows the chips the user actually chose. Omitting it means the
-   * turn carries no attachment and shows no chips: the session's `skillIds` never
-   * appears as user-attached.
-   */
-  attachedSkillIds?: string[];
   systemPrompt?: string;
   approvalMode?: WorkbenchApprovalMode;
   /** Enables the built-in coding-only free-text elicitation tool. */
@@ -119,6 +107,7 @@ export type PiStartOptions = {
   planMode?: boolean;
   /** Registers plan_write for the whole session, so plan mode also works on a live session. */
   planTool?: boolean;
+  productionLoopMode?: ProductionLoopMode;
   imageAttachments?: PiImageAttachment[];
   fileAttachments?: Array<{ name: string; path: string; extension: string; isImage?: boolean }>;
   agentId?: string;
@@ -132,19 +121,13 @@ export type PiStartOptions = {
   _piPromptOverride?: string;
   /** Internal: run already created by an explicit Resume/Retry action. */
   _workbenchRunId?: string;
+  /** Internal: the owning task already has a controlled production workflow. */
+  _productionWorkflowRequired?: boolean;
 };
 
 export type PiContinueOptions = {
   systemPrompt?: string;
-  /** Execution skill set for this turn (user selection plus expert preset). */
   skillIds?: string[];
-  /**
-   * Skills the user attached to this one input, persisted on the user message so
-   * the transcript shows the chips the user actually chose. Omitting it means the
-   * turn carries no attachment and shows no chips: the session's `skillIds` never
-   * appears as user-attached.
-   */
-  attachedSkillIds?: string[];
   /** UI session mode, preserved when a skill change recreates the Pi session. */
   sessionMode?: 'work' | 'chat';
   goalMode?: boolean;
@@ -152,6 +135,7 @@ export type PiContinueOptions = {
   planMode?: boolean;
   /** Registers plan_write when the runtime has to recreate the session. */
   planTool?: boolean;
+  productionLoopMode?: ProductionLoopMode;
   imageAttachments?: PiImageAttachment[];
   fileAttachments?: Array<{ name: string; path: string; extension: string; isImage?: boolean }>;
   /** Session snapshot used when the in-process runtime needs to recreate Pi state. */
@@ -169,6 +153,8 @@ export type PiContinueOptions = {
   unattended?: boolean;
   /** Internal: run already created by an explicit Resume/Retry action. */
   _workbenchRunId?: string;
+  /** Internal: the owning task already has a controlled production workflow. */
+  _productionWorkflowRequired?: boolean;
   /** Internal: do not persist a synthetic Resume/Retry prompt as a user message. */
   _skipUserMessage?: boolean;
   /** Internal: marks a queued follow-up in the persisted transcript. */
@@ -208,6 +194,7 @@ export interface PiRuntime {
     imageAttachments?: PiImageAttachment[],
     fileAttachments?: Array<{ name: string; path: string; extension: string; isImage?: boolean }>,
     skillIds?: string[],
+    skillPrompt?: string,
   ): { success: boolean; item?: CoworkPendingMessage; error?: string };
   updatePendingMessage(
     sessionId: string,

@@ -8,31 +8,26 @@ import {
 import { DestructiveConfirmDialog } from '@shared/components/ui/destructive-confirm-dialog';
 import { Input } from '@shared/components/ui/input';
 import { useReducedMotion } from 'motion/react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { workspaceService } from '../../services/workspace';
-import { store, type RootState } from '../../store';
-import {
-  selectCoworkSessions,
-  selectCurrentSessionId,
-} from '../../store/selectors/coworkSelectors';
+import { store } from '../../store';
 import {
   clearLoadingSessionId,
   setCurrentSession,
   setLoadingSessionId,
 } from '../../store/slices/coworkSlice';
-import type { CoworkSessionSummary } from '../../types/cowork';
+import { CoworkSessionStatusValue, type CoworkSessionSummary } from '../../types/cowork';
 import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
 import CreateProjectDialog from '../cowork/CreateProjectDialog';
 import {
   AnimatedFolderPlusIcon,
   type AnimatedFolderPlusIconHandle,
 } from '../icons/AnimatedFolderPlusIcon';
-import { isProjectWorkspaceActive, isSectionWorkspaceActive } from './activeWorkspace';
 import type { AgentSidebarTaskNode, WorkspaceSidebarNode } from './types';
 import { useWorkspaceSidebarState } from './useWorkspaceSidebarState';
 import WorkspaceTreeNode from './WorkspaceTreeNode';
@@ -46,8 +41,6 @@ interface MyAgentSidebarTreeProps {
   onEnterBatchMode: (sessionId: string) => void;
   onVisibleSessionsChange?: (ids: string[]) => void;
   onDismissSearch?: () => void;
-  /** Folder action in the automation section: create a task in that folder. */
-  onCreateScheduledTask?: (workspace: WorkspaceSidebarNode) => void;
   workMode?: 'work' | 'chat';
   searchQuery?: string;
   searchCorpus?: CoworkSessionSummary[];
@@ -62,19 +55,11 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   onEnterBatchMode,
   onVisibleSessionsChange,
   onDismissSearch,
-  onCreateScheduledTask,
   workMode = 'work',
   searchQuery = '',
   searchCorpus = [],
 }) => {
   const dispatch = useDispatch();
-  const currentWorkspaceId = useSelector((state: RootState) => state.workspace.currentWorkspaceId);
-  const currentSessionId = useSelector(selectCurrentSessionId);
-  const sessions = useSelector(selectCoworkSessions);
-  const currentSession = useMemo(
-    () => sessions.find(session => session.id === currentSessionId) ?? null,
-    [sessions, currentSessionId],
-  );
   const {
     workspaceNodes,
     scheduledWorkspaceNodes,
@@ -114,9 +99,10 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
 
       // Restore the live streaming snapshot immediately so the stream stays
       // visible when switching back to a running session across workspaces.
-      // The snapshot exists only while the Pi event stream is registered as live.
+      // Only restore when the task summary still reports running, preventing a
+      // stale snapshot from overriding a completed session after reload.
       const streamingSnapshot = store.getState().cowork.streamingSessions[task.id];
-      if (streamingSnapshot) {
+      if (streamingSnapshot && task.status === CoworkSessionStatusValue.Running) {
         dispatch(setCurrentSession(streamingSnapshot));
       }
 
@@ -132,26 +118,6 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     await workspaceService.selectWorkspace(workspace.id);
     coworkService.clearSession();
     onShowCowork();
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('cowork:focus-input', { detail: { clear: false } }));
-    }, 0);
-  };
-
-  // 点击左侧项目：右侧切换到该项目工作区；再点当前项目则折叠/展开
-  const handleSelectWorkspace = async (workspace: WorkspaceSidebarNode) => {
-    const previousId = store.getState().workspace.currentWorkspaceId;
-    const isCurrent = previousId === workspace.id;
-    if (isCurrent) {
-      toggleExpanded(workspace.id);
-      return;
-    }
-    await workspaceService.selectWorkspace(workspace.id);
-    if (!workspace.isExpanded) {
-      toggleExpanded(workspace.id);
-    }
-    coworkService.clearSession();
-    onShowCowork();
-    onDismissSearch?.();
     window.setTimeout(() => {
       window.dispatchEvent(new CustomEvent('cowork:focus-input', { detail: { clear: false } }));
     }, 0);
@@ -221,8 +187,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   };
 
   const handleRenameTask = async (task: AgentSidebarTaskNode, title: string) => {
-    const renamedTitle = await coworkService.renameSession(task.id, title);
-    if (renamedTitle) patchTaskPreview(task.id, { title: renamedTitle });
+    if (await coworkService.renameSession(task.id, title)) patchTaskPreview(task.id, { title });
   };
 
   const handleShareTask = async (task: AgentSidebarTaskNode) => {
@@ -326,13 +291,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
               workspace={workspace}
               isBatchMode={isBatchMode}
               selectedIds={selectedIds}
-              isActiveWorkspace={isProjectWorkspaceActive(
-                currentSession,
-                workspace.id,
-                currentWorkspaceId,
-              )}
               onToggleExpanded={toggleExpanded}
-              onSelectWorkspace={selectedWorkspace => void handleSelectWorkspace(selectedWorkspace)}
               onCreateTask={selectedWorkspace => void handleCreateTask(selectedWorkspace)}
               onRenameWorkspace={handleRenameWorkspace}
               onToggleWorkspacePin={handleToggleWorkspacePin}
@@ -370,11 +329,10 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
                 <WorkspaceTreeNode
                   key={`scheduled-${workspace.id}`}
                   workspace={workspace}
-                  isActiveWorkspace={isSectionWorkspaceActive(currentSession, workspace.id, true)}
                   isBatchMode={isBatchMode}
                   selectedIds={selectedIds}
                   onToggleExpanded={toggleScheduledExpanded}
-                  onCreateTask={selectedWorkspace => onCreateScheduledTask?.(selectedWorkspace)}
+                  onCreateTask={() => undefined}
                   onRemoveWorkspace={selectedWorkspace =>
                     setWorkspacePendingRemoval(selectedWorkspace)
                   }
@@ -388,7 +346,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
                   onRenameTask={handleRenameTask}
                   onToggleSelection={onToggleSelection}
                   onEnterBatchMode={task => onEnterBatchMode(task.id)}
-                  showCreateTask={Boolean(onCreateScheduledTask)}
+                  showCreateTask={false}
                 />
               ))}
             </div>

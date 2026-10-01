@@ -15,7 +15,6 @@ import {
 import { WorkMode, type WorkMode as WorkModeType } from '../../store/workMode/constants';
 import type { CoworkSessionSummary } from '../../types/cowork';
 import { isScratchWorkspacePath } from '../../utils/path';
-import { resolveSessionDisplayTitle } from '../../utils/sessionTitle';
 import { AgentSidebarPageSize } from './constants';
 import { sortAgentSidebarTasks } from './sessionSort';
 import type {
@@ -53,12 +52,11 @@ const toTaskNode = (
   currentSessionId: string | null,
   unread: Set<string>,
   streamingSessionIds: ReadonlySet<string>,
-  language: 'zh' | 'en',
 ): AgentSidebarTaskNode => ({
   id: session.id,
   agentId: session.agentId?.trim() || 'main',
   workspaceId: session.workspaceId,
-  title: resolveSessionDisplayTitle(session, language),
+  title: session.title,
   status: session.status,
   pinned: session.pinned,
   pinOrder: session.pinOrder ?? null,
@@ -89,10 +87,6 @@ export const useWorkspaceSidebarState = (
   const [hasMore, setHasMore] = useState<Record<string, boolean>>({});
   const [loadingKeys, setLoadingKeys] = useState<string[]>([]);
   const [failedKeys, setFailedKeys] = useState<string[]>([]);
-  // Titles carry a localized prefix, so a runtime language switch must rebuild
-  // the nodes instead of leaving the previous language's prefix on screen.
-  const [language, setLanguage] = useState(i18nService.getLanguage());
-  useEffect(() => i18nService.subscribe(() => setLanguage(i18nService.getLanguage())), []);
   const loadingKeysRef = useRef(new Set<string>());
   const loadedGroupsRef = useRef(new Set<string>());
   const hasStoredPreferenceRef = useRef(false);
@@ -331,7 +325,7 @@ export const useWorkspaceSidebarState = (
             isLoadingTasks: loadingKeys.includes(groupKey),
             hasLoadError: failedKeys.includes(groupKey),
             tasks: visible.map(session =>
-              toTaskNode(session, currentSessionId, unreadSet, streamingSessionIdSet, language),
+              toTaskNode(session, currentSessionId, unreadSet, streamingSessionIdSet),
             ),
           } satisfies WorkspaceSidebarNode;
         }),
@@ -339,7 +333,6 @@ export const useWorkspaceSidebarState = (
       currentSessionId,
       failedKeys,
       hasMore,
-      language,
       loadingKeys,
       previews,
       streamingSessionIdSet,
@@ -385,7 +378,7 @@ export const useWorkspaceSidebarState = (
           (searchSource[node.id] ?? []).filter(
             session =>
               isScheduledSession(session) === scheduled &&
-              resolveSessionDisplayTitle(session, language).toLowerCase().includes(query),
+              session.title.toLowerCase().includes(query),
           ),
         );
         if (tasks.length === 0) return [];
@@ -397,7 +390,7 @@ export const useWorkspaceSidebarState = (
             canExpandTasks: false,
             canCollapseTasks: false,
             tasks: tasks.map(session =>
-              toTaskNode(session, currentSessionId, unreadSet, streamingSessionIdSet, language),
+              toTaskNode(session, currentSessionId, unreadSet, streamingSessionIdSet),
             ),
           },
         ];
@@ -408,7 +401,6 @@ export const useWorkspaceSidebarState = (
     };
   }, [
     currentSessionId,
-    language,
     searchQuery,
     searchSource,
     searching,

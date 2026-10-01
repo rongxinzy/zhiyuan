@@ -74,7 +74,7 @@ const DEFINITIONS = [
     channel: 'qqbot',
     channelAliases: [],
     logo: 'qq_bot.jpeg',
-    guideUrl: 'https://q.qq.com/#/apps',
+    guideUrl: '',
   },
   // ── Global ──
   {

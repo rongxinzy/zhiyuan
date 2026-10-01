@@ -10,22 +10,17 @@ import {
   usePromptInputController,
 } from '@shared/components/ai-elements/prompt-input';
 import { Button } from '@shared/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@shared/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@shared/components/ui/tooltip';
 import { cn } from '@shared/lib/utils';
 import { ChevronDown, Folder, Target, TriangleAlert, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { DEFAULT_COWORK_PERMISSION_MODE, CoworkSessionMode, type CoworkPermissionMode } from '../../../shared/cowork/constants';
+import { CoworkPermissionMode, CoworkSessionMode } from '../../../shared/cowork/constants';
 import {
-  hasCoworkSubmissionContent,
-  hasVisiblePromptContent,
-} from '../../../shared/cowork/submissionContent';
+  ProductionLoopMode,
+  type ProductionLoopMode as ProductionLoopModeValue,
+} from '../../../shared/productionLoop';
 import { agentService } from '../../services/agent';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
@@ -45,11 +40,13 @@ import {
 import { clearSelection } from '../../store/slices/quickActionSlice';
 import {
   type Model,
+  setDefaultSelectedModel,
   setSelectedModel,
 } from '../../store/slices/modelSlice';
 import { clearActiveSkills, setSkills } from '../../store/slices/skillSlice';
 import { WorkMode } from '../../store/workMode/constants';
 import { CoworkFileAttachment, CoworkImageAttachment } from '../../types/cowork';
+import { Skill } from '../../types/skill';
 import { toAgentModelRef } from '../../utils/agentModelRef';
 import ActiveMcpBadge from '../mcp/ActiveMcpBadge';
 import {
@@ -64,11 +61,10 @@ import { SessionStatsLine } from './SessionStatsLine';
 import { CoworkModelPicker } from './CoworkModelPicker';
 import FolderSelectorPopover from './FolderSelectorPopover';
 import InlineSkillPromptEditor from './InlineSkillPromptEditor';
+import { LocalThinkingToggle } from './LocalThinkingToggle';
 import PermissionModeMenu from './PermissionModeMenu';
 import PromptPlusMenu from './PromptPlusMenu';
 import { ResumeTaskContextBadge } from './ResumeTaskContextBadge';
-import { usePromptSubmissionLock } from './usePromptSubmissionLock';
-import { resolveInitialSelectedExpertIds } from './resolveInitialSelectedExpertIds';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
@@ -135,9 +131,31 @@ const extractBase64FromDataUrl = (
   if (!match) return null;
   return { mimeType: match[1], base64Data: match[2] };
 };
-const getFileNameFromPath = (filePath: string): string => {
-  const parts = filePath.split(/[/\\]/);
-  return parts[parts.length - 1] || filePath;
+const getFileNameFromPath = (path: string): string => {
+  const parts = path.split(/[/\\]/);
+  return parts[parts.length - 1] || path;
+};
+
+const getSkillDirectoryFromPath = (skillPath: string): string => {
+  const normalized = skillPath.trim().replace(/\\/g, '/');
+  return normalized.replace(/\/SKILL\.md$/i, '') || normalized;
+};
+
+const buildInlinedSkillPrompt = (skill: Skill): string => {
+  const skillDirectory = getSkillDirectoryFromPath(skill.skillPath);
+  return [
+    `## Skill: ${skill.name}`,
+    '<skill_context>',
+    `  <location>${skill.skillPath}</location>`,
+    `  <directory>${skillDirectory}</directory>`,
+    '  <path_rules>',
+    '    Resolve relative file references from this skill against <directory>.',
+    '    Do not assume skills are under the current workspace directory.',
+    '  </path_rules>',
+    '</skill_context>',
+    '',
+    skill.prompt,
+  ].join('\n');
 };
 
 const isMacPlatform = navigator.platform.includes('Mac');
@@ -158,10 +176,12 @@ export interface CoworkPromptInputRef {
 interface CoworkPromptInputProps {
   onSubmit: (
     prompt: string,
+    skillPrompt?: string,
     imageAttachments?: CoworkImageAttachment[],
     fileAttachments?: CoworkFileAttachment[],
     expertIds?: string[],
     goalMode?: boolean,
+    productionLoopMode?: ProductionLoopModeValue,
   ) => boolean | void | Promise<boolean | void>;
   onStop?: () => void;
   isStreaming?: boolean;
@@ -187,6 +207,10 @@ interface CoworkPromptInputProps {
   sessionId?: string;
   /** When true, hides attachment/skill buttons but keeps the input box visible (disabled) */
   remoteManaged?: boolean;
+  showLocalThinkingToggle?: boolean;
+  localThinkingEnabled?: boolean;
+  onLocalThinkingEnabledChange?: (enabled: boolean | undefined) => void;
+  isDirectChat?: boolean;
   topAccessory?: React.ReactNode;
   resumeTaskActive?: boolean;
   onCancelTaskResume?: () => void;
@@ -217,6 +241,10 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       onPermissionModeChange,
       sessionId,
       remoteManaged = false,
+      showLocalThinkingToggle = false,
+      localThinkingEnabled,
+      onLocalThinkingEnabledChange,
+      isDirectChat = false,
       topAccessory,
       resumeTaskActive = false,
       onCancelTaskResume,
@@ -236,6 +264,9 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
     const agents = useSelector((state: RootState) => state.agent.agents);
     const currentAgent = agents.find(agent => agent.id === currentAgentId);
     const availableModels = useSelector((state: RootState) => state.model.availableModels);
+    const defaultSelectedModel = useSelector(
+      (state: RootState) => state.model.defaultSelectedModel,
+    );
     const currentSession = useSelector((state: RootState) => state.cowork.currentSession);
     const contextMessage = useMemo(
       () =>
@@ -248,14 +279,20 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
     const workMode = useSelector(selectWorkMode);
     const canQueueWhileStreaming =
       workMode === WorkMode.Work &&
+      !isDirectChat &&
       (currentSession?.mode ?? CoworkSessionMode.Work) === CoworkSessionMode.Work;
     const persistedExpertIds = useMemo(
       () => currentSession?.experts?.slice(0, 1).map(expert => expert.expertId) ?? [],
       [currentSession?.experts],
     );
-    const [selectedExpertIds, setSelectedExpertIds] = useState<string[]>(() => persistedExpertIds);
+    const [selectedExpertIds, setSelectedExpertIds] = useState<string[]>(() =>
+      persistedExpertIds,
+    );
     const [value, setValue] = useState(draftPrompt);
     const [goalMode, setGoalMode] = useState(false);
+    const [productionLoopMode, setProductionLoopMode] = useState<ProductionLoopModeValue>(
+      ProductionLoopMode.Off,
+    );
 
     // Keep a stable ref to the controller to avoid [controller] dep in the sync effect.
     // Without this, every controller reference change triggers a re-render cascade
@@ -311,6 +348,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
     }));
 
     const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
+    const skills = useSelector((state: RootState) => state.skill.skills);
     const currentAgentSelectedModel = useAgentSelectedModel(
       currentAgentId,
       currentAgent?.model ?? '',
@@ -335,8 +373,14 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
     const handleModelSelect = useCallback(
       async (nextModel: Model) => {
         if (isPatchingModel || isPersistingAgentModel) return;
+        if (isDirectChat) {
+          dispatch(setDefaultSelectedModel(nextModel));
+          return;
+        }
         const modelRef = toAgentModelRef(nextModel);
-        // Keep the agent selection aligned with model changes inside a session.
+        // Always update the agent-level model selection so that CoworkView's
+        // currentAgentSelectedModel (used to build ChatChatTransport) reflects
+        // the user's latest choice — even when switching model inside a session.
         dispatch(setSelectedModel({ agentId: currentAgentId, model: nextModel }));
         if (sessionId) {
           const reqId = modelPatchRequestIdRef.current + 1;
@@ -370,6 +414,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       [
         isPatchingModel,
         isPersistingAgentModel,
+        isDirectChat,
         sessionId,
         currentSession,
         currentAgentId,
@@ -380,28 +425,20 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       ],
     );
 
-    const effectiveSelectedModel = resolveEffectiveModel({
+    const agentEffectiveModel = resolveEffectiveModel({
       sessionId,
       agentSelectedModel,
       globalSelectedModel: currentAgentSelectedModel,
     });
+    const effectiveSelectedModel = isDirectChat ? defaultSelectedModel : agentEffectiveModel;
     const modelSupportsImage = !!effectiveSelectedModel?.supportsImage;
 
     // Load skills on mount
     useEffect(() => {
-      // 2026/09/22 lixiang  从专家页进入新会话时选中当前专家 agent（#100）
-      setSelectedExpertIds(
-        resolveInitialSelectedExpertIds({
-          sessionId: currentSession?.id,
-          persistedExpertIds,
-          currentAgentId,
-          currentAgentSource: currentAgent?.source,
-        }),
-      );
+      setSelectedExpertIds(persistedExpertIds);
     }, [
       currentSession?.id,
       currentAgentId,
-      currentAgent?.source,
       persistedExpertIds,
     ]);
 
@@ -417,23 +454,6 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       void syncSkills();
     }, [syncSkills, workMode]);
 
-    // 2026/09/23 切换工作/对话模式时清空输入、首页草稿与已挂载 skill（两端共用 __home__ 键，否则会残留）
-    const prevWorkModeForDraftRef = useRef(workMode);
-    useEffect(() => {
-      if (prevWorkModeForDraftRef.current === workMode) return;
-      prevWorkModeForDraftRef.current = workMode;
-      setValue('');
-      setImageVisionHint(false);
-      dispatch(setDraftPrompt({ sessionId: '__home__', draft: '' }));
-      dispatch(clearDraftAttachments('__home__'));
-      if (draftKey !== '__home__') {
-        dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
-        dispatch(clearDraftAttachments(draftKey));
-      }
-      dispatch(clearActiveSkills());
-      dispatch(clearSelection());
-    }, [workMode, dispatch, draftKey]);
-
     useEffect(() => {
       const unsubscribe = skillService.onSkillsChanged(() => {
         void syncSkills();
@@ -445,9 +465,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
 
     useEffect(() => {
       const handleFocusInput = (event: Event) => {
-        const detail = (
-          event as CustomEvent<{ clear?: boolean; clearExperts?: boolean; text?: string }>
-        ).detail;
+        const detail = (event as CustomEvent<{ clear?: boolean; text?: string }>).detail;
         const shouldClear = detail?.clear ?? true;
         if (detail?.text !== undefined) {
           setValue(detail.text);
@@ -457,10 +475,6 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
           setValue('');
           dispatch(clearDraftAttachments(draftKey));
           setImageVisionHint(false);
-        }
-        // Only clear when new-chat explicitly requests it; do not tie to shouldClear (avoids ask-ai side effects).
-        if (detail?.clearExperts === true) {
-          setSelectedExpertIds([]);
         }
         requestAnimationFrame(() => {
           textareaRef.current?.focus();
@@ -517,7 +531,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       }
     }, [value, draftPrompt, dispatch, draftKey]);
 
-    const submitPrompt = useCallback(async () => {
+    const handleSubmit = useCallback(async () => {
       if (showFolderSelector && !workingDirectory?.trim()) {
         setShowFolderRequiredWarning(true);
         if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
@@ -528,7 +542,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
         return;
       }
 
-      const trimmedValue = hasVisiblePromptContent(value) ? value.trim() : '';
+      const trimmedValue = value.trim();
       if (
         (!trimmedValue && attachments.length === 0 && !resumeTaskActive) ||
         (isStreaming && !canQueueWhileStreaming) ||
@@ -537,7 +551,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
         isPatchingModel
       )
         return;
-      if (hasUnavailableLlamaCppModel) {
+      if (!isDirectChat && hasUnavailableLlamaCppModel) {
         window.dispatchEvent(
           new CustomEvent('app:showToast', {
             detail: i18nService.t('agentLlamaCppModelNotRunningBlocked'),
@@ -547,9 +561,14 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       }
       setShowFolderRequiredWarning(false);
 
-      // Skills stay visible to the model through the session's capability set
-      // (Pi renders them into the system prompt from their directories), so the
-      // submission never inlines skill text.
+      // Get active skills prompts and combine them
+      const activeSkills = activeSkillIds
+        .map(id => skills.find(s => s.id === id))
+        .filter((s): s is Skill => s !== undefined);
+      const skillPrompt =
+        activeSkills.length > 0
+          ? activeSkills.map(buildInlinedSkillPrompt).join('\n\n')
+          : undefined;
 
       // Extract image attachments (with base64 data) for vision-capable models
       console.log('[CoworkPromptInput] handleSubmit: attachment diagnosis', {
@@ -642,12 +661,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       // would trigger native image-path detection, which rejects paths outside allowed
       // directories and can drop the base64 image during sanitization (macOS-only bug).
       const attachmentLines = attachments
-        .filter(
-          a =>
-            hasVisiblePromptContent(a.path) &&
-            !a.path.startsWith('inline:') &&
-            !(a.isImage && a.dataUrl),
-        )
+        .filter(a => !a.path.startsWith('inline:') && !(a.isImage && a.dataUrl))
         .map(attachment => `${i18nService.t('inputFileLabel')}: ${attachment.path}`)
         .join('\n');
       const finalPrompt = trimmedValue
@@ -655,25 +669,6 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
           ? `${attachmentLines}\n\n${trimmedValue}`
           : trimmedValue
         : attachmentLines;
-
-      if (
-        !resumeTaskActive &&
-        !hasCoworkSubmissionContent({ prompt: finalPrompt, imageAttachments: imageAtts })
-      ) {
-        // 2026/09/28 之前这里是静默 return：按钮看起来可用，点下去却什么都不发生。
-        const unusableImage = attachments.some(a => a.isImage || isImagePath(a.path));
-        window.dispatchEvent(
-          new CustomEvent('app:showToast', {
-            detail: {
-              message: i18nService.t(
-                unusableImage ? 'imageReadError' : 'coworkSubmitEmptyContent',
-              ),
-              isError: true,
-            },
-          }),
-        );
-        return;
-      }
 
       if (imageAtts.length > 0) {
         console.log('[CoworkPromptInput] handleSubmit: passing imageAtts to onSubmit', {
@@ -702,19 +697,19 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       setImageVisionHint(false);
       const result = await onSubmit(
         finalPrompt,
+        skillPrompt,
         imageAtts.length > 0 ? imageAtts : undefined,
         fileAtts.length > 0 ? fileAtts : undefined,
         selectedExpertIds,
         goalMode,
+        productionLoopMode,
       );
       if (result === false) {
         // Submission rejected — restore the prompt so the user can retry.
         setValue(finalPrompt);
         dispatch(setDraftPrompt({ sessionId: draftKey, draft: finalPrompt }));
         dispatch(setDraftAttachments({ draftKey, attachments }));
-      } else if (activeSkillIds.length > 0) {
-        // Keyed on the selection itself: an id that no longer resolves to a
-        // loaded skill would otherwise keep the selection alive for the next turn.
+      } else if (activeSkills.length > 0) {
         // Skills describe this one input only. Clear their selection after a
         // successful send so the next message starts with a clean context.
         dispatch(clearActiveSkills());
@@ -726,9 +721,11 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       disabled,
       sessionContextPending,
       isPatchingModel,
+      isDirectChat,
       hasUnavailableLlamaCppModel,
       onSubmit,
       activeSkillIds,
+      skills,
       attachments,
       showFolderSelector,
       workingDirectory,
@@ -738,11 +735,10 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       modelSupportsImage,
       selectedExpertIds,
       goalMode,
+      productionLoopMode,
       canQueueWhileStreaming,
       resumeTaskActive,
     ]);
-
-    const handleSubmit = usePromptSubmissionLock(submitPrompt);
 
     const handleManageSkills = useCallback(() => {
       if (onManageSkills) {
@@ -1140,12 +1136,11 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
     }, []);
     // Unified Kimi-style toolbar: "+" menu (+ permission selector in work mode)
     // on the left, model picker + submit on the right. remoteManaged sessions
-    // keep the minimal read-only layout with the model picker.
+    // keep the minimal read-only layout (model picker + thinking toggle only).
     const isPlusToolbar = !remoteManaged;
     const isWorkVariant = showFolderSelector || showPermissionModeSelector;
     // 2026/09/15 lixiang  Empty prompt: dim submit, not-allowed cursor, and ask-user tip
-    const isSubmitEmpty =
-      !hasVisiblePromptContent(value) && attachments.length === 0 && !resumeTaskActive;
+    const isSubmitEmpty = !value.trim() && attachments.length === 0 && !resumeTaskActive;
     const showEmptySubmitHint = isSubmitEmpty && !isStreaming;
     return (
       <div ref={promptRootRef} className="relative">
@@ -1241,6 +1236,15 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
                   />
                 </>
               )}
+              {!isCompactToolbar && !isPlusToolbar && (
+                <LocalThinkingToggle
+                  model={effectiveSelectedModel}
+                  visible={showLocalThinkingToggle}
+                  enabled={localThinkingEnabled}
+                  disabled={disabled || isStreaming}
+                  onEnabledChange={onLocalThinkingEnabledChange}
+                />
+              )}
               {isPlusToolbar && (
                 <>
                   <PromptPlusMenu
@@ -1250,17 +1254,19 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
                     onManageSkills={handleManageSkills}
                     onManageConnectors={() => onManageConnectors?.()}
                     experts={
-                      isWorkVariant
+                      isWorkVariant && !isDirectChat
                         ? { selectedExpertIds, onChange: setSelectedExpertIds }
                         : undefined
                     }
                     goalMode={goalMode}
                     onGoalModeChange={setGoalMode}
+                    productionLoopMode={productionLoopMode}
+                    onProductionLoopModeChange={setProductionLoopMode}
                     disabled={disabled || isStreaming || isAddingFile}
                   />
                   {!isCompactToolbar && isWorkVariant && (
                     <PermissionModeMenu
-                      value={permissionMode ?? DEFAULT_COWORK_PERMISSION_MODE}
+                      value={permissionMode ?? CoworkPermissionMode.Ask}
                       onChange={mode => onPermissionModeChange?.(mode)}
                       disabled={disabled}
                     />
@@ -1285,8 +1291,20 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
               )}
             </PromptInputTools>
             {isPlusToolbar &&
-              (showModelSelector || (isCompactToolbar && isWorkVariant)) && (
+              (showLocalThinkingToggle ||
+                showModelSelector ||
+                (isCompactToolbar && isWorkVariant)) && (
                 <div className="flex items-center gap-1.5">
+                  {!isWorkVariant && showLocalThinkingToggle && (
+                    <LocalThinkingToggle
+                      model={effectiveSelectedModel}
+                      visible={showLocalThinkingToggle}
+                      enabled={localThinkingEnabled}
+                      disabled={disabled || isStreaming}
+                      onEnabledChange={onLocalThinkingEnabledChange}
+                      compact={isCompactToolbar}
+                    />
+                  )}
                   {showModelSelector && (
                     <>
                       {!isCompactToolbar && (
@@ -1315,7 +1333,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
                   )}
                   {isCompactToolbar && isWorkVariant && (
                     <PermissionModeMenu
-                      value={permissionMode ?? DEFAULT_COWORK_PERMISSION_MODE}
+                      value={permissionMode ?? CoworkPermissionMode.Ask}
                       onChange={mode => onPermissionModeChange?.(mode)}
                       disabled={disabled}
                       compact
@@ -1347,7 +1365,9 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
                       className="cursor-not-allowed opacity-40"
                     />
                   </TooltipTrigger>
-                  <TooltipContent side="top">{i18nService.t('chatSubmitEmptyHint')}</TooltipContent>
+                  <TooltipContent side="top">
+                    {i18nService.t('chatSubmitEmptyHint')}
+                  </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             ) : (

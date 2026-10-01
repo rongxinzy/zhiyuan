@@ -66,12 +66,21 @@ interface TaskFormProps {
   mode: 'create' | 'edit';
   task?: ScheduledTask;
   prefill?: TaskTemplateValues;
-  /** Folder the new task belongs to; falls back to the current folder. */
-  initialWorkspaceId?: string;
   onCancel: () => void;
   onSaved: (newTaskId?: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
+
+const createInitialFormState = (
+  mode: TaskFormProps['mode'],
+  task: ScheduledTask | undefined,
+  prefill: TaskTemplateValues | undefined,
+): FormState => {
+  if (mode === 'create' && !prefill) {
+    return { ...createFormState(), planType: 'daily' };
+  }
+  return createFormState(task, prefill);
+};
 
 const getWorkspaceFolderName = (workspace: Workspace): string => {
   return getWorkspaceDisplayName(
@@ -85,14 +94,15 @@ const TaskForm: React.FC<TaskFormProps> = ({
   mode,
   task,
   prefill,
-  initialWorkspaceId,
   onCancel,
   onSaved,
   onDirtyChange,
 }) => {
-  const [form, setForm] = useState<FormState>(() => createFormState(task, prefill));
+  const [form, setForm] = useState<FormState>(() => createInitialFormState(mode, task, prefill));
   // Snapshot of the pristine form for the dirty check (shallow compare, no stringify).
-  const [initialForm, setInitialForm] = useState<FormState>(() => createFormState(task, prefill));
+  const [initialForm, setInitialForm] = useState<FormState>(() =>
+    createInitialFormState(mode, task, prefill),
+  );
   const availableModels = useSelector((state: RootState) => state.model.availableModels);
   const defaultSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
   const workspaces = useSelector((state: RootState) => state.workspace.workspaces);
@@ -131,19 +141,18 @@ const TaskForm: React.FC<TaskFormProps> = ({
   );
 
   useEffect(() => {
-    const nextForm = createFormState(task, prefill);
+    const nextForm = createInitialFormState(mode, task, prefill);
     setInitialForm(nextForm);
     setForm(nextForm);
-  }, [task, prefill]);
+  }, [mode, task, prefill]);
 
   useEffect(() => {
     if (form.workspaceId) return;
-    const workspaceId =
-      initialWorkspaceId || currentWorkspaceId || workspaces.find(item => !item.isHidden)?.id || '';
+    const workspaceId = currentWorkspaceId ?? workspaces.find(item => !item.isHidden)?.id ?? '';
     if (!workspaceId) return;
     setForm(current => (current.workspaceId ? current : { ...current, workspaceId }));
     setInitialForm(current => (current.workspaceId ? current : { ...current, workspaceId }));
-  }, [form.workspaceId, initialWorkspaceId, currentWorkspaceId, workspaces]);
+  }, [form.workspaceId, currentWorkspaceId, workspaces]);
 
   useEffect(() => {
     let cancelled = false;

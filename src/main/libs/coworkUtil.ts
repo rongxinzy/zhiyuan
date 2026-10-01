@@ -19,8 +19,10 @@ import {
 } from './coworkModelApi';
 import type { OpenAICompatProxyTarget } from './coworkOpenAICompatProxy';
 import { applyUvPackageIndexDefaults, PythonPackageIndexUrl } from './pythonPackageIndexes';
-import { applyManagedPythonEnv } from './managedPythonEnv';
+import { appendPythonRuntimeToEnv } from './pythonRuntime';
+import { findSharedSkillPythonExecutable } from './skillPythonRuntime';
 import { isSystemProxyEnabled, resolveSystemProxyUrlForTargets } from './systemProxy';
+import { appendUvRuntimeToEnv, configureUvForManagedPython } from './uvRuntime';
 import { getFeishuCliBinDirectory } from './feishuConnectorPaths';
 
 const DOMESTIC_NPM_REGISTRY_URL = 'https://registry.npmmirror.com';
@@ -47,6 +49,27 @@ function appendEnvPath(current: string | undefined, additions: string[]): string
   }
 
   return items.size > 0 ? Array.from(items).join(delimiter) : current;
+}
+
+/**
+ * Prepend the shared Skill dependency layer's Python to PATH so ad-hoc
+ * scripts executed via the bash tool resolve to the managed environment that
+ * already carries pandas/numpy/etc. The bare base runtime stays further down
+ * PATH as a fallback. No-op when the shared layer is not installed.
+ */
+function prependSkillSharedPythonToEnv(env: Record<string, string | undefined>): void {
+  if (!['win32', 'darwin', 'linux'].includes(process.platform)) return;
+  const executable = findSharedSkillPythonExecutable();
+  if (!executable) return;
+  const binDir = dirname(executable);
+  const entries = (env.PATH || '').split(delimiter).filter(Boolean);
+  if (entries.some(entry => entry.toLowerCase() === binDir.toLowerCase())) return;
+  env.PATH = [binDir, ...entries].join(delimiter);
+  coworkLog(
+    'INFO',
+    'applyPackagedEnvOverrides',
+    `Prepended Skill shared Python to PATH: ${binDir}`,
+  );
 }
 
 function hasCommandInEnv(command: string, env: Record<string, string | undefined>): boolean {
@@ -1224,7 +1247,11 @@ export function applyApplicationRuntimeEnv(
       env.ZHIYUAN_GIT_BASH_RESOLUTION_ERROR = truncateDiagnostic(diagnostic);
     }
 
-    applyManagedPythonEnv(env);
+    appendPythonRuntimeToEnv(env);
+    // Prepend after the base runtime so the dependency-rich shared layer wins.
+    prependSkillSharedPythonToEnv(env);
+    appendUvRuntimeToEnv(env);
+    configureUvForManagedPython(env);
 
     // Tell git-bash to inherit the PATH from the parent process instead of
     // rebuilding it from scratch. Without this, git-bash's /etc/profile (login
@@ -1257,7 +1284,6 @@ export function applyApplicationRuntimeEnv(
   }
 
   if (!app.isPackaged) {
-    if (process.platform !== 'win32') applyManagedPythonEnv(env);
     // In dev mode, prepend project's node_modules/.bin to PATH so bundled
     // npx/npm are found even if the user has no global Node.js installation.
     const devBinDir = join(app.getAppPath(), 'node_modules', '.bin');
@@ -1390,8 +1416,11 @@ export function applyApplicationRuntimeEnv(
   // applied both in the platform block above; re-running would re-prepend the
   // base runtime ahead of the shared layer.
   if (process.platform !== 'win32') {
-    applyManagedPythonEnv(env);
+    appendPythonRuntimeToEnv(env);
+    prependSkillSharedPythonToEnv(env);
   }
+  appendUvRuntimeToEnv(env);
+  configureUvForManagedPython(env);
 
   // Official connector Skills invoke lark-cli by name. Keep its per-user
   // launcher ahead of system paths so a globally installed, incompatible CLI

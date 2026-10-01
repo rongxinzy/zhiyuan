@@ -5,7 +5,6 @@ import {
   getArtifactPreviewMode,
   getArtifactTypeByExtension,
   isBinaryArtifactFile,
-  resolveCoworkArtifactType,
 } from './artifactPreview';
 
 test('recognizes legacy and template Office files as binary documents', () => {
@@ -35,12 +34,4 @@ test('recognizes ICO files as binary images', () => {
 
 test('uses the unsupported preview mode for unknown declared files', () => {
   expect(getArtifactPreviewMode('unsupported')).toBe(ArtifactPreviewMode.Unsupported);
-});
-
-test('prefers known extensions over a generic declared kind', () => {
-  expect(resolveCoworkArtifactType('notes.md', 'document')).toBe('markdown');
-  expect(resolveCoworkArtifactType('part.dxf', 'document')).toBe('document');
-  expect(resolveCoworkArtifactType('body.step', 'model')).toBe('unsupported');
-  expect(resolveCoworkArtifactType('mystery.bin', 'model')).toBe('model');
-  expect(resolveCoworkArtifactType('mystery.bin')).toBeNull();
 });

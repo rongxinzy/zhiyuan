@@ -209,15 +209,14 @@ export class ArtifactDetectionIndex {
     }
 
     if (message.type === 'tool_use') {
-      const toolResult = this.findToolResult(message);
       artifacts.push(
         ...parseDeclareArtifactFromMessages(
-          toolResult ? [message, toolResult] : [message],
+          [message],
           this.sessionId,
           () => ArtifactRole.Deliverable,
         ).map(artifact => ({ artifact, needsFileLoad: true })),
       );
-      const toolArtifact = parseToolArtifact(message, toolResult, this.sessionId);
+      const toolArtifact = parseToolArtifact(message, this.findToolResult(message), this.sessionId);
       if (toolArtifact) artifacts.push({ artifact: toolArtifact, needsFileLoad: true });
     }
 

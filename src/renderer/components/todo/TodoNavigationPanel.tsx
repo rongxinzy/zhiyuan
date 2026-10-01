@@ -1,6 +1,5 @@
 import { Button } from '@shared/components/ui/button';
 import { Input } from '@shared/components/ui/input';
-import { cn } from '@shared/lib/utils';
 import {
   CalendarDays,
   CheckCircle2,
@@ -37,10 +36,6 @@ interface TodoNavigationPanelProps {
   activeCounts: Record<TodoView, number>;
   lists: TodoList[];
   listCounts: Map<string, number>;
-  /** 有新增未查看任务的系统视图 */
-  unseenViews?: ReadonlySet<TodoView>;
-  /** 有新增未查看任务的自定义列表 */
-  unseenListIds?: ReadonlySet<string>;
   newListName: string;
   newListInputId: string;
   onNewListNameChange: (name: string) => void;
@@ -57,8 +52,6 @@ const TodoNavigationPanel: React.FC<TodoNavigationPanelProps> = ({
   activeCounts,
   lists,
   listCounts,
-  unseenViews,
-  unseenListIds,
   newListName,
   newListInputId,
   onNewListNameChange,
@@ -79,31 +72,19 @@ const TodoNavigationPanel: React.FC<TodoNavigationPanelProps> = ({
         const Icon = item.icon;
         const isActive = activeView === item.value && activeListId === null;
         const itemCount = activeCounts[item.value];
-        const hasUnseen = unseenViews?.has(item.value) ?? false;
         return (
           <Button
             key={item.value}
             type="button"
             variant={isActive ? 'secondary' : 'ghost'}
-            data-active={isActive ? 'true' : undefined}
             onClick={() => onSelectView(item.value)}
-            className={cn(
-              'w-full justify-start gap-2',
-              // 选中态：卡片底 + 描边 + 字重，避免在 muted 侧栏里看不清
-              isActive && 'border border-border bg-card font-medium text-foreground shadow-subtle',
-            )}
+            className="w-full justify-start gap-2"
             aria-current={isActive ? 'page' : undefined}
           >
             <Icon />
-            <span className="min-w-0 flex-1 truncate text-left">{i18nService.t(item.labelKey)}</span>
-            {hasUnseen ? (
-              <span
-                className="size-2 shrink-0 rounded-full bg-primary"
-                aria-label={i18nService.t('todoUnseenBadge')}
-              />
-            ) : null}
+            {i18nService.t(item.labelKey)}
             {itemCount > 0 ? (
-              <span className="shrink-0 text-xs text-muted-foreground">{itemCount}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{itemCount}</span>
             ) : null}
           </Button>
         );
@@ -128,30 +109,21 @@ const TodoNavigationPanel: React.FC<TodoNavigationPanelProps> = ({
         {lists.map(list => {
           const isActive = activeListId === list.id;
           const listCount = listCounts.get(list.id) ?? 0;
-          const hasUnseen = unseenListIds?.has(list.id) ?? false;
           return (
             <div key={list.id} className="flex items-center gap-1">
               <Button
                 type="button"
                 variant={isActive ? 'secondary' : 'ghost'}
-                data-active={isActive ? 'true' : undefined}
                 onClick={() => onSelectList(list.id)}
-                className={cn(
-                  'min-w-0 flex-1 justify-start gap-2',
-                  isActive && 'border border-border bg-card font-medium text-foreground shadow-subtle',
-                )}
+                className="min-w-0 flex-1 justify-start gap-2"
                 aria-current={isActive ? 'page' : undefined}
               >
                 <ListTodo />
-                <span className="min-w-0 flex-1 truncate text-left">{list.name}</span>
-                {hasUnseen ? (
-                  <span
-                    className="size-2 shrink-0 rounded-full bg-primary"
-                    aria-label={i18nService.t('todoUnseenBadge')}
-                  />
-                ) : null}
+                <span className="truncate">{list.name}</span>
                 {listCount > 0 ? (
-                  <span className="shrink-0 text-xs text-muted-foreground">{listCount}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                    {listCount}
+                  </span>
                 ) : null}
               </Button>
               <Button

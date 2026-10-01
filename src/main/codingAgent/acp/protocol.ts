@@ -1,15 +1,7 @@
-import {
-  methods,
-  PROTOCOL_VERSION,
-  RequestError,
-  type ClientCapabilities,
-} from '@agentclientprotocol/sdk';
-
-import { CodingErrorDetailMessage } from '../../../shared/codingAgent';
+import { methods, PROTOCOL_VERSION, type ClientCapabilities } from '@agentclientprotocol/sdk';
 
 /** The stable ACP v1 version exported by the official TypeScript SDK. */
 export const ACP_PROTOCOL_VERSION = PROTOCOL_VERSION;
-export const ACP_AUTH_REQUIRED_CODE = RequestError.authRequired().code;
 
 /**
  * Lowest protocol version this client can speak. `InitializeResponse` carries
@@ -57,11 +49,14 @@ export class AcpRequestError extends Error {
 export const ACP_CLIENT_CAPABILITIES = {
   fs: { readTextFile: true, writeTextFile: true },
   terminal: true,
+  auth: { terminal: true },
   session: { configOptions: { boolean: {} } },
 } satisfies ClientCapabilities;
 
-/** Connection checks do not offer login or terminal authentication. */
-export const ACP_PROBE_CLIENT_CAPABILITIES = {} satisfies ClientCapabilities;
+/** Probe only advertises terminal authentication, which the application can execute later. */
+export const ACP_PROBE_CLIENT_CAPABILITIES = {
+  auth: ACP_CLIENT_CAPABILITIES.auth,
+} satisfies ClientCapabilities;
 
 /** ACP method names are sourced from the official SDK rather than duplicated. */
 export const AcpMethod = {
@@ -103,9 +98,7 @@ export type AcpSessionUpdateKind = (typeof AcpSessionUpdateKind)[keyof typeof Ac
 
 export class AcpProtocolIncompatibleError extends Error {
   constructor(actualVersion: unknown) {
-    super(
-      `${CodingErrorDetailMessage.AcpProtocolUnsupported} ${String(actualVersion)} is not supported.`,
-    );
+    super(`ACP protocol version ${String(actualVersion)} is not supported.`);
     this.name = 'AcpProtocolIncompatibleError';
   }
 }

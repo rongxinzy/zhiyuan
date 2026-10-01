@@ -1,4 +1,3 @@
-import { CoworkExecutionMode } from '../../shared/cowork/constants';
 import EventEmitter from 'node:events';
 
 import { beforeEach, expect, test, vi } from 'vitest';
@@ -54,28 +53,11 @@ class FakeRuntime extends EventEmitter {
   }
 }
 
-test('does not recreate a channel session after an API rejection', async () => {
-  const runtime = new FakeRuntime();
-  const coworkStore = new FakeCoworkStore();
-  const imStore = new FakeIMStore();
-  const failure = new Error('API error 400: maximum context length');
-  vi.spyOn(runtime, 'startSession').mockRejectedValue(failure);
-  const handler = new IMCoworkHandler({ coworkRuntime: runtime, coworkStore, imStore });
-  try {
-    await expect(handler.processMessage(createMessage(), undefined, 'workspace-1')).rejects.toThrow(failure);
-    expect(runtime.startSession).toHaveBeenCalledTimes(1);
-    expect(coworkStore.sessions.size).toBe(1);
-    expect(imStore.mappings).toHaveLength(1);
-  } finally {
-    handler.destroy();
-  }
-});
-
 class FakeCoworkStore {
   config = {
     workingDirectory: process.cwd(),
     systemPrompt: '',
-    executionMode: CoworkExecutionMode.Auto,
+    executionMode: 'auto',
     agentEngine: 'pi',
   };
   sessions = new Map<string, Record<string, unknown>>();
@@ -125,6 +107,7 @@ class FakeCoworkStore {
       mode,
       workspaceId,
       source,
+      claudeSessionId: null,
       status: 'idle',
       messages: [] as Array<Record<string, unknown>>,
     };
@@ -338,7 +321,7 @@ test.skip('async reminder turns on IM-created sessions relay back to the origina
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', session.id);
+  runtime.emit('complete', session.id, null);
 
   await new Promise(resolve => setImmediate(resolve));
 
@@ -392,7 +375,7 @@ test('async reminder turns on channel-synced sessions are tracked lazily and rel
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', session.id);
+  runtime.emit('complete', session.id, null);
 
   await new Promise(resolve => setImmediate(resolve));
 
@@ -507,7 +490,7 @@ test('falls back to normal agent execution when detector does not recognize a sc
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
 
   const reply = await pending;
   expect(reply).toBe('这是会议纪要摘要。');
@@ -536,7 +519,7 @@ test('uses only the IM platform for WeChat session titles', async () => {
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
 
   await expect(response).resolves.toBe('你好');
   handler.destroy();
@@ -561,7 +544,7 @@ test('uses only the IM platform for group and direct session titles', async () =
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
   await expect(groupResponse).resolves.toBe('群聊回复');
 
   const fallbackResponse = handler.processMessage(
@@ -578,7 +561,7 @@ test('uses only the IM platform for group and direct session titles', async () =
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-2');
+  runtime.emit('complete', 'session-2', null);
   await expect(fallbackResponse).resolves.toBe('兜底回复');
 
   handler.destroy();
@@ -609,7 +592,7 @@ test('cancels the Pi turn when the channel bridge request disconnects', async ()
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
   handler.destroy();
 });
 
@@ -658,7 +641,7 @@ test('IM turns use workspace session configuration without disabling Pi tools', 
     content: 'First response.',
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
   await expect(firstResponse).resolves.toBe('First response.');
 
   vi.spyOn(runtime, 'isSessionActive').mockReturnValue(true);
@@ -686,7 +669,7 @@ test('IM turns use workspace session configuration without disabling Pi tools', 
     content: 'Second response.',
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
   await expect(secondResponse).resolves.toBe('Second response.');
 
   vi.spyOn(runtime, 'isSessionActive').mockReturnValue(false);
@@ -712,7 +695,7 @@ test('IM turns use workspace session configuration without disabling Pi tools', 
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-2');
+  runtime.emit('complete', 'session-2', null);
   await expect(thirdResponse).resolves.toBe('Third response.');
 
   handler.destroy();
@@ -807,7 +790,7 @@ test('closes a started run when existing-session setup fails before runtime exec
     timestamp: Date.now(),
     metadata: {},
   });
-  runtime.emit('complete', 'session-1');
+  runtime.emit('complete', 'session-1', null);
   await expect(firstResponse).resolves.toBe('第一条回复');
 
   imStore.settings.skillsEnabled = true;

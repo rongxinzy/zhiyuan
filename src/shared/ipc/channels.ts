@@ -94,6 +94,14 @@ export type ManagedProviderIpc = (typeof ManagedProviderIpc)[keyof typeof Manage
 export const ApiIpc = {
   Fetch: 'api:fetch',
   FetchModels: 'api:fetch-models',
+  WebSearch: 'api:web-search',
+  Stream: 'api:stream',
+  CancelStream: 'api:stream:cancel',
+  /** Dynamic: `api:stream:${requestId}:data` */
+  streamData: (requestId: string) => `api:stream:${requestId}:data`,
+  streamDone: (requestId: string) => `api:stream:${requestId}:done`,
+  streamError: (requestId: string) => `api:stream:${requestId}:error`,
+  streamAbort: (requestId: string) => `api:stream:${requestId}:abort`,
 } as const;
 
 // ─── ZhiYuan Model Pool ────────────────────────────────────────────────────
@@ -116,8 +124,6 @@ export const WindowIpc = {
   IsMaximized: 'window:isMaximized',
   ShowSystemMenu: 'window:showSystemMenu',
   StateChanged: 'window:state-changed',
-  ToggleDevTools: 'window:toggleDevTools',
-  OpenDevTools: 'window:openDevTools',
 } as const;
 export type WindowIpc = (typeof WindowIpc)[keyof typeof WindowIpc];
 
@@ -150,6 +156,7 @@ export const CoworkSessionIpc = {
   Rename: 'cowork:session:rename',
   UpdateModel: 'cowork:session:updateModel',
   Get: 'cowork:session:get',
+  RunSnapshot: 'cowork:session:runSnapshot',
   RemoteManaged: 'cowork:session:remoteManaged',
   List: 'cowork:session:list',
   GetMessages: 'cowork:session:getMessages',
@@ -193,8 +200,17 @@ export type CoworkBootstrapIpc = (typeof CoworkBootstrapIpc)[keyof typeof Cowork
 
 // ─── Cowork Stream ──────────────────────────────────────────────────────────
 export const CoworkStreamIpc = {
-  RuntimeSnapshots: 'cowork:stream:runtimeSnapshots',
-  UiEvent: 'cowork:stream:uiEvent',
+  RunState: 'cowork:stream:runState',
+  ContentPatch: 'cowork:stream:contentPatch',
+  Message: 'cowork:stream:message',
+  MessageUpdate: 'cowork:stream:messageUpdate',
+  ToolActivity: 'cowork:stream:toolActivity',
+  Permission: 'cowork:stream:permission',
+  PermissionDismiss: 'cowork:stream:permissionDismiss',
+  Interrupted: 'cowork:stream:interrupted',
+  Complete: 'cowork:stream:complete',
+  Error: 'cowork:stream:error',
+  QueueUpdated: 'cowork:stream:queueUpdated',
   SessionsChanged: 'cowork:sessions:changed',
 } as const;
 export type CoworkStreamIpc = (typeof CoworkStreamIpc)[keyof typeof CoworkStreamIpc];
@@ -215,7 +231,6 @@ export const DialogIpc = {
   SelectFiles: 'dialog:selectFiles',
   SaveInlineFile: 'dialog:saveInlineFile',
   ReadFileAsDataUrl: 'dialog:readFileAsDataUrl',
-  CheckArtifactFile: 'dialog:checkArtifactFile',
   GenerateThumbnail: 'dialog:generateThumbnail',
   ShowMessageBox: 'dialog:showMessageBox',
 } as const;
@@ -227,7 +242,6 @@ export const ShellIpc = {
   ShowItemInFolder: 'shell:showItemInFolder',
   OpenExternal: 'shell:openExternal',
   OpenHtmlInBrowser: 'shell:openHtmlInBrowser',
-  PathExists: 'shell:pathExists',
 } as const;
 export type ShellIpc = (typeof ShellIpc)[keyof typeof ShellIpc];
 
@@ -238,8 +252,6 @@ export const AppIpc = {
   GetPreventSleep: 'app:getPreventSleep',
   SetPreventSleep: 'app:setPreventSleep',
   GetVersion: 'app:getVersion',
-  IsDev: 'app:isDev',
-  IsEnterprise: 'app:isEnterprise',
   GetSystemLocale: 'app:getSystemLocale',
   ConsumePendingLocalInferenceInstall: 'app:consumePendingLocalInferenceInstall',
   Relaunch: 'app:relaunch',
@@ -357,13 +369,6 @@ export const NetworkIpc = {
   StatusChange: 'network:status-change',
 } as const;
 export type NetworkIpc = (typeof NetworkIpc)[keyof typeof NetworkIpc];
-
-// ─── Agent runtime notices ──────────────────────────────────────────────────
-/** Transient runtime status the renderer shows once and never persists. */
-export const RuntimeNoticeIpc = {
-  Notice: 'runtime:notice',
-} as const;
-export type RuntimeNoticeIpc = (typeof RuntimeNoticeIpc)[keyof typeof RuntimeNoticeIpc];
 
 // 2026/09/17 lixiang  开发态主进程 HTTP → 渲染进程 Network beacon
 export const DevNetworkIpc = {

@@ -39,9 +39,6 @@ test('keeps terminal authentication output outside the ACP stdio transport', asy
     environment: process.env as Record<string, string>,
   });
 
-  await expect(completion).resolves.toMatchObject({
-    exitCode: 0,
-    workspaceRoot: process.cwd(),
-  });
+  await expect(completion).resolves.toMatchObject({ exitCode: 0 });
   expect(output.join('')).toContain('signed in');
 });

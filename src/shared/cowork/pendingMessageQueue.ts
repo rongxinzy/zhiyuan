@@ -9,7 +9,8 @@ export const CoworkQueueDelivery = {
   FollowUp: 'followUp',
 } as const;
 
-export type CoworkQueueDelivery = (typeof CoworkQueueDelivery)[keyof typeof CoworkQueueDelivery];
+export type CoworkQueueDelivery =
+  (typeof CoworkQueueDelivery)[keyof typeof CoworkQueueDelivery];
 
 export const CoworkQueueItemStatus = {
   Pending: 'pending',
@@ -48,5 +49,8 @@ export interface CoworkPendingMessage {
   imageAttachments?: CoworkQueuedImageAttachment[];
   fileAttachments?: CoworkQueuedFileAttachment[];
   skillIds?: string[];
+  /** Immutable prompt snapshot used when a queued item is immediately steered. */
+  skillPrompt?: string;
+  productionLoopMode?: import('../productionLoop').ProductionLoopMode;
   error?: string;
 }

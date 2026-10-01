@@ -16,23 +16,27 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import type { CodingElicitation, CodingEvent } from '../../../shared/codingAgent';
 import { detectArtifactsFromMessages } from '../../services/artifactParser';
-import { loadArtifactFileWithRetry } from '../../services/artifactFileLoader';
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
 import { addArtifact, selectSessionArtifacts } from '../../store/slices/artifactSlice';
-import type { Artifact } from '../../types/artifact';
+import { isBinaryArtifactFile, type Artifact } from '../../types/artifact';
+import type { CoworkMessage } from '../../types/cowork';
 import { CodingConversationTurn } from './CodingConversationTurn';
 import { CodingElicitationCard } from './CodingElicitationCard';
-import { toDetectableCodingMessages } from './codingArtifactMessages';
-import { collectCodingFileArtifacts } from './codingArtifacts';
-import { projectCodingEvents } from './codingEventProjection';
+import {
+  collectCodingFileArtifacts,
+  resolveArtifactFilePath,
+} from './codingArtifacts';
+import {
+  projectCodingEvents,
+  type CodingConversationTurn as TurnModel,
+} from './codingEventProjection';
 
 interface CodingEventStreamProps {
   events: CodingEvent[];
   isStreaming: boolean;
   scrollAreaRef: RefObject<HTMLDivElement | null>;
   onScrollPositionChange: (scrollPosition: number) => void;
-  onLoadOlderEvents?: () => void;
   onReEditUserMessage: (content: string) => void;
   emptyDescription?: string;
   headerActions?: ReactNode;
@@ -50,6 +54,18 @@ interface CodingEventStreamProps {
   onCancelElicitation?: () => Promise<boolean>;
 }
 
+const toDetectableMessages = (turns: TurnModel[]): CoworkMessage[] =>
+  turns.flatMap(turn =>
+    turn.assistantMessages
+      .filter(message => message.content.trim())
+      .map(message => ({
+        id: message.id,
+        type: 'assistant' as const,
+        content: message.content,
+        timestamp: message.createdAt,
+      })),
+  );
+
 const groupArtifactsByMessage = (artifacts: Artifact[]): Map<string, Artifact[]> => {
   const grouped = new Map<string, Artifact[]>();
   for (const artifact of artifacts) {
@@ -61,12 +77,36 @@ const groupArtifactsByMessage = (artifacts: Artifact[]): Map<string, Artifact[]>
   return grouped;
 };
 
+const loadCodingArtifactContent = async (
+  artifact: Artifact,
+  baseDir: string | null | undefined,
+): Promise<Artifact | null> => {
+  if (!artifact.filePath) return null;
+  const absPath = resolveArtifactFilePath(artifact.filePath, baseDir);
+  try {
+    const result = await window.electron.dialog.readFileAsDataUrl(absPath);
+    if (!result?.success || !result.dataUrl) return null;
+    let content = result.dataUrl;
+    if (!isBinaryArtifactFile(absPath)) {
+      try {
+        const base64 = result.dataUrl.split(',')[1] || '';
+        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        content = new TextDecoder('utf-8').decode(bytes);
+      } catch {
+        content = result.dataUrl;
+      }
+    }
+    return { ...artifact, content, filePath: absPath };
+  } catch {
+    return null;
+  }
+};
+
 export const CodingEventStream = ({
   events,
   isStreaming,
   scrollAreaRef,
   onScrollPositionChange,
-  onLoadOlderEvents,
   onReEditUserMessage,
   emptyDescription,
   headerActions,
@@ -95,15 +135,11 @@ export const CodingEventStream = ({
   // Tracks the latest loaded write per artifact so a file is re-read from disk
   // after a rewrite, but not on every render.
   const loadedFileVersionsRef = useRef<Map<string, string>>(new Map());
-  const loadingFileVersionsRef = useRef<Map<string, string>>(new Map());
-  const [loadingArtifactIds, setLoadingArtifactIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
 
   // Artifact detection runs on the settled transcript only — scanning on every
   // streamed chunk would redo the whole parse per token.
   const detectableMessages = useMemo(
-    () => (isStreaming ? [] : toDetectableCodingMessages(turns)),
+    () => (isStreaming ? [] : toDetectableMessages(turns)),
     [turns, isStreaming],
   );
   const fileArtifacts = useMemo(
@@ -114,47 +150,22 @@ export const CodingEventStream = ({
     [events, artifactSessionKey, artifactBaseDir],
   );
   useEffect(() => {
-    if (!artifactSessionKey) return;
-    if (!isStreaming) {
-      for (const { artifact } of detectArtifactsFromMessages(
-        detectableMessages,
-        artifactSessionKey,
-      )) {
-        // The coding page keeps revealing its own stream artifacts; the cowork
-        // panel only opens for live declared deliverables.
-        dispatch(addArtifact({ sessionId: artifactSessionKey, artifact, reveal: true }));
-      }
+    if (!artifactSessionKey || isStreaming) return;
+    for (const { artifact } of detectArtifactsFromMessages(
+      detectableMessages,
+      artifactSessionKey,
+    )) {
+      dispatch(addArtifact({ sessionId: artifactSessionKey, artifact }));
     }
     for (const { artifact, needsFileLoad, version } of fileArtifacts) {
-      // The coding page keeps revealing its own stream artifacts; the cowork
-      // panel only opens for live declared deliverables.
-      dispatch(addArtifact({ sessionId: artifactSessionKey, artifact, reveal: true }));
+      dispatch(addArtifact({ sessionId: artifactSessionKey, artifact }));
       if (!needsFileLoad) continue;
       const loadKey = `${artifactSessionKey}:${artifact.id}`;
       if (loadedFileVersionsRef.current.get(loadKey) === version) continue;
       loadedFileVersionsRef.current.set(loadKey, version);
-      loadingFileVersionsRef.current.set(loadKey, version);
-      setLoadingArtifactIds(current => new Set(current).add(artifact.id));
-      void loadArtifactFileWithRetry(artifact, artifactBaseDir)
-        .then(loaded => {
-          if (!loaded) return;
-          dispatch(
-            addArtifact({
-              sessionId: artifactSessionKey,
-              artifact: { ...artifact, content: loaded.content, filePath: loaded.filePath },
-              reveal: true,
-            }),
-          );
-        })
-        .finally(() => {
-          if (loadingFileVersionsRef.current.get(loadKey) !== version) return;
-          loadingFileVersionsRef.current.delete(loadKey);
-          setLoadingArtifactIds(current => {
-            const next = new Set(current);
-            next.delete(artifact.id);
-            return next;
-          });
-        });
+      void loadCodingArtifactContent(artifact, artifactBaseDir).then(loaded => {
+        if (loaded) dispatch(addArtifact({ sessionId: artifactSessionKey, artifact: loaded }));
+      });
     }
   }, [artifactSessionKey, artifactBaseDir, isStreaming, detectableMessages, fileArtifacts, dispatch]);
 
@@ -190,7 +201,6 @@ export const CodingEventStream = ({
           target.classList.contains('coding-conversation-scroll')
         ) {
           onScrollPositionChange(target.scrollTop);
-          if (target.scrollTop <= 24) onLoadOlderEvents?.();
         }
       }}
     >
@@ -237,7 +247,6 @@ export const CodingEventStream = ({
                 }
                 artifactsByMessageId={artifactsByMessageId}
                 artifactsByToolCallId={artifactsByToolCallId}
-                loadingArtifactIds={loadingArtifactIds}
                 expandedActivityIds={expandedActivityIds}
                 onActivityOpenChange={setActivityOpen}
                 onReEditUserMessage={onReEditUserMessage}

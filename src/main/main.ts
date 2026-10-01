@@ -23,12 +23,9 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
-import { parseCoworkExecutionMode } from '../shared/cowork/executionMode';
-import { reportPiSessionFailure } from './piSessionFailure';
-import { createPiUiEventBatcher } from './piUiEventBatcher';
+import { classifyCoworkError } from '../common/coworkError';
 import { persistCoworkTerminalError } from './coworkTerminalErrorPersistence';
-import { registerArtifactFileAvailabilityHandler } from './artifactFileAvailability';
-import { observePreparedRun } from './workbenchTask/preparedRunFailure';
+import { bindCoworkRunBridge } from './coworkRunBridge';
 import {
   migrateLegacyScheduledTaskRunsToCanonical,
   migrateLegacyScheduledTasksToCanonical,
@@ -55,13 +52,11 @@ import {
   AppUpdateIpc,
 } from '../shared/appUpdate/constants';
 import {
-  CoworkExecutionMode,
   COWORK_MESSAGE_PAGE_SIZE,
   COWORK_SESSION_PAGE_SIZE,
   CoworkPermissionMode,
   CoworkSessionMode,
-  CoworkSessionSource,
-  normalizeRenamedSessionTitle,
+  type CoworkSessionSource,
 } from '../shared/cowork/constants';
 import {
   type CoworkSessionExpertInput,
@@ -82,14 +77,10 @@ import {
   McpIpc,
   ManagedProviderIpc,
   ProjectIpc,
-  RuntimeNoticeIpc,
-  ShellIpc,
   SkillsIpc,
   WeixinLoginErrorCode,
   WeixinInstallIpc,
-  WindowIpc,
 } from '../shared/ipc/channels';
-import type { RuntimeRetryNotice } from '../common/runtimeNotice';
 import { EnterpriseSessionIpc } from '../shared/enterpriseSession';
 import { EnterpriseRendererIpc } from '../shared/enterpriseRenderer';
 import {
@@ -100,12 +91,12 @@ import {
 } from '../shared/ipc/queueSchemas';
 import {
   ApiFetchSchema,
+  ApiStreamSchema,
   CoworkSessionContinueSchema,
   CoworkSessionStartSchema,
   CoworkSessionUpdateModelSchema,
   ProjectCreateDirectorySchema,
 } from '../shared/ipc/schemas';
-import { shouldRecordApiRequest } from '../shared/ipc/apiRequest';
 import { WorkspaceIpc, WorkspaceStoreKey } from '../shared/workspace';
 import {
   WorkbenchApprovalMode,
@@ -131,18 +122,12 @@ import { registerMemoryIpcHandlers } from './memory/ipc';
 import { registerModelPoolIpcHandlers } from './modelPoolIpc';
 import { resolveMemorySessionTitles } from './memory/sessionTitleResolver';
 import { promoteVerifiedWorkbenchRun } from './memory/taskMemoryPromotion';
+import { searchAnySearchGateway } from './libs/anysearchGateway';
 import {
   resolveAnySearchGatewayToken,
   resolveAnySearchGatewayUrl,
 } from './libs/anysearchGatewayCredentials';
-import {
-  APP_DATA_DIR_NAME,
-  APP_NAME,
-  APP_USER_MODEL_ID,
-  DB_FILENAME,
-  ENTERPRISE_APP_NAME,
-  resolveAppDataDirName,
-} from './appConstants';
+import { APP_DATA_DIR_NAME, APP_NAME, APP_USER_MODEL_ID, DB_FILENAME } from './appConstants';
 import { AppQuitOrigin, getAppQuitOrigin, recordAppQuitOrigin } from './appQuitOrigin';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
 import { getChangedSessionPermissionModes } from './coworkPermissionModeChanges';
@@ -159,6 +144,7 @@ import {
 } from './coworkImageAttachments';
 import { resolveCoworkContinuationSkillState } from './coworkSessionSkills';
 import {
+  type CoworkExecutionMode,
   type CoworkMessageMetadata,
   type CoworkMessageType,
   type CoworkSessionStatus,
@@ -194,7 +180,6 @@ import {
 } from './ipcHandlers/scheduledTask';
 import { registerTriageIpcHandlers } from './ipcHandlers/triage';
 import { registerCodingAgentIpcHandlers } from './ipcHandlers/codingAgent';
-import { agentResourceDiagnostics } from './agentResourceDiagnostics';
 import { CodingRoomRepository } from './codingAgent/codingRoomRepository';
 import { CodingRoomService } from './codingAgent/codingRoomService';
 import { resolveCodingExpertSelection } from './codingAgent/builtinCodingExpertSelection';
@@ -204,20 +189,13 @@ import { CodingAgentProfileRepository } from './codingAgent/codingAgentProfileRe
 import { GitWorktreeService } from './codingAgent/gitWorktreeService';
 import { CodingEventKind, CodingStreamUpdateMode } from '../shared/codingAgent';
 import type { CoworkToolActivityEvent } from '../shared/cowork/toolActivity';
-import { PiUiRuntimeSnapshots } from '../shared/cowork/piUiRuntimeSnapshot';
 import { CoworkInterruptionCause } from '../shared/cowork/interruption';
-import {
-  type PiUiEvent,
-  type PiUiEventPayload,
-  type PiUiMessage,
-  PiUiEventType,
-  PiUiEventSequencer,
-} from '../shared/cowork/piUiEvent';
 import { normalizePiMessage, normalizePiToolActivity } from './codingAgent/piCodingEventAdapter';
 import { registerWorkbenchTaskIpcHandlers } from './workbenchTask/ipc';
 import { WorkbenchTaskService } from './workbenchTask/taskService';
 import { registerTodoIpcHandlers } from './todo/ipc';
 import { TodoReminderScheduler } from './todo/reminderScheduler';
+import { shouldRequireProductionOnResume } from './productionLoop/entryPolicy';
 import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
 import type { PiThinkingLevel } from './libs/agentEngine/piRuntimeTypes';
 import { PiModelCatalogRefreshCoordinator } from './libs/agentEngine/piModelCatalogRefresh';
@@ -250,13 +228,11 @@ import {
   probeCoworkModelReadiness,
 } from './libs/coworkUtil';
 import { createContentSecurityPolicy } from './contentSecurityPolicy';
-import { registerZhiyuanDeepLinkProtocol } from './deepLinkRegistration';
 import { refreshEndpointsTestMode } from './libs/endpoints';
 import { resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import {
   disposeZhiyuanEnterpriseExtension,
   initializeZhiyuanEnterpriseExtension,
-  isEnterpriseBuild,
 } from './enterpriseExtension/host';
 import {
   ZHIYUAN_ENTERPRISE_RENDERER_SCHEME,
@@ -270,12 +246,8 @@ import { zhiyuanEnterpriseSessionBridge } from './enterpriseExtension/sessionBri
 import { zhiyuanManagedProviderBridge } from './enterpriseExtension/managedProviderBridge';
 
 import { setPlatformFetchNetworkLogger } from './aisphere/transport';
-import {
-  registerDevNetworkProtocol,
-  trackDevNetworkRequest,
-  publishDevNetworkLog,
-} from './devNetworkLog';
-import { truncateNetworkBody } from '../shared/devNetworkLog';
+import { registerDevNetworkProtocol, trackDevNetworkRequest, publishDevNetworkLog } from './devNetworkLog';
+import { sanitizeNetworkUrl, truncateNetworkBody } from '../shared/devNetworkLog';
 import { ZhiyuanEnterpriseSkillBridge } from './enterpriseExtension/skillBridge';
 import { LlamaCppManager } from './libs/llamacppManager';
 import { CcConnectBridgeServer } from './libs/ccConnectBridgeServer';
@@ -290,7 +262,10 @@ import {
   runCcConnectWeixinSetup,
 } from './libs/ccConnectWeixinSetup';
 import { MCP_OAUTH_STORE_PREFIX, McpOAuthManager } from './libs/mcpOAuthManager';
-import { getFeishuCliRoot, getFeishuConnectorSkillsRoot } from './libs/feishuConnectorPaths';
+import {
+  getFeishuCliRoot,
+  getFeishuConnectorSkillsRoot,
+} from './libs/feishuConnectorPaths';
 import { getFeishuCliLauncherPath, writeFeishuCliLauncher } from './libs/feishuCliLauncher';
 import { installDownloadedFeishuCli } from './libs/feishuCliDownloader';
 import { McpCredentialVault } from './libs/mcpCredentialVault';
@@ -332,7 +307,7 @@ import {
   restoreOriginalProxyEnv,
   setSystemProxyEnabled,
 } from './libs/systemProxy';
-import { getLogFilePath, getRecentMainLogEntries, initLogger, log } from './logger';
+import { getLogFilePath, getRecentMainLogEntries, initLogger } from './logger';
 import type { McpServerFormData } from './mcpStore';
 import { McpStore } from './mcpStore';
 import { parseCcConnectScopedConversationId } from './im/ccConnectConversationId';
@@ -348,8 +323,6 @@ import { listPresetExperts } from './presetExpertCatalog';
 import { resolveBundledPresetExpertSnapshot } from './presetExpertSnapshot';
 import { getSkillServiceManager } from './skillServices';
 import { SqliteStore } from './sqliteStore';
-import { startSqliteDiagnostics } from './sqliteDiagnostics';
-import { createUncaughtReporter, installStdioErrorGuards } from './stdioErrorGuard';
 import { StartupProfiler } from './startupProfiler';
 import { createTray, destroyTray, updateTrayMenu } from './trayManager';
 import { registerContextMenu } from './contextMenu';
@@ -361,28 +334,10 @@ import {
   type WindowRectangle,
 } from './windowState';
 
-// The enterprise packaging overlay injects the extension module into resources;
-// the public build has no such module and keeps the regular Zhiyuan name. The
-// same detection also selects the enterprise application data root, so product
-// naming and storage isolation can never disagree.
-const isEnterprise = isEnterpriseBuild({
-  isPackaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  developmentExtensionPath: process.env.ZHIYUAN_ENTERPRISE_EXTENSION_DEV_PATH,
-});
-const runtimeAppName = isEnterprise ? ENTERPRISE_APP_NAME : APP_NAME;
-
 // 设置应用程序名称
-app.name = runtimeAppName;
-app.setName(runtimeAppName);
-// 2026/09/21 lixiang  开发态用独立 AUMID，并配套开始菜单快捷方式（见 ensureWindowsTaskbarBrand），
-// 避免 Windows 继续拿 Electron 默认原子图标的任务栏缓存。打包态仍用产品 AUMID。
-const WINDOWS_TASKBAR_APP_USER_MODEL_ID = app.isPackaged
-  ? APP_USER_MODEL_ID
-  : `${APP_USER_MODEL_ID}.dev`;
-if (process.platform === 'win32') {
-  app.setAppUserModelId(WINDOWS_TASKBAR_APP_USER_MODEL_ID);
-}
+app.name = APP_NAME;
+app.setName(APP_NAME);
+if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -408,7 +363,6 @@ protocol.registerSchemesAsPrivileged([
 
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 const IPC_MESSAGE_CONTENT_MAX_CHARS = 120_000;
-const IPC_UPDATE_CONTENT_MAX_CHARS = 120_000;
 const IPC_STRING_MAX_CHARS = 4_000;
 const IPC_MAX_DEPTH = 5;
 const IPC_MAX_KEYS = 80;
@@ -643,7 +597,8 @@ const slimCoworkMessageForIpc = (message: unknown): unknown => {
     content?: unknown;
     metadata?: unknown;
   };
-  const content = typeof messageRecord.content === 'string' ? messageRecord.content : undefined;
+  const content =
+    typeof messageRecord.content === 'string' ? messageRecord.content : undefined;
   const shouldTruncateToolResult =
     messageRecord.type === 'tool_result' &&
     typeof content === 'string' &&
@@ -826,7 +781,7 @@ const configureUserDataPath = (): void => {
   }
 
   const appDataPath = app.getPath('appData');
-  const targetUserDataPath = path.join(appDataPath, resolveAppDataDirName(isEnterprise));
+  const targetUserDataPath = path.join(appDataPath, APP_DATA_DIR_NAME);
   const currentUserDataPath = app.getPath('userData');
 
   if (currentUserDataPath !== targetUserDataPath) {
@@ -1027,7 +982,6 @@ app.commandLine.appendSwitch('disk-cache-size', String(50 * 1024 * 1024)); // 50
 
 // 配置网络服务
 app.on('ready', () => {
-  agentResourceDiagnostics.setElectronMetricsProvider(() => app.getAppMetrics());
   // 配置网络服务重启策略
   app.configureHostResolver({
     enableBuiltInResolver: true,
@@ -1038,7 +992,6 @@ app.on('ready', () => {
 // 添加错误处理
 app.on('render-process-gone', (_event, webContents, details) => {
   console.error('[RendererProcess] Render process exited:', details);
-  agentResourceDiagnostics.logRendererProcessGone(details.reason);
   if (shouldReloadRendererProcess(details.reason, isQuitting)) {
     scheduleReload(`render-process-gone (${details.reason})`, webContents);
   }
@@ -1051,27 +1004,14 @@ app.on('child-process-gone', (_event, details) => {
   }
 });
 
-// 终端或父进程先于应用消失时 stdout/stderr 管道会断开，之后的写入以 EPIPE 异步抛错。
-// 先吞掉这类断管道错误，否则它会被升级成未捕获异常，而兜底处理器又通过
-// console.error 写同一个断掉的管道，形成死循环并让进程永远不退。
-installStdioErrorGuards([process.stdout, process.stderr], error => {
-  log.error('[Main] stdio write failed:', error);
+// 处理未捕获的异常
+process.on('uncaughtException', error => {
+  console.error('Uncaught Exception:', error);
 });
 
-// 处理未捕获的异常
-process.on(
-  'uncaughtException',
-  createUncaughtReporter(error => {
-    console.error('Uncaught Exception:', error);
-  }),
-);
-
-process.on(
-  'unhandledRejection',
-  createUncaughtReporter(error => {
-    console.error('Unhandled Rejection:', error);
-  }),
-);
+process.on('unhandledRejection', error => {
+  console.error('Unhandled Rejection:', error);
+});
 
 process.on('exit', code => {
   console.log(`[Main] Process exiting with code: ${code}`);
@@ -1187,8 +1127,9 @@ const getCodingRoomService = (): CodingRoomService => {
                 resolveSnapshots: resolveSessionExpertSnapshots,
               })
             : null;
-          // Resolving comes first: a stale expert id throws. Pi's agent_start
-          // event is the single source of truth for the running state.
+          // Resolving comes first: a stale expert id throws, and the lane must
+          // not be left marked as running when the turn never starts.
+          coworkStoreInstance.updateSession(sessionId, { status: 'running' });
           const sharedOptions = {
             workspaceRoot,
             sessionMode: 'work' as const,
@@ -1473,15 +1414,6 @@ const getCodingRoomService = (): CodingRoomService => {
     });
     runtime.on('error', (sessionId: string, error: unknown) => {
       codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.TurnFailed, { error });
-    });
-    runtime.on('retryNotice', (sessionId: string, notice: Omit<RuntimeRetryNotice, 'sessionId'>) => {
-      // Transient status: the shared prompt tells the user the model answered
-      // with an error while Pi keeps retrying, instead of leaving the turn
-      // looking frozen until the retry cycle settles.
-      const payload: RuntimeRetryNotice = { sessionId, ...notice };
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) window.webContents.send(RuntimeNoticeIpc.Notice, payload);
-      }
     });
     runtime.on('sessionInterrupted', interruption => {
       if (interruption.cause !== CoworkInterruptionCause.UserStop) {
@@ -2015,9 +1947,7 @@ const getOllamaManager = (): OllamaManager => {
 
 const getAppUpdateCoordinator = (): AppUpdateCoordinator => {
   if (!appUpdateCoordinator) {
-    appUpdateCoordinator = new AppUpdateCoordinator(getStore(), undefined, undefined, {
-      enterpriseBuild: isEnterprise,
-    });
+    appUpdateCoordinator = new AppUpdateCoordinator(getStore());
   }
   return appUpdateCoordinator;
 };
@@ -2034,9 +1964,7 @@ const checkForAppUpdate = (): void => {
 };
 
 const startAppUpdatePolling = (): void => {
-  // Enterprise builds receive updates through the enterprise distribution
-  // channel; the client never runs startup or periodic update checks.
-  if (isEnterprise || appUpdatePollTimer) return;
+  if (appUpdatePollTimer) return;
   const startupDelay =
     APP_UPDATE_STARTUP_DELAY_MIN_MS +
     Math.floor(Math.random() * APP_UPDATE_STARTUP_DELAY_JITTER_MS);
@@ -2085,61 +2013,63 @@ const resolveSessionWorkingDirectory = (options: { cwd?: string }): string => {
 
 /** Project Pi Work/Chat events to renderer-owned cowork streams. */
 const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void => {
-  const sequencer = new PiUiEventSequencer(() => crypto.randomUUID());
-  const runtimeSnapshots = new PiUiRuntimeSnapshots();
-  ipcMain.handle(CoworkStreamIpc.RuntimeSnapshots, (_event, sessionId?: string) =>
-    runtimeSnapshots.read(sessionId),
-  );
-  const broadcastUiEvent = (event: PiUiEvent): void => {
-    runtimeSnapshots.observe(event);
+  const contentProjection = bindCoworkRunBridge(runtime, () => getStore().getDatabase());
+  runtime.on('message', (sessionId: string, message: unknown) => {
+    const safeMessage = sanitizeCoworkMessageForIpc(message);
     const windows = BrowserWindow.getAllWindows();
     windows.forEach(win => {
       if (win.isDestroyed()) return;
       try {
-        win.webContents.send(CoworkStreamIpc.UiEvent, event);
+        win.webContents.send(CoworkStreamIpc.Message, { sessionId, message: safeMessage });
       } catch (error) {
-        console.error('[PiWorkbenchForwarder] failed to forward a Pi UI event:', error);
+        console.error('[PiWorkbenchForwarder] failed to forward a message:', error);
       }
-    });
-  };
-  const emitUiEvent = createPiUiEventBatcher((payload: PiUiEventPayload) => {
-    broadcastUiEvent(sequencer.next(payload));
-  });
-
-  runtime.on('started', (sessionId: string) => {
-    emitUiEvent({ type: PiUiEventType.Started, sessionId });
-  });
-
-  runtime.on('message', (sessionId: string, message: unknown) => {
-    const safeMessage = sanitizeCoworkMessageForIpc(message);
-    emitUiEvent({
-      type: PiUiEventType.Message,
-      sessionId,
-      message: safeMessage as PiUiMessage,
     });
   });
 
   runtime.on(
     'messageUpdate',
     (sessionId: string, messageId: string, content: string, metadata?: Record<string, unknown>) => {
-      const safeContent = truncateIpcString(content, IPC_UPDATE_CONTENT_MAX_CHARS);
-      emitUiEvent({
-        type: PiUiEventType.MessageUpdate,
-        sessionId,
-        messageId,
-        content: safeContent,
-        metadata,
-      });
+      void contentProjection
+        .project(sessionId, messageId, content, metadata)
+        .then(patches => {
+          const windows = BrowserWindow.getAllWindows();
+          windows.forEach(win => {
+            if (win.isDestroyed()) return;
+            try {
+              for (const patch of patches) win.webContents.send(CoworkStreamIpc.ContentPatch, patch);
+            } catch (error) {
+              console.error('[PiWorkbenchForwarder] failed to forward a message update:', error);
+            }
+          });
+        })
+        .catch(error => console.error('[PiWorkbenchForwarder] content projection failed:', error));
     },
   );
 
   runtime.on('toolActivity', (sessionId, event) => {
-    emitUiEvent({ type: PiUiEventType.ToolActivity, sessionId, event });
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send(CoworkStreamIpc.ToolActivity, { sessionId, event });
+      } catch (error) {
+        console.error('[CoworkForwarder] failed to forward tool activity:', error);
+      }
+    });
   });
 
   runtime.on('queueUpdated', (sessionId, items) => {
     const safeItems = slimQueuedMessagesForIpc(items);
-    emitUiEvent({ type: PiUiEventType.QueueUpdated, sessionId, items: safeItems });
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send(CoworkStreamIpc.QueueUpdated, { sessionId, items: safeItems });
+      } catch (error) {
+        console.error('[PiWorkbenchForwarder] failed to forward queue update:', error);
+      }
+    });
   });
 
   runtime.on('permissionRequest', (sessionId: string, request: unknown) => {
@@ -2147,50 +2077,46 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
       return;
     }
     const safeRequest = sanitizePermissionRequestForIpc(request);
-    if (!safeRequest || typeof safeRequest !== 'object') return;
-    const requestRecord = safeRequest as Record<string, unknown>;
-    if (typeof requestRecord.requestId !== 'string' || typeof requestRecord.toolName !== 'string') {
-      console.warn('[PiWorkbenchForwarder] ignored a malformed permission request');
-      return;
-    }
-    const toolInput =
-      requestRecord.toolInput && typeof requestRecord.toolInput === 'object'
-        ? (requestRecord.toolInput as Record<string, unknown>)
-        : {};
-    emitUiEvent({
-      type: PiUiEventType.PermissionRequest,
-      sessionId,
-      request: {
-        requestId: requestRecord.requestId,
-        toolName: requestRecord.toolName,
-        toolInput,
-        ...(typeof requestRecord.toolUseId === 'string'
-          ? { toolUseId: requestRecord.toolUseId }
-          : {}),
-      },
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send(CoworkStreamIpc.Permission, { sessionId, request: safeRequest });
+      } catch (error) {
+        console.error('[PiWorkbenchForwarder] failed to forward a permission request:', error);
+      }
     });
   });
 
   runtime.on('permissionDismiss', (requestId: string) => {
-    emitUiEvent({ type: PiUiEventType.PermissionDismiss, sessionId: null, requestId });
-  });
-
-  runtime.on('sessionInterrupted', interruption => {
-    emitUiEvent({
-      type: PiUiEventType.Interrupted,
-      sessionId: interruption.sessionId,
-      interruption,
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send(CoworkStreamIpc.PermissionDismiss, { requestId });
+      } catch (error) {
+        console.error('[PiWorkbenchForwarder] failed to dismiss a permission request:', error);
+      }
     });
   });
 
-  runtime.on('sessionStopped', (sessionId: string) => {
-    emitUiEvent({ type: PiUiEventType.Stopped, sessionId });
+  runtime.on('sessionInterrupted', interruption => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send(CoworkStreamIpc.Interrupted, interruption);
+      } catch (error) {
+        console.error('[PiWorkbenchForwarder] failed to forward a session interruption:', error);
+      }
+    });
   });
 
-  runtime.on('complete', (sessionId: string) => {
-    emitUiEvent({
-      type: PiUiEventType.Completed,
-      sessionId,
+  runtime.on('complete', (sessionId: string, claudeSessionId: string | null) => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      win.webContents.send(CoworkStreamIpc.Complete, { sessionId, claudeSessionId });
     });
   });
 
@@ -2209,9 +2135,11 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
         persistenceError,
       );
     }
-    // Persisting the terminal message emits the canonical `message` event
-    // first. The UI protocol keeps that ordering before the terminal error.
-    emitUiEvent({ type: PiUiEventType.Error, sessionId, error });
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach(win => {
+      if (win.isDestroyed()) return;
+      win.webContents.send(CoworkStreamIpc.Error, { sessionId, error });
+    });
   });
 };
 
@@ -2798,80 +2726,9 @@ const getAppIconPath = (): string | undefined => {
     return path.join(process.resourcesPath, 'app-icons', packagedIconName);
   }
 
-  // 2026/09/21 lixiang  开发态优先用 ico：任务栏按 Windows Shell 取图标，png 常仍显示 Electron 原子图。
-  if (process.platform === 'win32') {
-    const icoPath = path.join(__dirname, '..', 'build', 'icons', 'win', 'icon.ico');
-    if (fs.existsSync(icoPath)) return icoPath;
-    const pngPath = path.join(__dirname, '..', 'build', 'icons', 'png', '256x256.png');
-    if (fs.existsSync(pngPath)) return pngPath;
-    return undefined;
-  }
-  return path.join(__dirname, '..', 'build', 'icons', 'png', '256x256.png');
-};
-
-const applyWindowsWindowIcon = (window: BrowserWindow): void => {
-  if (process.platform !== 'win32') return;
-  const iconPath = getAppIconPath();
-  if (!iconPath || !fs.existsSync(iconPath)) {
-    console.warn('[Main] Windows app icon file is missing:', iconPath);
-    return;
-  }
-  // Prefer path string — Electron updates both window and taskbar icons from it.
-  window.setIcon(iconPath);
-  console.log('[Main] Applied Windows window icon:', iconPath);
-};
-
-/**
- * Windows 任务栏：开发态必须有一条「相同 AUMID + 知远 .ico」的开始菜单快捷方式。
- * 文件名只用 ASCII，避免控制台/文件系统编码把「知远 (开发).lnk」写成乱码后对不上。
- */
-const ensureWindowsTaskbarBrand = (): void => {
-  if (process.platform !== 'win32' || app.isPackaged) return;
-  const iconPath = path.join(__dirname, '..', 'build', 'icons', 'win', 'icon.ico');
-  if (!fs.existsSync(iconPath)) {
-    console.warn('[Main] 知远 logo 不存在，无法绑定任务栏图标:', iconPath);
-    return;
-  }
-  const programsDir = path.join(
-    app.getPath('appData'),
-    'Microsoft',
-    'Windows',
-    'Start Menu',
-    'Programs',
-  );
-  fs.mkdirSync(programsDir, { recursive: true });
-  const shortcutPath = path.join(programsDir, 'ZhiYuan-Dev.lnk');
-  try {
-    // 清掉历史上编码损坏的中文快捷方式名，避免 Shell 继续命中坏缓存。
-    for (const name of fs.readdirSync(programsDir)) {
-      if (!name.endsWith('.lnk')) continue;
-      if (name === 'ZhiYuan-Dev.lnk') continue;
-      if (name.includes('开发') || name.includes('知远') || /ZhiYuan|zhiyuan/i.test(name)) {
-        try {
-          fs.unlinkSync(path.join(programsDir, name));
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    // create：文件不存在时 replace 会失败且不抛错，快捷方式实际没写上，任务栏继续用原子图标缓存。
-    const wrote = shell.writeShortcutLink(shortcutPath, 'create', {
-      target: process.execPath,
-      args: process.argv.slice(1).join(' '),
-      cwd: process.cwd(),
-      appUserModelId: WINDOWS_TASKBAR_APP_USER_MODEL_ID,
-      icon: iconPath,
-      iconIndex: 0,
-      description: runtimeAppName,
-    });
-    if (!wrote || !fs.existsSync(shortcutPath)) {
-      console.warn('[Main] Failed to write Windows taskbar brand shortcut:', shortcutPath);
-      return;
-    }
-    console.log('[Main] Windows taskbar brand shortcut ready:', shortcutPath, iconPath);
-  } catch (error) {
-    console.warn('[Main] Failed to write Windows taskbar brand shortcut:', error);
-  }
+  const developmentIconPath =
+    process.platform === 'win32' ? path.join('win', 'icon.ico') : path.join('png', '256x256.png');
+  return path.join(__dirname, '..', 'build', 'icons', developmentIconPath);
 };
 
 // 保存对主窗口的引用
@@ -2879,6 +2736,8 @@ let mainWindow: BrowserWindow | null = null;
 
 let isQuitting = false;
 
+// 存储活跃的流式请求控制器
+const activeStreamControllers = new Map<string, AbortController>();
 let lastReloadAt = 0;
 let windowStateSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const MIN_RELOAD_INTERVAL_MS = 5000;
@@ -3185,14 +3044,13 @@ if (!gotTheLock) {
     app.exit(0);
   })();
 } else {
-  // The enterprise build signs in inside the app and never claims zhiyuan://;
-  // the community build owns it for its browser OAuth callback.
-  registerZhiyuanDeepLinkProtocol(app, {
-    isEnterpriseBuild: isEnterprise,
-    isDefaultApp: process.defaultApp === true,
-    entryPoint: process.argv[1],
-    execPath: process.execPath,
-  });
+  // In development Electron needs the app entry point before the callback URL;
+  // otherwise Windows treats the URL itself as the application to launch.
+  if (process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient('zhiyuan', process.execPath, [path.resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient('zhiyuan');
+  }
 
   let pendingCommunityLogin: { state: string; verifier: string; expiresAt: number } | null = null;
 
@@ -3469,38 +3327,8 @@ if (!gotTheLock) {
       showSystemMenu(position);
     },
   );
-  /** 2026/09/14 lisa  打开开发调试面板 **/
-
-  const canUseDevTools = () => isDev || !app.isPackaged;
-  const openDevToolsWindow = (webContents: WebContents) => {
-    // Docked mode is more discoverable than a detached window that can open
-    // off-screen on multi-monitor Windows setups.
-    webContents.openDevTools({ mode: 'right', activate: true });
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  };
-  const toggleDevToolsForSender = (webContents?: WebContents | null) => {
-    if (!canUseDevTools()) return false;
-    const target = webContents && !webContents.isDestroyed() ? webContents : mainWindow?.webContents;
-    if (!target || target.isDestroyed()) return false;
-    if (target.isDevToolsOpened()) target.closeDevTools();
-    else openDevToolsWindow(target);
-    return true;
-  };
-  ipcMain.handle(WindowIpc.ToggleDevTools, event => toggleDevToolsForSender(event.sender));
-  ipcMain.handle(WindowIpc.OpenDevTools, event => {
-    if (!canUseDevTools()) return false;
-    const target = event.sender?.isDestroyed?.() ? mainWindow?.webContents : event.sender;
-    if (!target || target.isDestroyed()) return false;
-    openDevToolsWindow(target);
-    return true;
-  });
 
   ipcMain.handle(AppIpc.GetVersion, () => app.getVersion());
-  ipcMain.handle(AppIpc.IsDev, () => canUseDevTools()); // 开发环境打开调试面板
-  ipcMain.handle(AppIpc.IsEnterprise, () => isEnterprise);
   ipcMain.handle(AppIpc.GetSystemLocale, () => app.getLocale());
   ipcMain.handle(AppIpc.ConsumePendingLocalInferenceInstall, () =>
     consumePendingLocalInferenceInstall(app.getPath('userData')),
@@ -4277,8 +4105,7 @@ if (!gotTheLock) {
           await fs.promises.mkdir(resolvedWorkspacePath, { recursive: true });
         }
         const stat = await fs.promises.stat(resolvedWorkspacePath);
-        if (!stat.isDirectory())
-          return { success: false, error: 'Workspace path is not a directory' };
+        if (!stat.isDirectory()) return { success: false, error: 'Workspace path is not a directory' };
 
         const workspace = getCoworkStore().createWorkspace(resolvedWorkspacePath, workspaceName);
         return { success: true, workspace };
@@ -4479,17 +4306,13 @@ if (!gotTheLock) {
         // The renderer already includes the selected non-expert agent prompt when
         // present. Treat that request value as the source prompt instead of
         // appending the same agent prompt again in the main process.
-        const isChatSession = options.mode === CoworkSessionMode.Chat;
-        const basePrompt = isChatSession
-          ? options.systemPrompt ?? ''
-          : (options.systemPrompt ?? selectedAgent?.systemPrompt ?? config.systemPrompt);
-        const systemPrompt = isChatSession
-          ? basePrompt.trim()
-          : composeCoworkSystemPrompt({
-              basePrompt,
-              expertSnapshots,
-              language: resolveCoworkPromptLanguage(),
-            });
+        const basePrompt =
+          options.systemPrompt ?? selectedAgent?.systemPrompt ?? config.systemPrompt;
+        const systemPrompt = composeCoworkSystemPrompt({
+          basePrompt,
+          expertSnapshots,
+          language: resolveCoworkPromptLanguage(),
+        });
         const workspace = options.workspaceId
           ? coworkStoreInstance.getWorkspace(options.workspaceId)
           : null;
@@ -4517,7 +4340,7 @@ if (!gotTheLock) {
           title,
           taskWorkingDirectory,
           systemPrompt,
-          config.executionMode || CoworkExecutionMode.Local,
+          config.executionMode || 'local',
           options.activeSkillIds || [],
           options.agentId || 'main',
           options.modelOverride || '',
@@ -4535,6 +4358,10 @@ if (!gotTheLock) {
           );
         }
 
+        // Update session status to 'running' before starting async task
+        // This ensures the frontend receives the correct status immediately
+        coworkStoreInstance.updateSession(session.id, { status: 'running' });
+
         // Build metadata, include imageAttachments if present
         const messageMetadata: Record<string, unknown> = {};
         if (expertSnapshots.length > 0) {
@@ -4547,7 +4374,9 @@ if (!gotTheLock) {
         if (options.activeSkillIds?.length) {
           messageMetadata.skillIds = options.activeSkillIds;
         }
-        let storedImages: ReturnType<typeof persistCoworkImageAttachments> | undefined;
+        let storedImages:
+          | ReturnType<typeof persistCoworkImageAttachments>
+          | undefined;
         if (options.imageAttachments?.length) {
           console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
             count: options.imageAttachments.length,
@@ -4575,6 +4404,10 @@ if (!gotTheLock) {
         });
         coworkStoreInstance.touchWorkspace(session.workspaceId);
 
+        // Update session status to 'running' before starting async task
+        // This ensures the frontend receives the correct status immediately
+        coworkStoreInstance.updateSession(session.id, { status: 'running' });
+
         // Start the session asynchronously (skip initial user message since we already added it)
         const runtime = getPiRuntimeAdapter();
         const runtimeSkillIds = [
@@ -4592,8 +4425,9 @@ if (!gotTheLock) {
             confirmationMode: 'modal',
             sessionMode: options.mode ?? CoworkSessionMode.Work,
             goalMode: options.goalMode,
+            productionLoopMode: options.productionLoopMode,
             approvalMode:
-              (options.permissionMode ?? config.permissionMode) === CoworkPermissionMode.AllowAll
+              options.permissionMode === CoworkPermissionMode.AllowAll
                 ? WorkbenchApprovalMode.AllowAll
                 : WorkbenchApprovalMode.Ask,
             imageAttachments: storedImages,
@@ -4605,8 +4439,20 @@ if (!gotTheLock) {
           .catch(error => {
             console.error('[Cowork] session error:', error);
             try {
+              // The engine router already emits an 'error' event (handled at line ~990)
+              // which sends cowork:stream:error to the renderer. Only send here if the
+              // session hasn't been marked as error yet, to avoid duplicate messages.
               const existing = coworkStoreInstance.getSession(session.id);
-              reportPiSessionFailure(runtime, session.id, error, existing?.status);
+              if (existing?.status === 'error') return;
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              const windows = BrowserWindow.getAllWindows();
+              windows.forEach(win => {
+                if (win.isDestroyed()) return;
+                win.webContents.send(CoworkStreamIpc.Error, {
+                  sessionId: session.id,
+                  error: classifyCoworkError(errorMessage),
+                });
+              });
             } catch (handlerError) {
               console.error(
                 '[Cowork] failed to send error notification to renderer:',
@@ -4617,7 +4463,7 @@ if (!gotTheLock) {
 
         const sessionWithMessages = coworkStoreInstance.getSession(session.id) || {
           ...session,
-          status: 'idle' as const,
+          status: 'running' as const,
         };
         return { success: true, session: sanitizeCoworkSessionForIpc(sessionWithMessages) };
       } catch (error) {
@@ -4643,15 +4489,12 @@ if (!gotTheLock) {
           haveSameExpertIds(previousExpertSnapshots, options.expertIds)
             ? previousExpertSnapshots.slice(0, 1)
             : resolveSessionExpertSnapshots(options.expertIds);
-        const isChatSession = existingSession?.mode === CoworkSessionMode.Chat;
-        const nextSystemPrompt = isChatSession
-          ? (options.systemPrompt ?? '').trim()
-          : composeCoworkSystemPrompt({
-              basePrompt: existingSession.systemPrompt || options.systemPrompt,
-              expertSnapshots,
-              previousExpertSnapshots,
-              language: resolveCoworkPromptLanguage(),
-            });
+        const nextSystemPrompt = composeCoworkSystemPrompt({
+          basePrompt: existingSession.systemPrompt || options.systemPrompt,
+          expertSnapshots,
+          previousExpertSnapshots,
+          language: resolveCoworkPromptLanguage(),
+        });
         const expertsChanged = !haveSameExpertSnapshots(previousExpertSnapshots, expertSnapshots);
         if (expertsChanged) {
           store.replaceSessionExperts(options.sessionId, expertSnapshots);
@@ -4688,29 +4531,25 @@ if (!gotTheLock) {
         expertSkillIds: (existingSession?.experts || []).flatMap(expert => expert.skillIds),
       });
 
-      // The session keeps a skill until the user removes it, so this turn's
-      // picks are added to the persisted capability set rather than replacing it.
-      try {
-        store.updateSession(
-          options.sessionId,
-          { activeSkillIds: continuationSkillState.sessionSkillIds },
-          { touchUpdatedAt: false },
-        );
-      } catch (error) {
-        console.error('[Cowork:ContinueSession] failed to persist activeSkillIds:', error);
+      // Persist explicit selections, including [] when the user clears session skills.
+      if (continuationSkillState.sessionSkillIds !== undefined) {
+        try {
+          store.updateSession(options.sessionId, {
+            activeSkillIds: continuationSkillState.sessionSkillIds,
+          });
+        } catch (error) {
+          console.error('[Cowork:ContinueSession] failed to persist activeSkillIds:', error);
+        }
       }
 
       const runtimeSkillIds = continuationSkillState.runtimeSkillIds;
-      const sessionMode = existingSession?.mode ?? CoworkSessionMode.Work;
 
       const runtimeSystemPrompt = existingSession
         ? existingSession.systemPrompt
-        : sessionMode === CoworkSessionMode.Chat
-          ? (options.systemPrompt ?? '').trim()
-          : composeCoworkSystemPrompt({
-              basePrompt: options.systemPrompt,
-              language: resolveCoworkPromptLanguage(),
-            });
+        : composeCoworkSystemPrompt({
+            basePrompt: options.systemPrompt,
+            language: resolveCoworkPromptLanguage(),
+          });
 
       if (existingSession && options.prompt.trim()) {
         store.touchWorkspace(existingSession.workspaceId);
@@ -4720,12 +4559,12 @@ if (!gotTheLock) {
         .continueSession(options.sessionId, options.prompt, {
           systemPrompt: runtimeSystemPrompt,
           skillIds: runtimeSkillIds,
-          // The user's per-input selection (empty when they attached none) is
-          // what the transcript shows; runtimeSkillIds also carries the expert
-          // preset bundle and must not reappear as chips on this turn.
-          attachedSkillIds: options.activeSkillIds,
-          sessionMode,
+          sessionMode:
+            existingSession?.mode === CoworkSessionMode.Chat
+              ? CoworkSessionMode.Chat
+              : CoworkSessionMode.Work,
           goalMode: options.goalMode,
+          productionLoopMode: options.productionLoopMode,
           imageAttachments: storedImages,
           fileAttachments: options.fileAttachments,
           workspaceRoot: existingSession?.cwd,
@@ -4733,17 +4572,27 @@ if (!gotTheLock) {
           expertIds: existingSession?.experts.map(expert => expert.expertId),
           modelOverride: existingSession?.modelOverride,
           approvalMode:
-            (options.permissionMode ??
-              store.getConfig().permissionModeBySession[options.sessionId] ??
-              store.getConfig().permissionMode) === CoworkPermissionMode.AllowAll
+            options.permissionMode === CoworkPermissionMode.AllowAll
               ? WorkbenchApprovalMode.AllowAll
               : WorkbenchApprovalMode.Ask,
         })
         .catch(error => {
           console.error('[Cowork] continue error:', error);
           try {
+            // The engine router already emits an 'error' event (handled at line ~990)
+            // which sends cowork:stream:error to the renderer. Only send here if the
+            // session hasn't been marked as error yet, to avoid duplicate messages.
             const existing = getCoworkStore().getSession(options.sessionId);
-            reportPiSessionFailure(getPiRuntimeAdapter(), options.sessionId, error, existing?.status);
+            if (existing?.status === 'error') return;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const windows = BrowserWindow.getAllWindows();
+            windows.forEach(win => {
+              if (win.isDestroyed()) return;
+              win.webContents.send(CoworkStreamIpc.Error, {
+                sessionId: options.sessionId,
+                error: classifyCoworkError(errorMessage),
+              });
+            });
           } catch (handlerError) {
             console.error('[Cowork] failed to send error notification to renderer:', handlerError);
           }
@@ -4785,30 +4634,15 @@ if (!gotTheLock) {
             input.imageAttachments,
           )
         : undefined;
-      // Attaching a skill is a session-level action: a queued input's picks join
-      // the session's capability set like a directly submitted one. Commit them
-      // only once the queue accepts the item, so a rejected enqueue (e.g. the
-      // turn settled first) cannot leave a skill active that nothing revealed.
-      const enqueueResult = getPiRuntimeAdapter().enqueuePendingMessage(
+      return getPiRuntimeAdapter().enqueuePendingMessage(
         input.sessionId,
         input.text,
         storedImages,
         input.fileAttachments,
         input.skillIds,
+        input.skillPrompt,
+        input.productionLoopMode,
       );
-      if (enqueueResult.success && input.skillIds?.length) {
-        const queuedSession = getCoworkStore().getSession(input.sessionId, 0);
-        if (queuedSession) {
-          getCoworkStore().updateSession(
-            input.sessionId,
-            {
-              activeSkillIds: [...new Set([...queuedSession.activeSkillIds, ...input.skillIds])],
-            },
-            { touchUpdatedAt: false },
-          );
-        }
-      }
-      return enqueueResult;
     } catch (error) {
       return {
         success: false,
@@ -4913,22 +4747,22 @@ if (!gotTheLock) {
               type: msg.type as CoworkMessageType,
               content: msg.content,
               timestamp: msg.timestamp,
-              metadata: persistMessageImageMetadata(getCoworkImageRoot(), session.id, msg.metadata)
-                .metadata as CoworkMessageMetadata | undefined,
+              metadata: persistMessageImageMetadata(
+                getCoworkImageRoot(),
+                session.id,
+                msg.metadata,
+              ).metadata as CoworkMessageMetadata | undefined,
             });
           }
           const updated = coworkStore.getSession(session.id);
-          return {
-            success: true,
-            session: updated ? sanitizeCoworkSessionForIpc(updated) : updated,
-          };
+          return { success: true, session: updated ? sanitizeCoworkSessionForIpc(updated) : updated };
         }
         // Create new session in SQLite
         const newSession = coworkStore.createSession(
           session.title,
           session.cwd,
           session.systemPrompt || '',
-          parseCoworkExecutionMode(session.executionMode) ?? CoworkExecutionMode.Local,
+          (session.executionMode as CoworkExecutionMode) || 'local',
           session.activeSkillIds || [],
           session.agentId || 'main',
           session.modelOverride || '',
@@ -4942,8 +4776,11 @@ if (!gotTheLock) {
             type: msg.type as CoworkMessageType,
             content: msg.content,
             timestamp: msg.timestamp,
-            metadata: persistMessageImageMetadata(getCoworkImageRoot(), newSession.id, msg.metadata)
-              .metadata as CoworkMessageMetadata | undefined,
+            metadata: persistMessageImageMetadata(
+              getCoworkImageRoot(),
+              newSession.id,
+              msg.metadata,
+            ).metadata as CoworkMessageMetadata | undefined,
           });
         }
         // Update status
@@ -5025,25 +4862,17 @@ if (!gotTheLock) {
     'cowork:session:rename',
     async (_event, options: { sessionId: string; title: string }) => {
       try {
-        const coworkStoreInstance = getCoworkStore();
-        // Scheduled rows are identified by their `source`; the stored title keeps
-        // the canonical prefix so it cannot drift from migrated/renamed rows.
-        const existing = coworkStoreInstance.getSession(options.sessionId, 0);
-        const title = normalizeRenamedSessionTitle(
-          options.title,
-          existing?.source === CoworkSessionSource.Scheduled,
-        ).trim();
+        const title = options.title.trim();
         if (!title) {
           return { success: false, error: 'Title is required' };
         }
+        const coworkStoreInstance = getCoworkStore();
         coworkStoreInstance.updateSession(
           options.sessionId,
           { title },
           { userInitiatedTitleChange: true },
         );
-        // Report the stored (normalized) title: the renderer echoes this value
-        // into redux, and a scheduled rename adds the canonical prefix.
-        return { success: true, title };
+        return { success: true };
       } catch (error) {
         return {
           success: false,
@@ -5077,7 +4906,11 @@ if (!gotTheLock) {
 
   ipcMain.handle(
     CoworkSessionIpc.Get,
-    async (_event, sessionId: string, options?: { messageLimit?: number | null }) => {
+    async (
+      _event,
+      sessionId: string,
+      options?: { messageLimit?: number | null },
+    ) => {
       try {
         const store = getCoworkStore();
         // Default: latest page only for the main transcript UI. Callers that need
@@ -5651,7 +5484,7 @@ if (!gotTheLock) {
       _event,
       config: {
         workingDirectory?: string;
-        executionMode?: CoworkExecutionMode;
+        executionMode?: 'auto' | 'local' | 'sandbox';
         permissionMode?: CoworkPermissionMode;
         permissionModeBySession?: Record<string, CoworkPermissionMode>;
         embeddingEnabled?: boolean;
@@ -5664,6 +5497,10 @@ if (!gotTheLock) {
       },
     ) => {
       try {
+        const normalizedExecutionMode =
+          config.executionMode && String(config.executionMode) === 'container'
+            ? 'local'
+            : config.executionMode;
         const normalizedPermissionMode =
           config.permissionMode === CoworkPermissionMode.Ask ||
           config.permissionMode === CoworkPermissionMode.AllowAll
@@ -5681,7 +5518,7 @@ if (!gotTheLock) {
         const normalizedEmbedding = normalizeEmbeddingConfig(config);
         const normalizedConfig: Parameters<CoworkStore['setConfig']>[0] = {
           ...config,
-          executionMode: parseCoworkExecutionMode(config.executionMode),
+          executionMode: normalizedExecutionMode,
           permissionMode: normalizedPermissionMode,
           permissionModeBySession: normalizedPermissionModeBySession,
           ...normalizedEmbedding,
@@ -6752,7 +6589,6 @@ if (!gotTheLock) {
     '.ico': 'image/x-icon',
     '.avif': 'image/avif',
   };
-  registerArtifactFileAvailabilityHandler();
   ipcMain.handle(
     'dialog:readFileAsDataUrl',
     async (
@@ -6861,23 +6697,6 @@ if (!gotTheLock) {
     }
   });
 
-  // 2026/09/20 lixiang  供对话内本地路径高亮：仅当磁盘上存在对应文件时才可点（issue #805）
-  ipcMain.handle(ShellIpc.PathExists, async (_event, filePath: string) => {
-    try {
-      if (typeof filePath !== 'string' || !filePath.trim()) {
-        return { success: true, exists: false };
-      }
-      const normalizedPath = normalizeWindowsShellPath(filePath);
-      return { success: true, exists: fs.existsSync(normalizedPath) };
-    } catch (error) {
-      return {
-        success: false,
-        exists: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  });
-
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     try {
       await shell.openExternal(url);
@@ -6956,14 +6775,30 @@ if (!gotTheLock) {
     }
   };
 
-  ipcMain.handle(ApiIpc.Fetch, async (_event, rawOptions: unknown) => {
-    const options = ApiFetchSchema.input.parse(rawOptions);
-    const shouldRecord = shouldRecordApiRequest(options.purpose);
-    if (shouldRecord) {
-      console.log(
-        `[api:fetch] ${options.method} ${options.url}, headers: ${serializeForLog(options.headers)}, body: ${options.body}`,
-      );
+  // API 代理处理程序 - 解决 CORS 问题
+  ipcMain.handle(ApiIpc.WebSearch, async (_event, rawInput: unknown) => {
+    const input =
+      rawInput && typeof rawInput === 'object' ? (rawInput as Record<string, unknown>) : {};
+    const requestId = typeof input.requestId === 'string' ? input.requestId : null;
+    const controller = new AbortController();
+    if (requestId) activeStreamControllers.set(requestId, controller);
+    try {
+      const data = await searchAnySearchGateway(input, controller.signal);
+      return { ok: true, data };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Search unavailable.' };
+    } finally {
+      if (requestId && activeStreamControllers.get(requestId) === controller) {
+        activeStreamControllers.delete(requestId);
+      }
     }
+  });
+
+  ipcMain.handle('api:fetch', async (_event, rawOptions: unknown) => {
+    const options = ApiFetchSchema.input.parse(rawOptions);
+    console.log(
+      `[api:fetch] ${options.method} ${options.url}, headers: ${serializeForLog(options.headers)}, body: ${options.body}`,
+    );
 
     const doFetch = async (headers: Record<string, string>) => {
       const response = await session.defaultSession.fetch(options.url, {
@@ -6993,56 +6828,6 @@ if (!gotTheLock) {
       };
     };
 
-    const runApiFetch = async () => {
-      try {
-        let result = await doFetch(options.headers);
-        if (shouldRecord) {
-          console.log(
-            `[api:fetch] ${options.method} ${options.url} -> ${result.status} ${result.statusText}`,
-            typeof result.data === 'object' ? JSON.stringify(result.data) : result.data,
-          );
-        }
-
-        // Auto-retry once for Copilot 401/403
-        if (
-          !result.ok &&
-          (result.status === 401 || result.status === 403) &&
-          isCopilotUrl(options.url)
-        ) {
-          if (shouldRecord) {
-            console.log('[api:fetch] Copilot auth error, attempting token refresh and retry');
-          }
-          const { headers: refreshedHeaders, retried } =
-            await retryCopilotWithRefreshedToken(options);
-          if (retried) {
-            result = await doFetch(refreshedHeaders);
-            if (shouldRecord) {
-              console.log(`[api:fetch] retry -> ${result.status} ${result.statusText}`);
-            }
-          }
-        }
-
-        return result;
-      } catch (error) {
-        if (shouldRecord) {
-          console.error(
-            `[api:fetch] ${options.method} ${options.url} -> ERROR:`,
-            error instanceof Error ? error.message : error,
-          );
-        }
-        return {
-          ok: false,
-          status: 0,
-          statusText: error instanceof Error ? error.message : 'Network error',
-          headers: {},
-          data: null as null,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        };
-      }
-    };
-
-    if (!shouldRecord) return runApiFetch();
-
     // 2026/09/17 lixiang  开发态把主进程 api:fetch 镜像到 DevTools Network（xr-net beacon）
     return trackDevNetworkRequest({
       source: 'api-fetch',
@@ -7052,8 +6837,187 @@ if (!gotTheLock) {
       getRequestBody: () => truncateNetworkBody(options.body),
       getResponseBody: result =>
         truncateNetworkBody('error' in result ? result.error : (result.data ?? result.statusText)),
-      run: runApiFetch,
+      run: async () => {
+        try {
+          let result = await doFetch(options.headers);
+          console.log(
+            `[api:fetch] ${options.method} ${options.url} -> ${result.status} ${result.statusText}`,
+            typeof result.data === 'object' ? JSON.stringify(result.data) : result.data,
+          );
+
+          // Auto-retry once for Copilot 401/403
+          if (
+            !result.ok &&
+            (result.status === 401 || result.status === 403) &&
+            isCopilotUrl(options.url)
+          ) {
+            console.log('[api:fetch] Copilot auth error, attempting token refresh and retry');
+            const { headers: refreshedHeaders, retried } =
+              await retryCopilotWithRefreshedToken(options);
+            if (retried) {
+              result = await doFetch(refreshedHeaders);
+              console.log(`[api:fetch] retry -> ${result.status} ${result.statusText}`);
+            }
+          }
+
+          return result;
+        } catch (error) {
+          console.error(
+            `[api:fetch] ${options.method} ${options.url} -> ERROR:`,
+            error instanceof Error ? error.message : error,
+          );
+          return {
+            ok: false,
+            status: 0,
+            statusText: error instanceof Error ? error.message : 'Network error',
+            headers: {},
+            data: null as null,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        }
+      },
     });
+  });
+
+  // SSE 流式 API 代理
+  ipcMain.handle('api:stream', async (event, rawOptions: unknown) => {
+    const options = ApiStreamSchema.input.parse(rawOptions);
+    const controller = new AbortController();
+    const streamStartedAt = Date.now();
+    const streamLogId = `${streamStartedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // 存储 controller 以便后续取消
+    activeStreamControllers.set(options.requestId, controller);
+
+    const logStream = (status: number, error?: string, responseBody?: string) => {
+      // 2026/09/17 lixiang  开发态镜像 api:stream 到 DevTools Network
+      publishDevNetworkLog({
+        id: streamLogId,
+        source: 'api-stream',
+        method: options.method,
+        url: sanitizeNetworkUrl(options.url),
+        status,
+        durationMs: Date.now() - streamStartedAt,
+        requestBody: truncateNetworkBody(options.body),
+        responseBody:
+          responseBody ??
+          (error
+            ? truncateNetworkBody(error)
+            : '[streaming — response chunks go over IPC, not mirrored here]'),
+        error,
+        startedAt: streamStartedAt,
+      });
+    };
+
+    try {
+      let response = await session.defaultSession.fetch(options.url, {
+        method: options.method,
+        headers: options.headers,
+        body: options.body,
+        signal: controller.signal,
+      });
+
+      // Auto-retry once for Copilot 401/403
+      if (
+        !response.ok &&
+        (response.status === 401 || response.status === 403) &&
+        isCopilotUrl(options.url)
+      ) {
+        console.log('[api:stream] Copilot auth error, attempting token refresh and retry');
+        const { headers: refreshedHeaders, retried } =
+          await retryCopilotWithRefreshedToken(options);
+        if (retried) {
+          response = await session.defaultSession.fetch(options.url, {
+            method: options.method,
+            headers: refreshedHeaders,
+            body: options.body,
+            signal: controller.signal,
+          });
+          console.log(`[api:stream] retry -> ${response.status} ${response.statusText}`);
+        }
+      }
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        activeStreamControllers.delete(options.requestId);
+        logStream(response.status, errorData.slice(0, 200), truncateNetworkBody(errorData));
+        return {
+          ok: false,
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData,
+        };
+      }
+
+      if (!response.body) {
+        activeStreamControllers.delete(options.requestId);
+        logStream(response.status, 'No response body');
+        return {
+          ok: false,
+          status: response.status,
+          statusText: 'No response body',
+        };
+      }
+
+      // 读取流式响应并通过 IPC 发送
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      const readStream = async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              event.sender.send(`api:stream:${options.requestId}:done`);
+              break;
+            }
+            const chunk = decoder.decode(value);
+            event.sender.send(`api:stream:${options.requestId}:data`, chunk);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            event.sender.send(`api:stream:${options.requestId}:abort`);
+          } else {
+            event.sender.send(
+              `api:stream:${options.requestId}:error`,
+              error instanceof Error ? error.message : 'Stream error',
+            );
+          }
+        } finally {
+          activeStreamControllers.delete(options.requestId);
+        }
+      };
+
+      // 异步读取流，立即返回成功状态
+      readStream();
+      logStream(response.status);
+
+      return {
+        ok: true,
+        status: response.status,
+        statusText: response.statusText,
+      };
+    } catch (error) {
+      activeStreamControllers.delete(options.requestId);
+      logStream(0, error instanceof Error ? error.message : 'Unknown error');
+      return {
+        ok: false,
+        status: 0,
+        statusText: error instanceof Error ? error.message : 'Network error',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  // 取消流式请求
+  ipcMain.handle('api:stream:cancel', (_event, requestId: string) => {
+    const controller = activeStreamControllers.get(requestId);
+    if (controller) {
+      controller.abort();
+      activeStreamControllers.delete(requestId);
+      return true;
+    }
+    return false;
   });
 
   // ─── end OAuth ───
@@ -7133,7 +7097,7 @@ if (!gotTheLock) {
 
     mainWindow = new BrowserWindow({
       ...initialWindowBounds,
-      title: runtimeAppName,
+      title: APP_NAME,
       icon: getAppIconPath(),
       ...(isMac
         ? {
@@ -7156,10 +7120,7 @@ if (!gotTheLock) {
         // 2026/09/17 lixiang  开发环境关闭 webSecurity，页面 fetch 才能跨域并出现在 DevTools Network
         webSecurity: !isDev,
         preload: PRELOAD_PATH,
-        // 2026/09/21 lixiang  恢复 Chromium 默认节流：窗口隐藏/最小化后暂停渲染进程定时器与动画，
-        // 降低常驻内存与 CPU（下载、流式对话均在主进程完成，不受影响）。
-        // officePreviewRenderer 的隐藏截图窗口仍单独关闭节流，勿在此全局放开。
-        backgroundThrottling: true,
+        backgroundThrottling: false,
         devTools: isDev,
         spellcheck: false,
         enableWebSQL: false,
@@ -7172,9 +7133,6 @@ if (!gotTheLock) {
       autoHideMenuBar: true,
       enableLargerThanScreen: false,
     });
-
-    // Windows 任务栏在设置 AppUserModelID 后仍要显式套用 ico，否则继续显示 Electron 图标
-    applyWindowsWindowIcon(mainWindow);
 
     // 设置 macOS Dock 图标（开发模式下 Electron 默认图标不是应用 Logo）
     if (isMac && isDev) {
@@ -7285,24 +7243,8 @@ if (!gotTheLock) {
 
       tryLoadURL();
 
-      // 开发环境默认在窗口右侧打开 DevTools；关闭后可用 F12 / Ctrl+Shift+I
-      const openDevToolsIfNeeded = () => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        openDevToolsWindow(mainWindow.webContents);
-      };
-      // Wait until the page is ready so the docked panel is attached to a live view.
-      mainWindow.webContents.once('did-finish-load', () => {
-        setTimeout(openDevToolsIfNeeded, 300);
-      });
-      mainWindow.webContents.on('before-input-event', (event, input) => {
-        if (input.type !== 'keyDown') return;
-        const isToggleShortcut =
-          input.key === 'F12' ||
-          ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i');
-        if (!isToggleShortcut) return;
-        event.preventDefault();
-        toggleDevToolsForSender(mainWindow?.webContents);
-      });
+      // 打开开发者工具
+      mainWindow.webContents.openDevTools();
     } else {
       // 生产环境
       mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -7369,17 +7311,10 @@ if (!gotTheLock) {
 
     // 等待内容加载完成后再显示窗口
     mainWindow.once('ready-to-show', () => {
-      // 2026/09/20 lixiang  显示前再套一次图标，避免 Windows 任务栏仍缓存 electron 默认图标
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        applyWindowsWindowIcon(mainWindow);
-      }
       emitWindowState();
       // 开机自启时不显示窗口，仅显示托盘图标
       if (isLinuxRendererSmoke || !isAutoLaunched()) {
         mainWindow?.show();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          applyWindowsWindowIcon(mainWindow);
-        }
       }
       // Initialize main-process i18n from stored language before creating UI elements.
       const initLang = getStore().get<{ language?: string }>('app_config')?.language;
@@ -7573,8 +7508,6 @@ if (!gotTheLock) {
     await app.whenReady();
     profiler.measure('app.whenReady');
     console.log('[Main] initApp: app is ready');
-    // 开发态写入带知远 .ico 的开始菜单快捷方式，任务栏按 AUMID 取图标。
-    ensureWindowsTaskbarBrand();
 
     protocol.handle(ZHIYUAN_ENTERPRISE_RENDERER_SCHEME, async request => {
       const assetPath = zhiyuanEnterpriseRendererBridge.resolveAsset(request.url);
@@ -7638,10 +7571,6 @@ if (!gotTheLock) {
     profiler.mark('initStore');
     console.log('[Main] initApp: starting initStore()');
     store = await initStore();
-    startSqliteDiagnostics({
-      db: store.getDatabase(),
-      dbPath: path.join(app.getPath('userData'), DB_FILENAME),
-    });
     zhiyuanManagedProviderBridge.attachStore(store);
     profiler.measure('initStore');
     console.log('[Main] initApp: store initialized');
@@ -7742,34 +7671,39 @@ if (!gotTheLock) {
         const amendment = resumeInput?.amendment?.trim() ?? '';
         const prompt =
           amendment || 'Continue the current task from its persisted state and verify the result.';
+        const previousProduction =
+          getWorkbenchTaskService().productionLoop.repository.getLatestForTask(task.id, run.id);
         // 2026/09/17 lixiang  resume 不等待整段跑完（对齐 Continue IPC），否则底部无法切到停止
-        observePreparedRun(
-          () =>
-            getPiRuntimeAdapter().continueSession(session.id, prompt, {
-              systemPrompt: session.systemPrompt,
-              skillIds: resumeInput?.skillIds ?? session.activeSkillIds,
-              sessionMode: session.mode,
-              workspaceRoot: session.cwd,
-              agentId: session.agentId,
-              expertIds:
-                resumeInput?.expertIds === undefined
-                  ? session.experts.slice(0, 1).map(expert => expert.expertId)
-                  : normalizeSingleExpertIds(resumeInput.expertIds),
-              modelOverride: session.modelOverride,
-              approvalMode:
-                config.permissionMode === CoworkPermissionMode.AllowAll
-                  ? WorkbenchApprovalMode.AllowAll
-                  : WorkbenchApprovalMode.Ask,
-              goalMode: resumeInput?.goalMode,
-              imageAttachments: resumeInput?.imageAttachments,
-              fileAttachments: resumeInput?.fileAttachments,
-              _workbenchRunId: run.id,
-              _skipUserMessage: !amendment,
-            }),
-          task,
-          run,
-          { service: getWorkbenchTaskService(), runtime: getPiRuntimeAdapter() },
-        );
+        void getPiRuntimeAdapter()
+          .continueSession(session.id, prompt, {
+            systemPrompt: session.systemPrompt,
+            skillIds: resumeInput?.skillIds ?? session.activeSkillIds,
+            sessionMode: session.mode,
+            workspaceRoot: session.cwd,
+            agentId: session.agentId,
+            expertIds:
+              resumeInput?.expertIds === undefined
+                ? session.experts.slice(0, 1).map(expert => expert.expertId)
+                : normalizeSingleExpertIds(resumeInput.expertIds),
+            modelOverride: session.modelOverride,
+            approvalMode:
+              config.permissionMode === CoworkPermissionMode.AllowAll
+                ? WorkbenchApprovalMode.AllowAll
+                : WorkbenchApprovalMode.Ask,
+            goalMode: resumeInput?.goalMode,
+            productionLoopMode: resumeInput?.productionLoopMode,
+            imageAttachments: resumeInput?.imageAttachments,
+            fileAttachments: resumeInput?.fileAttachments,
+            _workbenchRunId: run.id,
+            _productionWorkflowRequired: shouldRequireProductionOnResume(
+              task.contract.kind,
+              previousProduction,
+            ),
+            _skipUserMessage: !amendment,
+          })
+          .catch(error => {
+            console.error('[WorkbenchTask] resume continue error:', error);
+          });
       },
     });
     todoReminderScheduler = new TodoReminderScheduler(getStore().getDatabase());
@@ -7902,9 +7836,9 @@ if (!gotTheLock) {
       const hadEnterprise = store.get('enterprise_config');
       if (hadEnterprise) {
         store.delete('enterprise_config');
-        // Restore the default execution mode after removing enterprise configuration.
+        // Reset executionMode to default so sandbox mode reverts to "off".
         const cs = getCoworkStore();
-        cs.setConfig({ executionMode: CoworkExecutionMode.Local });
+        cs.setConfig({ executionMode: 'local' });
         console.log(
           '[Enterprise] config package removed, cleared enterprise mode and reset executionMode',
         );

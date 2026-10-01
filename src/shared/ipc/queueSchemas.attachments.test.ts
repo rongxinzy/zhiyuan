@@ -6,11 +6,12 @@ import { CoworkQueueEnqueueSchema } from './queueSchemas';
 const baseInput = { sessionId: 'session-1', text: 'review this' };
 
 describe('CoworkQueueEnqueueSchema attachment limits', () => {
-  test('accepts a bounded image attachment with skill ids', () => {
+  test('accepts a bounded image attachment and skill snapshot', () => {
     const parsed = CoworkQueueEnqueueSchema.parse({
       ...baseInput,
       imageAttachments: [{ name: 'screen.png', mimeType: 'image/png', base64Data: 'a' }],
       skillIds: ['skill-docx'],
+      skillPrompt: 'Use the document skill.',
     });
 
     expect(parsed.skillIds).toEqual(['skill-docx']);

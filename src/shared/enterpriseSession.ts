@@ -39,7 +39,6 @@ export type EnterpriseSessionResult =
     };
 
 export interface EnterprisePasswordLoginInput {
-  readonly aepBaseUrl: string;
   readonly enterpriseId: string;
   readonly username: string;
   readonly password: string;

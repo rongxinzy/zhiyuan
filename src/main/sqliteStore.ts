@@ -15,7 +15,6 @@ import {
 } from '../shared/agent';
 import { CoworkScheduledSessionTitlePrefix, CoworkSessionSource } from '../shared/cowork/constants';
 import { DB_FILENAME } from './appConstants';
-import { migrateScheduledSessionTitles } from './scheduledSessionTitles/migration';
 import { initializeCoworkArtifactIndexSchema } from './coworkArtifactIndex';
 import {
   openSqliteDatabaseWithRecovery,
@@ -23,6 +22,7 @@ import {
 } from './libs/sqliteBackup/sqliteBackupManager';
 import { initializeWorkbenchTaskSchema } from './workbenchTask/schema';
 import { initializeCodingAgentSchema } from './codingAgent/schema';
+import { initializeProductionLoopSchema } from './productionLoop/schema';
 import { initializeTodoSchema } from './todo/schema';
 import { normalizeWorkspacePath, workspaceIdForPath, workspaceNameForPath } from './workspaceUtils';
 
@@ -94,6 +94,7 @@ export class SqliteStore {
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         title_user_renamed INTEGER NOT NULL DEFAULT 0,
+        claude_session_id TEXT,
         status TEXT NOT NULL DEFAULT 'idle',
         pinned INTEGER NOT NULL DEFAULT 0,
         pin_order INTEGER,
@@ -190,6 +191,7 @@ export class SqliteStore {
 
     initializeWorkbenchTaskSchema(this.db);
     initializeCodingAgentSchema(this.db);
+    initializeProductionLoopSchema(this.db);
     initializeTodoSchema(this.db);
 
     this.db.exec(`
@@ -574,8 +576,21 @@ export class SqliteStore {
       console.warn('[SqliteStore] failed to backfill agent working directories:', error);
     }
 
+    try {
+      this.db.exec(
+        `UPDATE cowork_sessions SET execution_mode = 'local' WHERE execution_mode = 'container';`,
+      );
+      this.db.exec(`
+        UPDATE cowork_config
+        SET value = 'local'
+        WHERE key = 'executionMode' AND value = 'container';
+      `);
+      this.didRunMigration = true;
+    } catch (error) {
+      console.warn('Failed to migrate cowork execution mode:', error);
+    }
+
     this.migrateLegacyMemoryFileToUserMemories();
-    migrateScheduledSessionTitles(this.db);
     this.migrateFromElectronStore(basePath);
   }
 

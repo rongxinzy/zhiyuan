@@ -2,8 +2,6 @@ import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import * as pty from 'node-pty';
 
-import { CodingErrorMessage } from '../../shared/codingAgent';
-
 const DEFAULT_COLUMNS = 100;
 const DEFAULT_ROWS = 30;
 
@@ -11,7 +9,6 @@ export interface AuthTerminalStartedEvent {
   id: string;
   profileId: string;
   methodId: string;
-  workspaceRoot: string;
 }
 
 export interface AuthTerminalExitedEvent extends AuthTerminalStartedEvent {
@@ -41,12 +38,7 @@ export class AuthTerminalService extends EventEmitter {
     authEnvironment?: Record<string, string>;
   }): AuthTerminalStartedEvent {
     const id = randomUUID();
-    const started = {
-      id,
-      profileId: input.profileId,
-      methodId: input.methodId,
-      workspaceRoot: input.cwd,
-    };
+    const started = { id, profileId: input.profileId, methodId: input.methodId };
     const environment = Object.fromEntries(
       Object.entries({ ...input.environment, ...input.authEnvironment }).filter(
         (entry): entry is [string, string] => typeof entry[1] === 'string',
@@ -90,7 +82,7 @@ export class AuthTerminalService extends EventEmitter {
 
   private require(id: string): ActiveTerminal {
     const terminal = this.terminals.get(id);
-    if (!terminal) throw new Error(CodingErrorMessage.AuthTerminalGone);
+    if (!terminal) throw new Error('The authentication terminal is no longer active.');
     return terminal;
   }
 }

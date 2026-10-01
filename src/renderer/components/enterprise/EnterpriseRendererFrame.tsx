@@ -5,7 +5,6 @@ import {
   EnterpriseRendererMessageSource,
   EnterpriseRendererMessageType,
   EnterpriseRendererSurface,
-  EnterpriseRendererThemeVariables,
   type EnterpriseRendererInitializeMessage,
   type EnterpriseRendererModelCatalogResponseMessage,
   type EnterpriseRendererModelCatalogResult,
@@ -53,7 +52,6 @@ export function EnterpriseRendererFrame({
         pageId,
         language: resolveLanguage(),
         theme: resolveTheme(),
-        themeVariables: resolveThemeVariables(),
         session,
       };
       target.postMessage(message, '*');
@@ -92,9 +90,7 @@ export function EnterpriseRendererFrame({
       const catalog =
         surface === EnterpriseRendererSurface.Settings && pageId === 'models'
           ? executeEnterpriseModelCatalogRequest()
-          : Promise.resolve<EnterpriseRendererModelCatalogResult>({
-              ok: false,
-            });
+          : Promise.resolve<EnterpriseRendererModelCatalogResult>({ ok: false });
       void catalog.then(result => {
         const target = iframeRef.current?.contentWindow;
         if (!target) return;
@@ -109,17 +105,8 @@ export function EnterpriseRendererFrame({
       });
     };
 
-    const observer = new MutationObserver(sendInitialization);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme', 'style'],
-    });
     window.addEventListener('message', handleMessage);
-    sendInitialization();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('message', handleMessage);
-    };
+    return () => window.removeEventListener('message', handleMessage);
   }, [pageId, session, surface]);
 
   return (
@@ -141,24 +128,9 @@ function resolveTheme(): EnterpriseRendererInitializeMessage['theme'] {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 }
 
-function resolveThemeVariables(): NonNullable<
-  EnterpriseRendererInitializeMessage['themeVariables']
-> {
-  const style = getComputedStyle(document.documentElement);
-  return Object.fromEntries(
-    EnterpriseRendererThemeVariables.flatMap(variable => {
-      const value = style.getPropertyValue(variable).trim();
-      return value ? [[variable, value]] : [];
-    }),
-  );
-}
-
 function operationFailed(): EnterpriseSessionResult {
   return {
     ok: false,
-    error: {
-      code: 'OPERATION_FAILED',
-      message: 'Enterprise session operation failed.',
-    },
+    error: { code: 'OPERATION_FAILED', message: 'Enterprise session operation failed.' },
   };
 }

@@ -1,36 +1,30 @@
+import { ArtifactWorkerLimit } from './artifactWorkerConstants';
 import { parentPort } from 'node:worker_threads';
-import { createHash } from 'node:crypto';
 import { collectWorkbenchArtifacts } from './artifactCollector';
-import { ArtifactWorkerLimit, ArtifactWorkerTask } from './artifactWorkerConstants';
-import type { ArtifactWorkerInput } from './artifactWorkerTypes';
+import { runTextWorkerOperation, type TextWorkerInput } from './textWorkerOperations';
 
-parentPort?.on('message', (job: ArtifactWorkerInput) => {
-  const startedAt = performance.now();
-  try {
-    if (job.kind === ArtifactWorkerTask.InspectWorkspaceContent) {
-      if (
-        !(job.input.bytes instanceof ArrayBuffer) ||
-        job.input.bytes.byteLength > ArtifactWorkerLimit.WorkspaceContentBytes
-      ) {
-        throw new Error('Workspace content input limit exceeded.');
+parentPort?.on(
+  'message',
+  (input: Parameters<typeof collectWorkbenchArtifacts>[0] | TextWorkerInput) => {
+    const startedAt = performance.now();
+    try {
+      if ('kind' in input) {
+        parentPort?.postMessage({
+          text: runTextWorkerOperation(input),
+          runMs: performance.now() - startedAt,
+        });
+        return;
       }
-      const bytes = Buffer.from(job.input.bytes);
+      if (Buffer.byteLength(JSON.stringify(input)) > ArtifactWorkerLimit.InputBytes) {
+        throw new Error('Artifact collection input limit exceeded.');
+      }
+      const artifacts = collectWorkbenchArtifacts(input);
+      parentPort?.postMessage({ artifacts, runMs: performance.now() - startedAt });
+    } catch (error) {
       parentPort?.postMessage({
-        content: {
-          sha256: createHash('sha256').update(bytes).digest('hex'),
-          text: bytes.toString('utf8'),
-          binary: bytes.includes(0),
-        },
+        error: error instanceof Error ? error.message : String(error),
         runMs: performance.now() - startedAt,
       });
-    } else {
-      const artifacts = collectWorkbenchArtifacts(job.input);
-      parentPort?.postMessage({ artifacts, runMs: performance.now() - startedAt });
     }
-  } catch (error) {
-    parentPort?.postMessage({
-      error: error instanceof Error ? error.message : String(error),
-      runMs: performance.now() - startedAt,
-    });
-  }
-});
+  },
+);

@@ -67,12 +67,10 @@ function nowDefaults() {
   };
 }
 
-// Default plan for a brand-new task form. Templates seed their own plan from
-// their cron expr instead (see createFormState).
 const DEFAULT_FORM_STATE: FormState = {
   name: '',
   description: '',
-  planType: 'hourly',
+  planType: 'daily',
   ...nowDefaults(),
   weekdays: [1, 2, 3, 4, 5],
   monthDay: 1,
@@ -131,24 +129,12 @@ export function createFormState(task?: ScheduledTask, prefill?: TaskTemplateValu
     const defaults = { ...DEFAULT_FORM_STATE, ...nowDefaults() };
     if (prefill) {
       const parsedBuilder = exprToCronBuilder(prefill.schedule.expr) ?? { ...DEFAULT_CRON_BUILDER };
-      // Templates ship a cron expr; map it back onto the matching structured plan
-      // so the form shows the template's real schedule ("每天 9:00") instead of
-      // always falling back to 自定义（Cron）.
-      const planInfo = scheduleToPlanInfo(prefill.schedule);
       return {
         ...defaults,
         name: prefill.name,
         description: prefill.description,
-        // 'advanced' has no structured representation: keep the cron plan so the
-        // raw expression is preserved and submitted verbatim.
-        planType: planInfo.planType === 'advanced' ? 'cron' : planInfo.planType,
-        hour: planInfo.hour,
-        minute: planInfo.minute,
-        second: planInfo.second,
-        weekdays: planInfo.weekdays,
-        monthDay: planInfo.monthDay,
+        planType: 'cron',
         cronExpr: prefill.schedule.expr,
-        cronTz: planInfo.cronTz ?? '',
         cronMode: 'builder',
         cronBuilder: parsedBuilder,
         payloadText: prefill.promptText,

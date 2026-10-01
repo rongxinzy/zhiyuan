@@ -24,6 +24,7 @@ export function isWorkbenchDeliverable(
   return (
     artifact.kind === WorkbenchArtifactKind.File &&
     (artifact.metadata.source === WorkbenchArtifactCandidateSource.DomainWorkflow ||
+      artifact.metadata.source === WorkbenchArtifactCandidateSource.ProductionInspection ||
       (artifact.metadata.source === WorkbenchArtifactCandidateSource.Declaration &&
         artifact.metadata.role === CoworkArtifactRole.Deliverable))
   );

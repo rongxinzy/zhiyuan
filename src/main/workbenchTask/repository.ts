@@ -40,6 +40,7 @@ const artifactSourcePriority: Record<string, number> = {
   [WorkbenchArtifactCandidateSource.ToolEffect]: 1,
   [WorkbenchArtifactCandidateSource.DomainWorkflow]: 2,
   [WorkbenchArtifactCandidateSource.Declaration]: 3,
+  [WorkbenchArtifactCandidateSource.ProductionInspection]: 4,
 };
 
 const getArtifactSourcePriority = (source: unknown): number =>
@@ -490,7 +491,8 @@ export class WorkbenchTaskRepository {
       );
       let changes = 0;
       for (const artifact of artifacts) {
-        if (artifact.runId !== runId || !isWorkbenchDeliverable(artifact, contract)) continue;
+        if (artifact.runId !== runId || !isWorkbenchDeliverable(artifact, contract))
+          continue;
         changes += update.run(
           WorkbenchArtifactVerificationStatus.Verified,
           Date.now(),

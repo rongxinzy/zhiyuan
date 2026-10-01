@@ -13,7 +13,6 @@ import {
   CodingWorkspaceFileKind,
   type CodingWorkspaceFileEntry,
 } from '../../../shared/codingAgent';
-import { showAppError } from '../../services/appToast';
 import { i18nService } from '../../services/i18n';
 import MarkdownContent from '../MarkdownContent';
 import { CodingWorkspaceFileView } from './constants';
@@ -123,6 +122,7 @@ export const CodingWorkspaceFileBrowser = ({
   const [selectedSha256, setSelectedSha256] = useState<string | null>(null);
   const [loadingFile, setLoadingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showFiles, setShowFiles] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -151,9 +151,10 @@ export const CodingWorkspaceFileBrowser = ({
           directoryRequestIds.current.get(directoryPath) !== requestId
         ) return;
         if (!result.success || !entries) {
-          showAppError(result.error, 'codingAgentFilesPreviewUnavailable');
+          setError(result.error ?? i18nService.t('codingAgentFilesPreviewUnavailable'));
           return;
         }
+        setError(null);
         if (!directoryPath) setNodes(entries);
         else setNodes(current => replaceNodeChildren(current, directoryPath, entries));
       } catch (cause) {
@@ -161,7 +162,7 @@ export const CodingWorkspaceFileBrowser = ({
           directoryRequestGeneration.current !== generation ||
           directoryRequestIds.current.get(directoryPath) !== requestId
         ) return;
-        showAppError(cause, 'codingAgentFilesPreviewUnavailable');
+        setError(cause instanceof Error ? cause.message : i18nService.t('codingAgentFilesPreviewUnavailable'));
       } finally {
         if (
           directoryRequestGeneration.current === generation &&
@@ -190,6 +191,7 @@ export const CodingWorkspaceFileBrowser = ({
     setDraftContent('');
     setSelectedSha256(null);
     setLoadingFile(false);
+    setError(null);
     void loadDirectory('');
   }, [loadDirectory]);
 
@@ -223,16 +225,17 @@ export const CodingWorkspaceFileBrowser = ({
         });
         if (fileRequestId.current !== requestId) return;
         if (!result.success || !result.file) {
-          showAppError(result.error, 'codingAgentFilesPreviewUnavailable');
+          setError(result.error ?? i18nService.t('codingAgentFilesPreviewUnavailable'));
           return;
         }
+        setError(null);
         setSelectedContent(normalizeWorkspaceFileContent(result.file.content));
         setDraftContent(normalizeWorkspaceFileContent(result.file.content));
         setSelectedLineEnding(detectWorkspaceLineEnding(result.file.content));
         setSelectedSha256(result.file.sha256);
       } catch (cause) {
         if (fileRequestId.current !== requestId) return;
-        showAppError(cause, 'codingAgentFilesPreviewUnavailable');
+        setError(cause instanceof Error ? cause.message : i18nService.t('codingAgentFilesPreviewUnavailable'));
       } finally {
         if (fileRequestId.current === requestId) setLoadingFile(false);
       }
@@ -253,16 +256,17 @@ export const CodingWorkspaceFileBrowser = ({
         expectedSha256: selectedSha256,
       });
       if (!result.success || !result.file) {
-        showAppError(result.error, 'codingAgentFileSaveFailed');
+        setError(result.error ?? i18nService.t('codingAgentFileSaveFailed'));
         return;
       }
       setSelectedContent(normalizeWorkspaceFileContent(result.file.content));
       setDraftContent(normalizeWorkspaceFileContent(result.file.content));
       setSelectedLineEnding(detectWorkspaceLineEnding(result.file.content));
       setSelectedSha256(result.file.sha256);
+      setError(null);
       onFileSaved?.();
     } catch (cause) {
-      showAppError(cause, 'codingAgentFileSaveFailed');
+      setError(cause instanceof Error ? cause.message : i18nService.t('codingAgentFileSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -354,6 +358,7 @@ export const CodingWorkspaceFileBrowser = ({
           </Button>
         </div>
       </header>
+      {error ? <p className="px-3 pt-2 text-xs text-destructive">{error}</p> : null}
       {supportsPreview && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-2 py-1.5">
           <FluidTabs<CodingWorkspaceFileView>
@@ -377,6 +382,7 @@ export const CodingWorkspaceFileBrowser = ({
                 disabled={!isDirty || isSaving}
                 onClick={() => {
                   setDraftContent(selectedContent ?? '');
+                  setError(null);
                 }}
               >
                 <RotateCcw data-icon="inline-start" />

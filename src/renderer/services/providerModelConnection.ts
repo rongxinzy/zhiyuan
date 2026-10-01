@@ -5,8 +5,8 @@ import {
   resolveCodingPlanBaseUrl,
   type ProviderConfig,
 } from '../../shared/providers';
-import { ApiRequestPurpose } from '../../shared/ipc/apiRequest';
 import { i18nService } from './i18n';
+import { apiFetch } from './visibleApiTransport';
 
 export interface ProviderModelConnectionTarget {
   id: string;
@@ -84,13 +84,6 @@ const buildOpenAIResponsesUrl = (baseUrl: string): string => {
   if (!normalized) return '/v1/responses';
   if (normalized.endsWith('/responses')) return normalized;
   return normalized.endsWith('/v1') ? `${normalized}/responses` : `${normalized}/v1/responses`;
-};
-
-const buildGeminiGenerateContentUrl = (baseUrl: string, modelId: string): string => {
-  const normalized =
-    baseUrl.trim().replace(/\/+$/, '') || 'https://generativelanguage.googleapis.com/v1beta';
-  if (normalized.endsWith('/generateContent')) return normalized;
-  return `${normalized}/models/${modelId}:generateContent`;
 };
 
 const shouldUseMaxCompletionTokensForOpenAI = (provider: string, modelId: string): boolean => {
@@ -178,26 +171,8 @@ export async function testProviderModelConnection(
   const apiKey = input.provider.apiKey;
 
   try {
-    if (apiFormat === ApiFormat.Gemini) {
-      const response = await window.electron.api.fetch({
-        url: buildGeminiGenerateContentUrl(baseUrl, input.model.id),
-        method: 'POST',
-        headers: {
-          'x-goog-api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
-          generationConfig: { maxOutputTokens: CONNECTIVITY_TEST_TOKEN_BUDGET },
-        }),
-        timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
-        purpose: ApiRequestPurpose.ConnectivityTest,
-      });
-      return getProviderModelConnectionTestResult(response);
-    }
-
     if (apiFormat === ApiFormat.Anthropic) {
-      const response = await window.electron.api.fetch({
+      const response = await apiFetch({
         url: buildAnthropicMessagesUrl(baseUrl),
         method: 'POST',
         headers: {
@@ -211,7 +186,6 @@ export async function testProviderModelConnection(
           messages: [{ role: 'user', content: 'Hi' }],
         }),
         timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
-        purpose: ApiRequestPurpose.ConnectivityTest,
       });
       return getProviderModelConnectionTestResult(response);
     }
@@ -245,7 +219,7 @@ export async function testProviderModelConnection(
       ] = CONNECTIVITY_TEST_TOKEN_BUDGET;
     }
 
-    const response = await window.electron.api.fetch({
+    const response = await apiFetch({
       url: useResponsesApi
         ? buildOpenAIResponsesUrl(baseUrl)
         : buildOpenAICompatibleChatCompletionsUrl(baseUrl, input.providerId),
@@ -253,7 +227,6 @@ export async function testProviderModelConnection(
       headers,
       body: JSON.stringify(body),
       timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
-      purpose: ApiRequestPurpose.ConnectivityTest,
     });
     return getProviderModelConnectionTestResult(response);
   } catch (error) {

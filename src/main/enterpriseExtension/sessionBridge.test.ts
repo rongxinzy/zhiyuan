@@ -43,35 +43,16 @@ describe('Zhiyuan enterprise session bridge', () => {
     bridge.registerProvider(fixtureProvider({ login, changePassword }));
 
     await expect(
-      bridge.login({
-        aepBaseUrl: ' https://aep.customer.example/control/ ',
-        enterpriseId: '  enterprise-1 ',
-        username: ' admin ',
-        password: ' secret ',
-      }),
+      bridge.login({ enterpriseId: '  enterprise-1 ', username: ' admin ', password: ' secret ' }),
     ).resolves.toMatchObject({ ok: true });
     expect(login).toHaveBeenCalledWith({
-      aepBaseUrl: 'https://aep.customer.example/control',
       enterpriseId: 'enterprise-1',
       username: 'admin',
       password: ' secret ',
     });
 
     await expect(
-      bridge.login({
-        aepBaseUrl: 'https://aep.customer.example',
-        enterpriseId: ' ',
-        username: 'admin',
-        password: 'secret',
-      }),
-    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
-    await expect(
-      bridge.login({
-        aepBaseUrl: 'http://user:secret@aep.customer.example',
-        enterpriseId: 'enterprise-1',
-        username: 'admin',
-        password: 'secret',
-      }),
+      bridge.login({ enterpriseId: ' ', username: 'admin', password: 'secret' }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     await expect(
       bridge.changePassword({ currentPassword: '', newPassword: 'new' }),
@@ -111,7 +92,6 @@ describe('Zhiyuan enterprise session bridge', () => {
     );
 
     const result = await bridge.login({
-      aepBaseUrl: 'https://aep.customer.example',
       enterpriseId: 'enterprise-1',
       username: 'admin',
       password: 'secret',

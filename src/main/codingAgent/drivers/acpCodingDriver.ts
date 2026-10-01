@@ -4,7 +4,6 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 
 import {
-  CodingErrorMessage,
   CodingEventKind,
   CodingPermissionOutcome,
   CodingStreamUpdateMode,
@@ -17,8 +16,6 @@ import {
   type CodingPromptAttachment,
 } from '../../../shared/codingAgent';
 import { AcpConnectionSupervisor } from '../acp/connectionSupervisor';
-import { AcpEventQueue } from '../acp/acpEventQueue';
-import { agentResourceDiagnostics } from '../../agentResourceDiagnostics';
 import {
   ACP_CLIENT_CAPABILITIES,
   ACP_MINIMUM_PROTOCOL_VERSION,
@@ -50,37 +47,13 @@ type AcpInitializeResult = {
 };
 type AcpSessionResult = { sessionId?: string; configOptions?: unknown };
 type EventStream = {
-  events: AcpEventQueue<DriverEvent>;
+  events: DriverEvent[];
   waiters: Array<{
     resolve: (result: IteratorResult<DriverEvent>) => void;
     reject: (error: Error) => void;
   }>;
   done: boolean;
   error: Error | null;
-};
-
-const mergeAdjacentDriverEvents = (previous: DriverEvent, next: DriverEvent): DriverEvent | null => {
-  if (previous.kind === CodingEventKind.MessageDelta && next.kind === CodingEventKind.MessageDelta) {
-    const previousMessageId = previous.payload.messageId;
-    if (previousMessageId !== next.payload.messageId || typeof previousMessageId !== 'string') {
-      return null;
-    }
-    if (next.payload.streamUpdateMode === CodingStreamUpdateMode.Replace) return next;
-    return {
-      ...next,
-      payload: {
-        ...previous.payload,
-        ...next.payload,
-        content: `${typeof previous.payload.content === 'string' ? previous.payload.content : ''}${typeof next.payload.content === 'string' ? next.payload.content : ''}`,
-      },
-    };
-  }
-  if (previous.kind === CodingEventKind.ToolCall && next.kind === CodingEventKind.ToolCall) {
-    return previous.payload.toolCallId === next.payload.toolCallId
-      ? { ...next, payload: { ...previous.payload, ...next.payload } }
-      : null;
-  }
-  return null;
 };
 type PendingPermission = {
   streamSessionId: string;
@@ -121,18 +94,6 @@ const DEFAULT_CAPABILITIES: CodingAgentCapabilities = {
 // models. Keep the short transport timeout for ordinary ACP control requests,
 // but give lifecycle requests enough time to complete on a cold start.
 const ACP_SESSION_LIFECYCLE_TIMEOUT_MS = 60_000;
-
-/**
- * How long a prompt may stay completely silent before the turn is failed.
- *
- * An ACP agent that cannot run the prompt — no signed-in account, missing or
- * invalid API key, unreachable model endpoint — does not report an error: Kimi
- * Code answers such a prompt with a bare `end_turn` after ~100s and writes
- * nothing to stderr, so the user would otherwise stare at a spinner until the
- * five-minute request cap. Any first event (thought, tool call, message) clears
- * the watchdog, so only a totally silent agent is cut short.
- */
-const ACP_FIRST_OUTPUT_TIMEOUT_MS = 90_000;
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
@@ -243,15 +204,13 @@ const promptAttachmentBlocks = async (
   capabilities: CodingAgentCapabilities,
 ): Promise<Record<string, unknown>[]> => {
   if (!attachments?.length) return [];
-  if (attachments.length > 8) throw new Error(CodingErrorMessage.AttachmentLimit);
+  if (attachments.length > 8) throw new Error('At most 8 attachments can be sent in one prompt.');
   const blocks: Record<string, unknown>[] = [];
   for (const attachment of attachments) {
-    if (!path.isAbsolute(attachment.path)) {
-      throw new Error(CodingErrorMessage.AttachmentPathAbsolute);
-    }
+    if (!path.isAbsolute(attachment.path)) throw new Error('Attached file path must be absolute.');
     const filePath = path.resolve(attachment.path);
     const fileInfo = await stat(filePath);
-    if (!fileInfo.isFile()) throw new Error(CodingErrorMessage.AttachmentNotFile);
+    if (!fileInfo.isFile()) throw new Error('Attached path is not a regular file.');
     const extension = path.extname(filePath).toLowerCase();
     const name = path.basename(filePath);
     const uri = pathToFileURL(filePath).toString();
@@ -259,7 +218,7 @@ const promptAttachmentBlocks = async (
     if (imageMimeType && capabilities.supportsPromptImages) {
       const data = await readFile(filePath);
       if (data.byteLength > MAX_PROMPT_IMAGE_BYTES) {
-        throw new Error(CodingErrorMessage.AttachmentImageTooLarge);
+        throw new Error('Attached image exceeds the 10 MB limit.');
       }
       blocks.push({ type: 'image', uri, mimeType: imageMimeType, data: data.toString('base64') });
       continue;
@@ -360,9 +319,6 @@ export class AcpCodingDriver implements CodingAgentDriver {
   private readonly openToolCalls = new Map<string, Set<string>>();
   private watchdogsHeld = false;
   private readonly fallbackMessageIds = new Map<string, string>();
-  /** Per-turn bookkeeping: a prompt that yields nothing is a credential problem, not a slow model. */
-  private readonly turns = new Map<string, { hasOutput: boolean }>();
-  private readonly firstOutputTimers = new Map<string, NodeJS.Timeout>();
   private capabilities = DEFAULT_CAPABILITIES;
   private readonly authMethods = new Map<string, AcpAuthMethod>();
   private initialized = false;
@@ -403,9 +359,9 @@ export class AcpCodingDriver implements CodingAgentDriver {
   async authenticate(request: CodingAgentAuthRequest): Promise<void> {
     await this.ensureConnected(request.workspaceRoot);
     const method = this.authMethods.get(request.methodId);
-    if (!method) throw new Error(CodingErrorMessage.AcpAuthMethodUnavailable);
+    if (!method) throw new Error('The requested ACP authentication method is unavailable.');
     if (method.type === 'terminal') {
-      throw new Error(CodingErrorMessage.AcpTerminalAuthRequired);
+      throw new Error('This ACP agent requires interactive terminal authentication.');
     }
     await this.supervisor.request(AcpMethod.Authenticate, { methodId: method.id });
   }
@@ -423,7 +379,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
       },
     );
     if (typeof response.sessionId !== 'string')
-      throw new Error(CodingErrorMessage.AcpSessionIdMissing);
+      throw new Error('ACP agent did not return a session ID.');
     const configOptions = normalizeConfigOptions(response.configOptions);
     if (configOptions.length > 0) {
       this.capabilities = { ...this.capabilities, supportsConfigOptions: true };
@@ -443,7 +399,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
   }): Promise<CodingAgentSession> {
     await this.ensureConnected(input.workspaceRoot);
     if (!this.capabilities.supportsLoadSession && !this.capabilities.supportsResumeSession) {
-      throw new Error(CodingErrorMessage.AcpLoadUnsupported);
+      throw new Error('The ACP agent does not support loading sessions.');
     }
     const response = await this.requestSessionLifecycle<AcpSessionResult>(
       input.workspaceRoot,
@@ -477,18 +433,9 @@ export class AcpCodingDriver implements CodingAgentDriver {
     await this.ensureConnected(input.workspaceRoot);
     this.fallbackMessageIds.delete(this.messageFallbackKey(input.sessionId, 'assistant'));
     this.fallbackMessageIds.delete(this.messageFallbackKey(input.sessionId, 'user'));
-    const stream: EventStream = {
-      events: new AcpEventQueue(mergeAdjacentDriverEvents),
-      waiters: [],
-      done: false,
-      error: null,
-    };
+    const stream: EventStream = { events: [], waiters: [], done: false, error: null };
     this.streams.set(input.sessionId, stream);
-    agentResourceDiagnostics.startAcpTurn(input.sessionId, this.supervisor.processId);
     console.debug(`[AcpCodingDriver] started session prompt for ${input.sessionId}`);
-    const turn = { hasOutput: false };
-    this.turns.set(input.sessionId, turn);
-    this.armFirstOutputWatchdog(input.sessionId);
     void this.supervisor
       .request(
         AcpMethod.SessionPrompt,
@@ -531,21 +478,18 @@ export class AcpCodingDriver implements CodingAgentDriver {
       });
     try {
       while (true) {
-        const next = await this.nextEvent(input.sessionId, stream);
+        const next = await this.nextEvent(stream);
         if (next.done) return;
         yield next.value;
       }
     } finally {
-      agentResourceDiagnostics.finishAcpTurn(input.sessionId, Boolean(stream.error));
-      this.clearFirstOutputWatchdog(input.sessionId);
-      this.turns.delete(input.sessionId);
       this.streams.delete(input.sessionId);
     }
   }
 
   async cancel(sessionId: string): Promise<void> {
     this.supervisor.notify(AcpMethod.SessionCancel, { sessionId });
-    this.finishStream(sessionId, new Error(CodingErrorMessage.AcpPromptCancelled));
+    this.finishStream(sessionId, new Error('ACP session prompt was cancelled.'));
     for (const [requestId, pending] of this.permissions) {
       if (pending.streamSessionId !== sessionId) continue;
       this.releasePermission(requestId);
@@ -555,9 +499,9 @@ export class AcpCodingDriver implements CodingAgentDriver {
 
   async respondToPermission(response: CodingPermissionResponse): Promise<void> {
     const pending = this.permissions.get(response.requestId);
-    if (!pending) throw new Error(CodingErrorMessage.AcpPermissionNotPending);
+    if (!pending) throw new Error('The ACP permission request is no longer pending.');
     if (response.outcome === CodingPermissionOutcome.Selected && !response.optionId) {
-      throw new Error(CodingErrorMessage.AcpPermissionOptionRequired);
+      throw new Error('An ACP permission selection requires an option ID.');
     }
     this.releasePermission(response.requestId);
     pending.resolve({
@@ -618,12 +562,8 @@ export class AcpCodingDriver implements CodingAgentDriver {
 
   async dispose(): Promise<void> {
     for (const pending of this.permissions.values()) {
-      pending.reject(new Error(CodingErrorMessage.AcpConnectionDisposed));
+      pending.reject(new Error('The ACP connection was disposed.'));
     }
-    for (const sessionId of [...this.firstOutputTimers.keys()]) {
-      this.clearFirstOutputWatchdog(sessionId);
-    }
-    this.turns.clear();
     this.permissions.clear();
     this.openToolCalls.clear();
     this.syncTurnWatchdogs();
@@ -704,7 +644,6 @@ export class AcpCodingDriver implements CodingAgentDriver {
 
   private receiveNotification(method: string, params: Record<string, unknown>): void {
     if (method !== AcpMethod.SessionUpdate || typeof params.sessionId !== 'string') return;
-    this.markTurnActivity(params.sessionId);
     const update = asRecord(params.update);
     if (update.sessionUpdate === AcpSessionUpdateKind.ConfigOptionUpdate) {
       this.configOptionsBySession.set(
@@ -779,7 +718,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
     if (typeof params.sessionId !== 'string') {
       throw new AcpRequestError(
         AcpErrorCode.InvalidParams,
-        CodingErrorMessage.AcpPermissionNoSession,
+        'ACP permission request has no session ID.',
       );
     }
     const requestId = randomUUID();
@@ -848,7 +787,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
     if (typeof params.content !== 'string') {
       throw new AcpRequestError(
         AcpErrorCode.InvalidParams,
-        CodingErrorMessage.AcpFileWriteNoContent,
+        'ACP file write has no text content.',
       );
     }
     const target = await this.resolveWorkspacePath(params.path);
@@ -865,7 +804,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
     if (typeof params.command !== 'string' || !params.command) {
       throw new AcpRequestError(
         AcpErrorCode.InvalidParams,
-        CodingErrorMessage.AcpTerminalNoCommand,
+        'ACP terminal creation has no command.',
       );
     }
     const cwd = await this.resolveWorkspacePath(
@@ -919,10 +858,10 @@ export class AcpCodingDriver implements CodingAgentDriver {
     if (typeof value !== 'string' || !value) {
       throw new AcpRequestError(
         AcpErrorCode.InvalidParams,
-        CodingErrorMessage.AcpFilesystemNoPath,
+        'ACP filesystem request has no path.',
       );
     }
-    if (!this.workspaceBroker) throw new Error(CodingErrorMessage.AcpWorkspaceBrokerMissing);
+    if (!this.workspaceBroker) throw new Error('ACP workspace broker is unavailable.');
     try {
       return await this.workspaceBroker.resolveTarget(value);
     } catch (error) {
@@ -966,7 +905,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
     if (typeof value !== 'string' || !value) {
       throw new AcpRequestError(
         AcpErrorCode.InvalidParams,
-        CodingErrorMessage.AcpTerminalNoId,
+        'ACP terminal request has no terminal ID.',
       );
     }
     return value;
@@ -975,7 +914,7 @@ export class AcpCodingDriver implements CodingAgentDriver {
   private requireTerminal(value: unknown) {
     const terminal = this.terminalBroker.output(this.requireTerminalId(value));
     if (!terminal) {
-      throw new AcpRequestError(AcpErrorCode.ResourceNotFound, CodingErrorMessage.AcpTerminalGone);
+      throw new AcpRequestError(AcpErrorCode.ResourceNotFound, 'The ACP terminal was not found.');
     }
     return terminal;
   }
@@ -1102,63 +1041,10 @@ export class AcpCodingDriver implements CodingAgentDriver {
   private pushEvent(sessionId: string, event: DriverEvent): boolean {
     const stream = this.streams.get(sessionId);
     if (!stream || stream.done) return false;
-    this.markTurnActivity(sessionId);
     const waiter = stream.waiters.shift();
     if (waiter) waiter.resolve({ done: false, value: event });
-    else {
-      const queued = stream.events.enqueue(event);
-      if (!queued.accepted) {
-        this.finishStream(sessionId, new Error('ACP event queue exceeded its memory limits.'));
-        return false;
-      }
-      if (queued.replaced) {
-        agentResourceDiagnostics.recordAcpReplaced(sessionId, queued.replaced, queued.event);
-      } else {
-        agentResourceDiagnostics.recordAcpEnqueued(sessionId, queued.event);
-      }
-    }
+    else stream.events.push(event);
     return true;
-  }
-
-  /**
-   * Any traffic for the session — a transcript event or a metadata update —
-   * proves the agent is working, so the first-output watchdog stands down. A
-   * turn that sends only metadata is legitimate; whether it produced an answer
-   * is decided by the caller (codingRoomService), not here.
-   */
-  private markTurnActivity(sessionId: string): void {
-    const turn = this.turns.get(sessionId);
-    if (!turn || turn.hasOutput) return;
-    turn.hasOutput = true;
-    this.clearFirstOutputWatchdog(sessionId);
-  }
-
-  /**
-   * Fail a prompt that never produced a single event. Without this the lane
-   * stays "running" until the 5-minute request cap, which is exactly how an
-   * unusable ACP credential looks to the user (issue: silent external agent).
-   */
-  private armFirstOutputWatchdog(sessionId: string): void {
-    this.clearFirstOutputWatchdog(sessionId);
-    const timer = setTimeout(() => {
-      this.firstOutputTimers.delete(sessionId);
-      const stream = this.streams.get(sessionId);
-      if (!stream || stream.done) return;
-      console.warn(
-        `[AcpDriver] no output within ${ACP_FIRST_OUTPUT_TIMEOUT_MS}ms for session ${sessionId}; stopping the turn.`,
-      );
-      this.supervisor.notify(AcpMethod.SessionCancel, { sessionId });
-      this.finishStream(sessionId, new Error(CodingErrorMessage.AgentNoOutputTimeout));
-    }, ACP_FIRST_OUTPUT_TIMEOUT_MS);
-    timer.unref?.();
-    this.firstOutputTimers.set(sessionId, timer);
-  }
-
-  private clearFirstOutputWatchdog(sessionId: string): void {
-    const timer = this.firstOutputTimers.get(sessionId);
-    if (!timer) return;
-    clearTimeout(timer);
-    this.firstOutputTimers.delete(sessionId);
   }
 
   private finishStream(sessionId: string, error?: unknown): void {
@@ -1184,15 +1070,8 @@ export class AcpCodingDriver implements CodingAgentDriver {
     }
   }
 
-  private async nextEvent(
-    sessionId: string,
-    stream: EventStream,
-  ): Promise<IteratorResult<DriverEvent>> {
-    if (stream.events.length > 0) {
-      const event = stream.events.dequeue()!;
-      agentResourceDiagnostics.recordAcpDequeued(sessionId, event);
-      return { done: false, value: event };
-    }
+  private async nextEvent(stream: EventStream): Promise<IteratorResult<DriverEvent>> {
+    if (stream.events.length > 0) return { done: false, value: stream.events.shift()! };
     if (stream.done) {
       if (stream.error) throw stream.error;
       return { done: true, value: undefined };

@@ -43,6 +43,7 @@ function makeFullSession(
   return {
     id,
     title: `Session ${id}`,
+    claudeSessionId: null,
     status: 'idle',
     pinned: false,
     source: CoworkSessionSource.Manual,

@@ -12,10 +12,7 @@ import {
 
 const temporaryDirectories: string[] = [];
 
-function createFixture(
-  mainSource = "require('ajv'); require('node:fs'); require('electron');",
-  daemonSource = '',
-) {
+function createFixture(mainSource = "require('ajv'); require('node:fs'); require('electron');") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zhiyuan-electron-runtime-test-'));
   temporaryDirectories.push(root);
   fs.mkdirSync(path.join(root, 'dist-electron'), { recursive: true });
@@ -26,7 +23,6 @@ function createFixture(
     }),
   );
   fs.writeFileSync(path.join(root, 'dist-electron', 'main.js'), mainSource);
-  fs.writeFileSync(path.join(root, 'dist-electron', 'llamacppModelDaemonEntry.js'), daemonSource);
   return root;
 }
 
@@ -74,13 +70,5 @@ describe('Electron runtime dependency check', () => {
     expect(() => checkElectronRuntimeDependencies(root)).toThrow(
       'Production Electron output contains source maps',
     );
-  });
-
-  test('rejects Electron-only dependencies in the llama.cpp daemon bundle', () => {
-    expect(() =>
-      checkElectronRuntimeDependencies(
-        createFixture("require('ajv')", "require('electron'); require('extract-zip'); require('tar');"),
-      ),
-    ).toThrow('Electron-only dependencies: electron, extract-zip, tar');
   });
 });

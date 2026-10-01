@@ -21,7 +21,6 @@ import { setDraftPrompt } from '../../store/slices/coworkSlice';
 import PageHeader from '../PageHeader';
 import AllRunsHistory from './AllRunsHistory';
 import DeleteConfirmModal from './DeleteConfirmModal';
-import { subscribeScheduledTaskCreateRequest } from './createRequest';
 import TaskForm from './TaskForm';
 import TaskList from './TaskList';
 import TaskTemplateGallery, { type TaskTemplateValues } from './TaskTemplateGallery';
@@ -63,7 +62,6 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
   // Create-task modal (template-prefilled or blank custom)
   const [createOpen, setCreateOpen] = useState(false);
   const [createPrefill, setCreatePrefill] = useState<TaskTemplateValues | undefined>();
-  const [createWorkspaceId, setCreateWorkspaceId] = useState<string | undefined>();
   const [createFormKey, setCreateFormKey] = useState(0);
 
   // The list's edit action owns the only per-task modal. Detail views are intentionally omitted.
@@ -109,23 +107,11 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
     };
   }, []);
 
-  const openCreateModal = useCallback((prefill?: TaskTemplateValues, workspaceId?: string) => {
+  const openCreateModal = useCallback((prefill?: TaskTemplateValues) => {
     setCreatePrefill(prefill);
-    setCreateWorkspaceId(workspaceId);
     setCreateFormKey(k => k + 1);
     setCreateOpen(true);
   }, []);
-
-  // The sidebar's folder action asks for this dialog. While this view is mounted
-  // the subscription delivers requests directly; a request parked before it
-  // mounted is flushed on subscribe, so both orders behave the same.
-  useEffect(
-    () =>
-      subscribeScheduledTaskCreateRequest(request => {
-        openCreateModal(undefined, request.workspaceId);
-      }),
-    [openCreateModal],
-  );
 
   // base-ui Tabs handles arrow-key/Home/End tablist navigation natively.
 
@@ -235,7 +221,6 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
           setCreateOpen(open);
           if (!open) {
             setCreatePrefill(undefined);
-            setCreateWorkspaceId(undefined);
             setCreateFormKey(key => key + 1);
           }
         }}
@@ -250,7 +235,6 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
               key={createFormKey}
               mode="create"
               prefill={createPrefill}
-              initialWorkspaceId={createWorkspaceId}
               onCancel={() => setCreateOpen(false)}
               onSaved={handleCreateSaved}
               onDirtyChange={() => {}}

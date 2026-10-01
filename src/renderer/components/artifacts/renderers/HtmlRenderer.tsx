@@ -1,11 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { loadArtifactDataUrl } from '@/services/artifactFileLoader';
-import { i18nService } from '@/services/i18n';
 import type { Artifact } from '@/types/artifact';
-import { MAX_INLINE_PREVIEW_RESOURCES, MAX_PREVIEW_HTML_CHARS } from './constants';
-
-const t = (key: string) => i18nService.t(key);
 
 interface HtmlRendererProps {
   artifact: Artifact;
@@ -49,58 +45,15 @@ export function ensurePreviewColorScheme(html: string): string {
   return `<!DOCTYPE html><html><head>${inject}</head><body>${html}</body></html>`;
 }
 
-/**
- * 2026/09/20 lisa srcDoc 预览里相对页面跳转会变空白（手机菜单常见）；拦截非 hash 导航，
- * 优先滚到同页锚点/同名区块，否则留在当前页（issue #805）
- */
-export function injectPreviewNavigationGuard(html: string): string {
-  if (html.includes('data-xiaoruan-preview-nav-guard')) return html;
-  const script =
-    '<script data-xiaoruan-preview-nav-guard>' +
-    '(function(){' +
-    'document.addEventListener("click",function(e){' +
-    'var a=e.target&&e.target.closest?e.target.closest("a"):null;' +
-    'if(!a)return;' +
-    'var href=a.getAttribute("href");' +
-    'if(!href||href.charAt(0)==="#"||/^javascript:/i.test(href)||/^mailto:/i.test(href)||/^tel:/i.test(href)||/^https?:/i.test(href)||/^file:/i.test(href))return;' +
-    'e.preventDefault();e.stopPropagation();' +
-    'var id=href.replace(/^\\.\\/?/,"").replace(/\\.html?$/i,"").replace(/[\\\\/]/g,"-");' +
-    'var el=document.getElementById(id)||document.querySelector("[name=\\""+id+"\\"]")||document.querySelector("[data-section=\\""+id+"\\"]");' +
-    'if(el&&el.scrollIntoView)el.scrollIntoView({behavior:"smooth",block:"start"});' +
-    '},true);' +
-    '})();' +
-    '</script>';
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${script}</body>`);
-  }
-  if (/<\/html>/i.test(html)) {
-    return html.replace(/<\/html>/i, `${script}</html>`);
-  }
-  return `${html}${script}`;
-}
-
-function preparePreviewHtml(html: string): string {
-  return injectPreviewNavigationGuard(ensurePreviewColorScheme(html));
-}
-
 const HtmlRenderer: React.FC<HtmlRendererProps> = ({ artifact }) => {
   const [processedHtml, setProcessedHtml] = useState<string | null>(null);
-  // A missing or unreadable source must surface as an error: the preview used to
-  // stay on "Loading" forever, which reads as a hung panel.
-  const [failed, setFailed] = useState(false);
-  // A saved page (or a huge generated document) is not previewable: skip the
-  // decode/inline work instead of freezing the renderer on it.
-  const [oversized, setOversized] = useState(false);
 
   useEffect(() => {
     if (!artifact.content && !artifact.filePath) {
       setProcessedHtml(null);
-      setFailed(true);
       return;
     }
 
-    setFailed(false);
-    setOversized(false);
     let cancelled = false;
 
     const process = async () => {
@@ -116,42 +69,26 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({ artifact }) => {
             const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
             html = new TextDecoder('utf-8').decode(bytes);
           } catch {
-            if (!cancelled) {
-              setProcessedHtml(null);
-              setFailed(true);
-            }
+            if (!cancelled) setProcessedHtml(null);
             return;
           }
         }
 
         if (!html) {
-          if (!cancelled) {
-            setProcessedHtml(null);
-            setFailed(true);
-          }
-          return;
-        }
-
-        if (html.length > MAX_PREVIEW_HTML_CHARS) {
-          if (!cancelled) {
-            setProcessedHtml(null);
-            setOversized(true);
-          }
+          if (!cancelled) setProcessedHtml(null);
           return;
         }
 
         if (artifact.filePath && !hasRelativeResources(html)) {
           html = await inlineLocalResources(html, artifact.filePath);
         }
-        if (!cancelled) setProcessedHtml(preparePreviewHtml(html));
+        if (!cancelled) setProcessedHtml(ensurePreviewColorScheme(html));
       } catch {
-        if (cancelled) return;
-        if (artifact.content) {
-          setProcessedHtml(preparePreviewHtml(artifact.content));
-          return;
+        if (!cancelled) {
+          setProcessedHtml(
+            artifact.content ? ensurePreviewColorScheme(artifact.content) : null,
+          );
         }
-        setProcessedHtml(null);
-        setFailed(true);
       }
     };
 
@@ -164,17 +101,7 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({ artifact }) => {
   if (!artifact.content && !artifact.filePath) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {t('artifactDocumentError')}
-      </div>
-    );
-  }
-
-  // Also gate synchronously: the effect reports the size one paint later, and the
-  // iframe branch below would otherwise mount the huge document for that frame.
-  if (oversized || (artifact.content?.length ?? 0) > MAX_PREVIEW_HTML_CHARS) {
-    return (
-      <div className="flex items-center justify-center h-full px-4 text-center text-muted-foreground text-sm">
-        {t('artifactPreviewTooLarge')}
+        Loading...
       </div>
     );
   }
@@ -182,16 +109,11 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({ artifact }) => {
   // Content with relative resources and a filePath: inline resources not possible,
   // render via srcDoc with a <base> tag so relative URLs resolve
   if (artifact.filePath && artifact.content && hasRelativeResources(artifact.content)) {
-    const lastSlash = Math.max(
-      artifact.filePath.lastIndexOf('/'),
-      artifact.filePath.lastIndexOf('\\'),
+    const dirPath = artifact.filePath.slice(0, artifact.filePath.lastIndexOf('/') + 1);
+    const baseTag = `<base href="file://${dirPath}">`;
+    const htmlWithBase = ensurePreviewColorScheme(
+      artifact.content.replace(/(<head[^>]*>)/i, `$1${baseTag}`),
     );
-    const dirPath = lastSlash >= 0 ? artifact.filePath.slice(0, lastSlash + 1) : '';
-    const baseTag = dirPath ? `<base href="file://${dirPath.replace(/\\/g, '/')}">` : '';
-    const withBase = baseTag
-      ? artifact.content.replace(/(<head[^>]*>)/i, `$1${baseTag}`)
-      : artifact.content;
-    const htmlWithBase = preparePreviewHtml(withBase);
     return (
       <iframe
         srcDoc={htmlWithBase}
@@ -203,11 +125,11 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({ artifact }) => {
     );
   }
 
-  // Nothing to show: either the load failed or it is still in flight.
+  // Loading state: filePath exists but content not yet processed
   if (!processedHtml && !artifact.content) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {failed ? t('artifactDocumentError') : t('artifactDocumentLoading')}
+        Loading...
       </div>
     );
   }
@@ -215,7 +137,7 @@ const HtmlRenderer: React.FC<HtmlRendererProps> = ({ artifact }) => {
   // Self-contained HTML (no relative resources): use srcDoc
   return (
     <iframe
-      srcDoc={processedHtml || preparePreviewHtml(artifact.content)}
+      srcDoc={processedHtml || ensurePreviewColorScheme(artifact.content)}
       className="w-full h-full border-0"
       style={{ colorScheme: 'light' }}
       sandbox="allow-scripts"
@@ -243,15 +165,11 @@ async function inlineLocalResources(html: string, filePath: string): Promise<str
   const dir = filePath.slice(0, lastSlash + 1);
 
   const srcAttrs = /(?:src|data)=["']([^"']+)["']/gi;
-  // Cap the resources actually inlined, not the attributes scanned: a page is
-  // mostly remote URLs, and those must not consume the local-resource budget.
-  const localSources = [...html.matchAll(srcAttrs)]
-    .map(match => match[1])
-    .filter(originalSrc => resolveRelativePath(originalSrc, dir) !== null)
-    .slice(0, MAX_INLINE_PREVIEW_RESOURCES);
+  const matches = [...html.matchAll(srcAttrs)];
   const replacements: Array<[string, string]> = [];
 
-  for (const originalSrc of localSources) {
+  for (const match of matches) {
+    const originalSrc = match[1];
     const absPath = resolveRelativePath(originalSrc, dir);
     if (!absPath) continue;
 

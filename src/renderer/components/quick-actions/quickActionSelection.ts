@@ -4,9 +4,6 @@ import type { Skill } from '../../types/skill';
 export const quickActionSkillIds = (action: LocalizedQuickAction): string[] =>
   action.skillIds?.length ? action.skillIds : [action.skillMapping];
 
-export const isQuickActionSkill = (action: LocalizedQuickAction, skillId: string): boolean =>
-  quickActionSkillIds(action).includes(skillId);
-
 export function shouldClearQuickActionSelection(
   action: LocalizedQuickAction,
   skills: Skill[],

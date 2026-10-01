@@ -436,11 +436,6 @@ export class AcpDiscoveryService {
     excludeApplicationDependencies = false,
   ): Promise<string | null> {
     const applicationDependencies = path.join(this.adapterRoot, 'node_modules');
-    // Both sides must be canonical: Windows development checkouts may share
-    // node_modules through a junction to another checkout.
-    const resolvedApplicationDependencies = excludeApplicationDependencies
-      ? await realpath(applicationDependencies).catch(() => applicationDependencies)
-      : applicationDependencies;
     for (const directory of paths) {
       for (const executable of executables) {
         const candidate = path.resolve(directory || process.cwd(), executable);
@@ -449,8 +444,7 @@ export class AcpDiscoveryService {
           const resolved = await realpath(candidate);
           if (
             excludeApplicationDependencies &&
-            (this.isWithinDirectory(candidate, applicationDependencies) ||
-              this.isWithinDirectory(resolved, resolvedApplicationDependencies))
+            this.isWithinDirectory(resolved, applicationDependencies)
           ) {
             continue;
           }

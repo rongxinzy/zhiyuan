@@ -9,10 +9,6 @@ import {
 import React from 'react';
 
 import { i18nService } from '../../services/i18n';
-// 2026/09/23 失败详情同样提取 JSON 内 message，与活动流展示一致
-import { extractUserFacingErrorMessage } from '../../services/coworkTerminalError';
-import { compactMarkdownClass } from '../compactMarkdownClass';
-import MarkdownContent from '../MarkdownContent';
 
 interface FailureDetailModalProps {
   inputCommand: string;
@@ -67,15 +63,8 @@ const FailureDetailModal: React.FC<FailureDetailModalProps> = ({
             <div className="text-xs font-medium text-destructive mb-1">
               {i18nService.t('scheduledTasksFailureReason')}
             </div>
-            <div className="bg-destructive/10 rounded-lg p-3 wrap-break-word border border-destructive/20">
-              {error ? (
-                <MarkdownContent
-                  content={extractUserFacingErrorMessage(error)}
-                  className={compactMarkdownClass('destructive')}
-                />
-              ) : (
-                <span className="text-sm text-destructive">-</span>
-              )}
+            <div className="text-sm text-destructive bg-destructive/10 rounded-lg p-3 whitespace-pre-wrap wrap-break-word border border-destructive/20">
+              {error || '-'}
             </div>
           </div>
         </div>

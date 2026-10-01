@@ -9,10 +9,8 @@ import {
 } from '@shared/components/ui/dropdown-menu';
 import { Ellipsis, ListChecks, Pencil, Pin, Trash2 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSelector } from 'react-redux';
 
 import { i18nService } from '../../services/i18n';
-import { selectStreamingSessionIds } from '../../store/selectors/coworkSelectors';
 import type { CoworkSessionStatus, CoworkSessionSummary } from '../../types/cowork';
 
 interface CoworkSessionItemProps {
@@ -84,7 +82,6 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
   onToggleSelection,
   onEnterBatchMode,
 }) => {
-  const streamingSessionIds = useSelector(selectStreamingSessionIds);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(session.title);
@@ -184,7 +181,7 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
   const deleteLabel = i18nService.t('deleteSession');
   const relativeTime = formatRelativeTime(session.updatedAt);
   const displayTitle = session.title;
-  const showRunningIndicator = streamingSessionIds.includes(session.id);
+  const showRunningIndicator = session.status === 'running';
   const showPendingPermission = hasPendingPermission;
   const showUnreadIndicator = !showRunningIndicator && hasUnread;
   const showStatusIndicator = showRunningIndicator || showUnreadIndicator || showPendingPermission;
