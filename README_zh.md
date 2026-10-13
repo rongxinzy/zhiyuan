@@ -20,7 +20,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0"></a>
-  <a href="https://github.com/rongxinzy/RongxinAI/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rongxinzy/RongxinAI/ci.yml?branch=main&amp;label=CI" alt="CI"></a>
+  <a href="https://github.com/rongxinzy/zhiyuan/actions/workflows/lightweight-ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rongxinzy/zhiyuan/lightweight-ci.yml?branch=main&amp;label=CI" alt="轻量 CI"></a>
   <a href="https://github.com/rongxinzy/RongxinAI/stargazers"><img src="https://img.shields.io/github/stars/rongxinzy/RongxinAI?style=flat" alt="GitHub Stars"></a>
 </p>
 
