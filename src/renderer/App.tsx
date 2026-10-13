@@ -1103,6 +1103,7 @@ const App: React.FC = () => {
                       onRequestAppSettings={handleShowSettings}
                       onShowSkills={handleShowSkills}
                       onShowConnectors={handleShowMcpMarketplace}
+                      onShowScheduledTasks={handleShowScheduledTasks}
                       isSidebarCollapsed={isSidebarCollapsed}
                       onToggleSidebar={handleToggleSidebar}
                       onNewChat={handleNewChat}

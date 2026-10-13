@@ -1,0 +1,48 @@
+name: Lightweight CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lightweight-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-checks:
+    name: Source checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Install locked source dependencies without desktop setup
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Apply repository dependency patches
+        run: bun run apply:patches
+      - name: Typecheck renderer and shared sources
+        run: bun run build:tsc
+      - name: Typecheck desktop sources without native rebuilds
+        run: bun x --no-install tsc --project electron-tsconfig.json --noEmit
+      - name: Test renderer and shared behavior
+        run: bun x --no-install vitest run src/renderer src/shared --maxWorkers=2
+      - name: Build renderer without Electron packaging
+        run: bun run build:vite
+        env:
+          VITE_SKIP_ELECTRON: '1'

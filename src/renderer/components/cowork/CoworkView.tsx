@@ -65,11 +65,13 @@ import {
 } from '../quick-actions/quickActionSelection';
 import { useUnmanagedWorkingDirectory } from './useUnmanagedWorkingDirectory';
 import { useTaskResumeContext } from './hooks/useTaskResumeContext';
+import { WorkBriefingHome } from './briefing/WorkBriefingHome';
 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
   onShowSkills?: () => void;
   onShowConnectors?: () => void;
+  onShowScheduledTasks?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
@@ -84,6 +86,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   onRequestAppSettings,
   onShowSkills,
   onShowConnectors,
+  onShowScheduledTasks,
   isSidebarCollapsed,
   onToggleSidebar,
   onNewChat,
@@ -705,6 +708,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
   const homeHeader = (
     <PageHeader
+      title={workMode === WorkMode.Work ? i18nService.t('briefingTitle') : undefined}
       isSidebarCollapsed={isSidebarCollapsed}
       onToggleSidebar={onToggleSidebar}
       onNewChat={onNewChat}
@@ -750,7 +754,72 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     );
   }
 
-  // Home view - no current session
+  const homePrompt = (
+    <CoworkPromptInput
+      ref={promptInputRef}
+      onSubmit={handleStartSession}
+      onStop={handleStopSession}
+      isStreaming={isStreaming}
+      disabled={false}
+      placeholder={
+        workMode === WorkMode.Chat
+          ? i18nService.t(resolveSkillPlaceholderKey(activeSkillIds) ?? 'chatPlaceholder')
+          : i18nService.t('coworkPlaceholder')
+      }
+      size={workMode === WorkMode.Chat ? 'large' : 'normal'}
+      workingDirectory={currentWorkspacePath}
+      workingDirectoryName={currentWorkspaceDisplayName}
+      onWorkingDirectoryChange={async (dir: string) => {
+        clearUnmanagedWorkingDirectory();
+        const workspace = await workspaceService.ensureWorkspace(dir);
+        if (workspace) await workspaceService.selectWorkspace(workspace.id);
+      }}
+      onCreateProject={async (dir, name) => {
+        clearUnmanagedWorkingDirectory();
+        const workspace = await workspaceService.createWorkspace(dir, name);
+        if (!workspace) return false;
+        await workspaceService.selectWorkspace(workspace.id);
+        return true;
+      }}
+      onUseNoFolder={async dir => {
+        const selected = await selectUnmanagedWorkingDirectory(dir);
+        if (!selected) showAppErrorToast(i18nService.t('projectCreateFailed'));
+      }}
+      showFolderSelector={workMode !== WorkMode.Chat && !currentWorkspace?.isHidden}
+      showNoFolderAction={!currentWorkspaceId}
+      showModelSelector
+      onManageSkills={() => onShowSkills?.()}
+      onManageConnectors={() => onShowConnectors?.()}
+      showPermissionModeSelector={workMode !== WorkMode.Chat}
+      permissionMode={config.permissionMode}
+      onPermissionModeChange={(mode: CoworkPermissionMode) => {
+        void coworkService.updateConfig({ permissionMode: mode });
+      }}
+    />
+  );
+  const homeQuickActions = (
+    <div className="flex w-full flex-col gap-4 pb-8">
+      {!selectedAction && (
+        <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />
+      )}
+      {selectedAction && (
+        <PromptPanel action={selectedAction} onPromptSelect={handleQuickActionPromptSelect} />
+      )}
+    </div>
+  );
+  if (workMode === WorkMode.Work) {
+    return (
+      <WorkBriefingHome
+        header={homeHeader}
+        prompt={homePrompt}
+        quickActions={homeQuickActions}
+        onFocusInput={() => promptInputRef.current?.focus()}
+        onShowScheduledTasks={onShowScheduledTasks}
+      />
+    );
+  }
+
+  // Chat home retains its existing case gallery and prompt layout.
   return (
     <div data-page-canvas className="flex-1 flex flex-col bg-background h-full">
       {/* Header */}
@@ -792,53 +861,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
             {/* Prompt Input Area - Large version with folder selector */}
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-              <div className="min-w-0">
-                <CoworkPromptInput
-                  ref={promptInputRef}
-                  onSubmit={handleStartSession}
-                  onStop={handleStopSession}
-                  isStreaming={isStreaming}
-                  disabled={false}
-                  placeholder={
-                    workMode === WorkMode.Chat
-                      ? i18nService.t(
-                          resolveSkillPlaceholderKey(activeSkillIds) ?? 'chatPlaceholder',
-                        )
-                      : i18nService.t('coworkPlaceholder')
-                  }
-                  size="large"
-                  workingDirectory={currentWorkspacePath}
-                  workingDirectoryName={currentWorkspaceDisplayName}
-                  onWorkingDirectoryChange={async (dir: string) => {
-                    clearUnmanagedWorkingDirectory();
-                    const workspace = await workspaceService.ensureWorkspace(dir);
-                    if (workspace) await workspaceService.selectWorkspace(workspace.id);
-                  }}
-                  onCreateProject={async (dir, name) => {
-                    clearUnmanagedWorkingDirectory();
-                    const workspace = await workspaceService.createWorkspace(dir, name);
-                    if (!workspace) return false;
-                    await workspaceService.selectWorkspace(workspace.id);
-                    return true;
-                  }}
-                  onUseNoFolder={async dir => {
-                    const selected = await selectUnmanagedWorkingDirectory(dir);
-                    if (!selected) {
-                      showAppErrorToast(i18nService.t('projectCreateFailed'));
-                    }
-                  }}
-                  showFolderSelector={workMode !== WorkMode.Chat && !currentWorkspace?.isHidden}
-                  showNoFolderAction={!currentWorkspaceId}
-                  showModelSelector
-                  onManageSkills={() => onShowSkills?.()}
-                  onManageConnectors={() => onShowConnectors?.()}
-                  showPermissionModeSelector={workMode !== WorkMode.Chat}
-                  permissionMode={config.permissionMode}
-                  onPermissionModeChange={(mode: CoworkPermissionMode) => {
-                    void coworkService.updateConfig({ permissionMode: mode });
-                  }}
-                />
-              </div>
+              <div className="min-w-0">{homePrompt}</div>
             </div>
           </div>
 
@@ -849,14 +872,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               cases can scroll all the way to the end while the input stays in place.
               The column keeps the full width: the bar needs it for its labels, and the case
               panel narrows itself to the composer width (see PromptPanel). */}
-          <div className="flex w-full flex-col gap-4 pb-8">
-            {!selectedAction && (
-              <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />
-            )}
-            {selectedAction && (
-              <PromptPanel action={selectedAction} onPromptSelect={handleQuickActionPromptSelect} />
-            )}
-          </div>
+          {homeQuickActions}
         </div>
       </div>
     </div>

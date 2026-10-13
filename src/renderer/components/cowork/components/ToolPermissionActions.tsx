@@ -17,7 +17,7 @@ export const ToolPermissionActions = ({
   onRespond: (result: CoworkPermissionResult) => void;
 }) => (
   <Confirmation approval={{ id: permission.requestId }} state={ToolState.ApprovalRequested}>
-    <ConfirmationRequest>{i18nService.t('codingAgentPermissionEvent')}</ConfirmationRequest>
+    <ConfirmationRequest>{i18nService.t('coworkPermissionDecisionHint')}</ConfirmationRequest>
     <ConfirmationActions>
       <ConfirmationAction
         variant="ghost"

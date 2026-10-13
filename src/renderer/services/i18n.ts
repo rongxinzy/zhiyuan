@@ -1,5 +1,6 @@
 import { configService } from './config';
 import { caseDetailTranslations } from './caseDetailTranslations';
+import { briefingTranslations } from './briefingTranslations';
 
 // 支持的语言类型
 export type LanguageType = 'zh' | 'en';
@@ -7,6 +8,7 @@ export type LanguageType = 'zh' | 'en';
 // 语言文本映射
 const translations: Record<LanguageType, Record<string, string>> = {
   zh: {
+    ...briefingTranslations.zh,
     ...caseDetailTranslations.zh,
     operationFailed: '操作失败',
     authenticationExpired: '登录状态已过期，请重新登录',
@@ -986,6 +988,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     keyboardShortcuts: '键盘快捷键',
     shortcutNotSet: '未设置',
     workMode: '工作',
+    sidebarWorkTools: '工作工具',
     chatMode: '对话',
     codingAgent: '编程',
     codingAgentLoading: '正在加载编程工作台…',
@@ -2234,9 +2237,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
       '当前模型不支持图像输入（服务端缺少视觉组件）。系统已尝试自动关闭该模型的图像输入能力，请重试；若仍失败请检查模型配置。',
     coworkErrorProviderUnavailable:
       '该会话使用的模型供应商已停用或模型已被移除。请到设置中重新启用供应商或切换其他模型后重试。',
-    coworkErrorGatewayDisconnected: 'AI 引擎连接中断，请重试。如果问题持续，请尝试重启应用。',
-    coworkErrorServiceRestart: 'AI 引擎正在重启，请稍后重试。',
-    coworkErrorGatewayDraining: 'AI 引擎正在重启中，请稍等片刻后重试。',
+    coworkErrorGatewayDisconnected: '连接中断了，请重试。如果问题持续，请尝试重启应用。',
+    coworkErrorServiceRestart: '服务正在重启，请稍后重试。',
+    coworkErrorGatewayDraining: '服务正在重启，请稍等片刻后重试。',
     coworkErrorNetworkError: '网络连接失败，请检查网络设置后重试。',
     coworkErrorRateLimit: '请求过于频繁，请稍后再试。',
     coworkErrorContentFiltered: '内容未通过安全审核，请修改后重试。',
@@ -2263,7 +2266,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkSlashCompactNotNeeded: '当前会话内容不足，无需压缩。',
     coworkSlashCompactFailed: '会话上下文压缩失败，请稍后再试。',
     coworkSlashSkillActivated: '已激活技能',
-    coworkErrorEngineNotReady: 'AI 引擎正在启动中，请稍等几秒后重试。',
+    coworkErrorEngineNotReady: '还在准备中，请稍等几秒后重试。',
     coworkErrorUnknown: '任务执行出错，请重试。如果问题持续出现，请检查模型配置。',
 
     // 编程模式错误消息（src/shared/codingAgent/errors.ts 的消息目录）
@@ -2397,6 +2400,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
     codingErrorAcpProtocolUnsupported: '该编程 Agent 的协议版本不受支持，请更换 Agent。',
 
     coworkIntermediateProcess: '正在工作',
+    coworkExecutionDetails: '执行详情',
+    coworkPermissionDecisionHint:
+      '这一步需要你的许可。批准后将执行上方操作；拒绝则不执行本次操作。',
     coworkExecutionCompletedSummary: '已完成 {thinking} 次思考、{tools} 次工具调用',
     coworkExecutionCompletedThinkingSummary: '已完成 {thinking} 次思考',
     coworkExecutionCompletedToolsSummary: '已完成 {tools} 次工具调用',
@@ -3664,6 +3670,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     linkSafetyConfirmOpen: '打开链接',
   },
   en: {
+    ...briefingTranslations.en,
     ...caseDetailTranslations.en,
     operationFailed: 'Operation failed',
     authenticationExpired: 'Authentication expired. Please sign in again',
@@ -4738,6 +4745,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     keyboardShortcuts: 'Keyboard Shortcuts',
     shortcutNotSet: 'Not set',
     workMode: 'Work',
+    sidebarWorkTools: 'Work tools',
     chatMode: 'Chat',
     codingAgent: 'Coding',
     codingAgentLoading: 'Loading coding workspace…',
@@ -5587,6 +5595,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkWelcome: 'Start Collaborating',
     coworkDescription: 'A 24/7 personal assistant agent that gets work done for you',
     coworkIntermediateProcess: 'Working',
+    coworkExecutionDetails: 'Execution details',
+    coworkPermissionDecisionHint:
+      'This step needs your permission. Approve to run the operation shown above, or deny to skip this operation.',
     coworkExecutionCompletedSummary: 'Completed {thinking} reasoning steps and {tools} tool calls',
     coworkExecutionCompletedThinkingSummary: 'Completed {thinking} reasoning steps',
     coworkExecutionCompletedToolsSummary: 'Completed {tools} tool calls',
@@ -6111,9 +6122,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkErrorProviderUnavailable:
       'The model provider used by this session is disabled or the model has been removed. Re-enable the provider or switch to another model in Settings, then try again.',
     coworkErrorGatewayDisconnected:
-      'AI engine connection lost. Please retry. If the issue persists, try restarting the app.',
-    coworkErrorServiceRestart: 'AI engine is restarting. Please try again later.',
-    coworkErrorGatewayDraining: 'AI engine is restarting. Please wait a moment and try again.',
+      'The connection was lost. Please retry. If the issue persists, try restarting the app.',
+    coworkErrorServiceRestart: 'The service is restarting. Please try again shortly.',
+    coworkErrorGatewayDraining: 'The service is restarting. Please wait a moment and try again.',
     coworkErrorNetworkError:
       'Network connection failed. Please check your network settings and try again.',
     coworkErrorRateLimit: 'Too many requests. Please try again later.',
@@ -6144,7 +6155,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkSlashCompactNotNeeded: 'This session is too small to compact.',
     coworkSlashCompactFailed: 'Session context compaction failed. Try again later.',
     coworkSlashSkillActivated: 'Skill activated',
-    coworkErrorEngineNotReady: 'AI engine is starting up. Please wait a few seconds and try again.',
+    coworkErrorEngineNotReady: 'Still getting ready. Please wait a few seconds and try again.',
     coworkErrorUnknown:
       'Task failed due to an unexpected error. Please retry. If the issue persists, check your model configuration.',
 

@@ -59,6 +59,7 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({ permissio
           typeof toolInput.command === 'string' ? toolInput.command : formatToolInput(toolInput)
         }
       />
+      <p>{i18nService.t('coworkPermissionDecisionHint')}</p>
     </PermissionRequestCard>
   );
 };

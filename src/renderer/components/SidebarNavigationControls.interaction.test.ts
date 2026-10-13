@@ -77,15 +77,22 @@ test('preserves new-task workspace cleanup and view navigation callbacks', async
     handlers.onNewChat.mock.invocationCallOrder[0],
   );
   const views = [
-    ['localInferenceTitle', handlers.onShowLocalInference, 'localInference'],
     ['codingAgent', handlers.onShowCoding, undefined],
     ['todoTitle', handlers.onShowTodo, 'todo'],
     ['scheduledTasks', handlers.onShowScheduledTasks, 'scheduledTasks'],
     ['activityTitle', handlers.onShowActivity, 'activity'],
     ['expert', handlers.onShowExpert, 'expert'],
   ] as const;
+  const localInference = screen.getByRole('button', { name: 'localInferenceTitle' });
+  await user.click(localInference);
+  expect(handlers.onShowLocalInference).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('button', { name: 'todoTitle' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'expert' })).toBeNull();
+  expect(screen.getByTestId('sidebar-work-tools')).toHaveAttribute('data-active', 'true');
   for (const [label, callback, prefetch] of views) {
-    const button = screen.getByRole('button', { name: label });
+    await user.click(screen.getByTestId('sidebar-work-tools'));
+    const button = screen.getByRole('menuitem', { name: label });
+    if (label === 'todoTitle') expect(button).toHaveAttribute('aria-current', 'page');
     handlers.onPrefetchView.mockClear();
     await user.hover(button);
     if (prefetch) expect(handlers.onPrefetchView).toHaveBeenCalledWith(prefetch);
@@ -95,7 +102,6 @@ test('preserves new-task workspace cleanup and view navigation callbacks', async
     await user.keyboard('{Enter}');
     expect(callback).toHaveBeenCalledTimes(1);
   }
-  expect(screen.getByRole('button', { name: 'todoTitle' })).toHaveAttribute('aria-current', 'page');
   expect(screen.getByTestId('sidebar-new-conversation')).not.toHaveAttribute('aria-current');
 });
 
@@ -106,7 +112,7 @@ test('keeps managed-only and chat navigation policies and chat workspace selecti
     createElement(SidebarNavigationControls, { ...handlers, managedModelsOnly: true }),
   );
   expect(screen.queryByRole('button', { name: 'localInferenceTitle' })).toBeNull();
-  expect(screen.getByRole('button', { name: 'todoTitle' })).toBeTruthy();
+  expect(screen.getByTestId('sidebar-work-tools')).toBeTruthy();
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
   expect(screen.getAllByRole('button')).toHaveLength(1);
   await user.click(screen.getByRole('button', { name: 'newChat' }));
@@ -117,16 +123,21 @@ test('keeps managed-only and chat navigation policies and chat workspace selecti
   expect(handlers.onWorkModeChange.mock.calls[0][0]).toBe(false);
 });
 
-test('preserves activity status and skill-aware new-conversation highlighting', () => {
+test('preserves activity status and skill-aware new-conversation highlighting', async () => {
+  const user = userEvent.setup();
   mocks.state = {
     activity: { runs: [{ status: 'running' }] },
     skill: { activeSkillIds: ['skill-1'] },
   };
   const handlers = props();
   const view = render(createElement(SidebarNavigationControls, handlers));
-  expect(
-    screen.getByTestId('sidebar-view-activity').querySelector('span[aria-hidden="true"]'),
-  ).toBeTruthy();
+  expect(screen.getByTestId('sidebar-work-tools')).toHaveAccessibleName(
+    'sidebarWorkTools activityStatusRunning',
+  );
+  await user.click(screen.getByTestId('sidebar-work-tools'));
+  expect(screen.getByTestId('sidebar-view-activity')).toHaveTextContent('activityStatusRunning');
+  await user.keyboard('{Escape}');
+  expect(screen.getByTestId('sidebar-work-tools')).toHaveFocus();
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
   expect(screen.getByTestId('sidebar-new-conversation')).not.toHaveAttribute('data-active');
   mocks.state = { activity: { runs: [] }, skill: { activeSkillIds: [] } };

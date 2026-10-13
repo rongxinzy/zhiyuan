@@ -37,6 +37,7 @@ import { getThinkingPresentation } from '../helpers/thinkingPresentation';
 import { getToolResultDisplay, hasText } from '../helpers/toolUtils';
 import { AssistantBubble } from './AssistantBubble';
 import { CopyButton } from './CopyButton';
+import { ExecutionDetails } from './ExecutionDetails';
 import { PersistentReasoning } from './PersistentCollapsible';
 import { ToolCard } from './ToolCard';
 import { WorkingIndicator } from './WorkingIndicator';
@@ -147,6 +148,32 @@ const TurnBlockComponent: React.FC<{
       ? findToolGroupForPermission(items, pendingPermission)
       : null;
   const finalAnswerIndex = getFinalAnswerIndex(items, isTurnComplete);
+  // Only regroup settled turns. Live activity, approvals and failures must stay
+  // visible; system notices retain their ordering relative to the final answer.
+  const detailIndexes = new Set(
+    items.flatMap((item, index) => {
+      if (!isTurnComplete || index === finalAnswerIndex || item.type === CoworkMessageType.System)
+        return [];
+      if (item.type === CoworkDisplayItemType.ToolGroup) {
+        const result = item.group.toolResult;
+        if (
+          !result ||
+          result.metadata?.isStreaming ||
+          result.metadata?.isError ||
+          result.metadata?.error ||
+          pendingToolGroup?.toolUse.id === item.group.toolUse.id
+        )
+          return [];
+      } else if (
+        item.message.metadata?.isStreaming ||
+        item.message.metadata?.isError ||
+        item.message.metadata?.error
+      ) {
+        return [];
+      }
+      return [index];
+    }),
+  );
 
   const renderSystemMessage = (message: CoworkMessage) => {
     const interruption = message.metadata?.interruption as CoworkSessionInterruption | undefined;
@@ -303,7 +330,7 @@ const TurnBlockComponent: React.FC<{
           ) : !hideDefaultAssistantHeader ? (
             <span className="text-sm font-semibold">{i18nService.t('cowork')}</span>
           ) : null}
-          {items.map(renderItem)}
+          {items.map((item, index) => (detailIndexes.has(index) ? null : renderItem(item, index)))}
           {showTransportStatus && latestActivity && (
             <ToolActivityStatusLine activity={latestActivity} />
           )}
@@ -324,6 +351,13 @@ const TurnBlockComponent: React.FC<{
                 </div>
               )}
             </div>
+          )}
+          {detailIndexes.size > 0 && (
+            <ExecutionDetails turnId={turn.id} forceExpand={expandToolResults}>
+              {items.map((item, index) =>
+                detailIndexes.has(index) ? renderItem(item, index) : null,
+              )}
+            </ExecutionDetails>
           )}
         </div>
       </div>

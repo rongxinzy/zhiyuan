@@ -1,15 +1,8 @@
 {
   "workflows": [
     {
-      "name": "Channel runtime smoke",
-      "path": ".github/workflows/channel-runtime-smoke.yml",
-      "branches": [
-        "main"
-      ]
-    },
-    {
-      "name": "CI",
-      "path": ".github/workflows/ci.yml",
+      "name": "Lightweight CI",
+      "path": ".github/workflows/lightweight-ci.yml",
       "branches": [
         "main"
       ]

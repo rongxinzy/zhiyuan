@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { CoworkSessionInterruption } from '../../../../shared/cowork/interruption';
 import type { WorkbenchTaskResumeInput } from '../../../../shared/workbenchTask';
@@ -9,27 +9,43 @@ import { showAppErrorToast } from '../../../services/toastNotification';
 export const useTaskResumeContext = (sessionId: string | undefined) => {
   const [interruption, setInterruption] = useState<CoworkSessionInterruption | null>(null);
   const [isResuming, setIsResuming] = useState(false);
+  const contextVersion = useRef(0);
+  const pendingResume = useRef<symbol | null>(null);
 
   useEffect(() => {
     setInterruption(null);
     setIsResuming(false);
+    return () => {
+      contextVersion.current += 1;
+      pendingResume.current = null;
+    };
   }, [sessionId]);
 
   const select = useCallback(
     (next: CoworkSessionInterruption) => {
       if (!next.recoverable || next.sessionId !== sessionId || !next.taskId) return;
+      contextVersion.current += 1;
       setInterruption(next);
     },
     [sessionId],
   );
 
-  const cancel = useCallback(() => setInterruption(null), []);
+  const cancel = useCallback(() => {
+    contextVersion.current += 1;
+    setInterruption(null);
+  }, []);
 
   const resume = useCallback(
     async (input: Omit<WorkbenchTaskResumeInput, 'taskId'>): Promise<boolean> => {
       const taskId = interruption?.taskId;
-      if (!taskId || interruption.sessionId !== sessionId || isResuming) return false;
+      if (!taskId || interruption.sessionId !== sessionId || pendingResume.current) return false;
       const target = interruption;
+      const version = contextVersion.current;
+      const request = Symbol();
+      // Lock synchronously: repeated submissions can precede React's next render.
+      pendingResume.current = request;
+      const isCurrent = () =>
+        contextVersion.current === version && pendingResume.current === request;
       setIsResuming(true);
       // 2026/09/17 lixiang  开始继续执行时立刻清掉输入框里的暂停任务嵌入
       setInterruption(null);
@@ -38,6 +54,9 @@ export const useTaskResumeContext = (sessionId: string | undefined) => {
           ...input,
           taskId,
         });
+        // An older session or selection must not restore its badge, toast, or
+        // signal the caller to clear the newly selected conversation's draft.
+        if (!isCurrent()) return false;
         if (!result.success) {
           showAppErrorToast(
             normalizeError(result.error || i18nService.t('coworkResumeTaskFailed')),
@@ -48,14 +67,18 @@ export const useTaskResumeContext = (sessionId: string | undefined) => {
         }
         return true;
       } catch {
+        if (!isCurrent()) return false;
         showAppErrorToast(i18nService.t('coworkResumeTaskFailed'));
         setInterruption(target);
         return false;
       } finally {
-        setIsResuming(false);
+        if (pendingResume.current === request) {
+          pendingResume.current = null;
+          setIsResuming(false);
+        }
       }
     },
-    [interruption, isResuming, sessionId],
+    [interruption, sessionId],
   );
 
   return { cancel, interruption, isResuming, resume, select };

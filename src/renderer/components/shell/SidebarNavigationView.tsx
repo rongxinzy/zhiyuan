@@ -1,14 +1,22 @@
 import { Button } from '@shared/components/ui/button';
 import { Switch } from '@shared/components/ui/switch';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@shared/components/ui/dropdown-menu';
 import { cn } from '@shared/lib/utils';
 import {
   Activity,
   AlarmClock,
   Bot,
+  ChevronDown,
   ListTodo,
   MessageCirclePlus,
   Plus,
   Terminal,
+  Workflow,
   Users,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -70,6 +78,9 @@ interface SidebarNavigationViewProps {
   onModeChange: (checked: boolean) => void;
   newConversation: SidebarNavigationEntry;
   entries: SidebarNavigationEntry[];
+  workEntries?: SidebarNavigationEntry[];
+  workToolsLabel?: string;
+  runningLabel?: string;
 }
 
 export function SidebarNavigationView({
@@ -79,6 +90,9 @@ export function SidebarNavigationView({
   onModeChange,
   newConversation,
   entries,
+  workEntries = [],
+  workToolsLabel,
+  runningLabel,
 }: SidebarNavigationViewProps) {
   // The mode flip re-renders the whole app (sidebar tree + main view) in one
   // blocking commit. Reflect the toggle optimistically in this tiny tree and
@@ -148,6 +162,47 @@ export function SidebarNavigationView({
             <SidebarNavigationItem key={entry.id} entry={entry} />
           ))}
         </div>
+      )}
+      {workEntries.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="navigation"
+                size="navigation"
+                data-active={workEntries.some(entry => entry.active) || undefined}
+                data-testid="sidebar-work-tools"
+              />
+            }
+          >
+            <Workflow aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
+            <span className="min-w-0 truncate">{workToolsLabel}</span>
+            {workEntries.some(entry => entry.running) && (
+              <Activity className="ml-auto size-4 shrink-0" aria-label={runningLabel} />
+            )}
+            <ChevronDown aria-hidden="true" className="ml-auto size-4 shrink-0" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {workEntries.map(entry => {
+              const Icon = icons[entry.icon];
+              return (
+                <DropdownMenuItem
+                  key={entry.id}
+                  aria-current={entry.currentPage ? 'page' : undefined}
+                  data-testid={entry.testId}
+                  onClick={entry.onClick}
+                  onMouseEnter={entry.onIntent}
+                  onFocus={entry.onIntent}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{entry.label}</span>
+                  {entry.running && <span>{runningLabel}</span>}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   );

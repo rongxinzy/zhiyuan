@@ -59,13 +59,14 @@ export const SidebarNavigationControls = ({
     onNewChat();
   };
   const entries: SidebarNavigationEntry[] = [];
+  const workEntries: SidebarNavigationEntry[] = [];
   const addView = (
     id: SidebarNavigationEntry['icon'] & SidebarActiveView,
     label: string,
     onClick: () => void,
     prefetch?: PrefetchableFeatureView,
   ) => {
-    entries.push({
+    (id === 'localInference' ? entries : workEntries).push({
       id,
       icon: id,
       label,
@@ -113,6 +114,9 @@ export const SidebarNavigationControls = ({
         testId: 'sidebar-new-conversation',
       }}
       entries={entries}
+      workEntries={workEntries}
+      workToolsLabel={i18nService.t('sidebarWorkTools')}
+      runningLabel={i18nService.t('activityStatusRunning')}
     />
   );
 };

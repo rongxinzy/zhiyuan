@@ -22,6 +22,7 @@ const panelGuard = compact(
 const spacer = 'min-h-[max(1.5rem,calc(45%-10rem))]';
 const columnWrapper = 'mx-auto flex w-full max-w-4xl min-w-0 flex-col items-center gap-6 px-6';
 const galleryWrapper = 'flex w-full flex-col gap-4 pb-8';
+const chatSource = source.slice(source.indexOf('// Chat home retains'));
 
 const countOf = (needle: string) => source.split(needle).length - 1;
 
@@ -78,19 +79,19 @@ test('anchors the hero on a viewport spacer instead of centring the column', () 
  * would let the input scroll away again after roughly its own height.
  */
 test('pins the prompt input while the case list scrolls underneath it', () => {
-  const columnIndex = source.indexOf(columnWrapper);
-  const stickyIndex = source.indexOf('className="sticky');
-  const galleryIndex = source.indexOf(galleryWrapper);
+  const columnIndex = chatSource.indexOf(columnWrapper);
+  const stickyIndex = chatSource.indexOf('className="sticky');
+  const galleryIndex = chatSource.indexOf('{homeQuickActions}');
 
   expect(stickyIndex).toBeGreaterThan(columnIndex);
   expect(galleryIndex).toBeGreaterThan(stickyIndex);
 
-  const between = source.slice(columnIndex, galleryIndex);
+  const between = chatSource.slice(columnIndex, galleryIndex);
   const openDivs = (between.match(/<div/g) ?? []).length;
   const closeDivs = (between.match(/<\/div>/g) ?? []).length;
   expect(openDivs - closeDivs).toBeGreaterThan(0);
 
-  const stickyClass = /<div className="(sticky[^"]*)"/.exec(source)?.[1] ?? '';
+  const stickyClass = /<div className="(sticky[^"]*)"/.exec(chatSource)?.[1] ?? '';
   expect(stickyClass).toContain('top-0');
   expect(stickyClass).toContain('z-10');
   expect(stickyClass).toContain('theme-home-sticky');
@@ -98,12 +99,23 @@ test('pins the prompt input while the case list scrolls underneath it', () => {
 
   // The brand mark travels in the same layer: it has to stay on screen next to the
   // input rather than sliding away with the cases, so it must be nested inside it.
-  const brandIndex = source.indexOf('flex-col items-center justify-center gap-4');
+  const brandIndex = chatSource.indexOf('flex-col items-center justify-center gap-4');
   expect(brandIndex).toBeGreaterThan(stickyIndex);
-  expect(source.indexOf('max-w-3xl flex-col gap-3')).toBeGreaterThan(brandIndex);
+  expect(chatSource.indexOf('max-w-3xl flex-col gap-3')).toBeGreaterThan(brandIndex);
 
-  const stickyInner = source.slice(source.indexOf('<div className="sticky'), brandIndex);
+  const stickyInner = chatSource.slice(chatSource.indexOf('<div className="sticky'), brandIndex);
   const openInSticky = (stickyInner.match(/<div/g) ?? []).length;
   const closedInSticky = (stickyInner.match(/<\/div>/g) ?? []).length;
   expect(openInSticky - closedInSticky).toBeGreaterThan(0);
+});
+
+test('uses the briefing only for Work and keeps the shared composer and case actions', () => {
+  expect(source).toContain(
+    'if (workMode === WorkMode.Work) {\n    return (\n      <WorkBriefingHome',
+  );
+  expect(source).toContain('prompt={homePrompt}');
+  expect(source).toContain('quickActions={homeQuickActions}');
+  expect(chatSource).toContain('{homePrompt}');
+  expect(chatSource).toContain('{homeQuickActions}');
+  expect(source).toContain("size={workMode === WorkMode.Chat ? 'large' : 'normal'}");
 });
