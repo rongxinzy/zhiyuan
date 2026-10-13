@@ -1,6 +1,10 @@
 import { expect, test } from 'vitest';
 
-import { ActivitySource, ActivityStatus } from '../../../../shared/activity/constants';
+import {
+  ActivityErrorCode,
+  ActivitySource,
+  ActivityStatus,
+} from '../../../../shared/activity/constants';
 import {
   CoworkPermissionOrigin,
   CoworkSessionMode,
@@ -11,6 +15,7 @@ import { SessionTarget, WakeMode, DeliveryMode } from '../../../../scheduledTask
 import type { ScheduledTask } from '../../../../scheduledTask/types';
 import type { CoworkSessionSummary } from '../../../types/cowork';
 import { buildWorkBriefing, type BriefingInput } from './projection';
+import { BriefingTarget } from './constants';
 
 const now = new Date(2026, 9, 13, 12).getTime();
 const session = (
@@ -63,6 +68,58 @@ const schedule = (id: string, nextRunAtMs: number | null, enabled = true): Sched
 
 test('has an honest new-user state without invented suggestions', () => {
   expect(project()).toMatchObject({ decisions: [], progressed: [], next: [], hasHistory: false });
+});
+
+test('keeps failed scheduled and channel runs visible with their real error records', () => {
+  const result = project({
+    activities: [
+      {
+        id: 'cron-failed',
+        source: ActivitySource.ScheduledTask,
+        status: ActivityStatus.Failed,
+        startedAt: now - 10,
+        updatedAt: now,
+        taskName: 'Nightly report',
+        errorMessage: 'Report upload failed',
+      },
+      {
+        id: 'channel-failed',
+        source: ActivitySource.Channel,
+        status: ActivityStatus.Failed,
+        startedAt: now - 20,
+        updatedAt: now - 10,
+        errorMessage: ActivityErrorCode.Interrupted,
+      },
+    ],
+  });
+  expect(result.nextCount).toBe(2);
+  expect(result.next[0]).toMatchObject({
+    target: BriefingTarget.Activity,
+    description: 'Report upload failed',
+  });
+  expect(result.next[1]).toMatchObject({
+    target: BriefingTarget.Activity,
+    descriptionKey: 'activityErrorInterrupted',
+  });
+  expect(result.next[1].description).toBeUndefined();
+  expect(result.progressed).toEqual([]);
+});
+
+test('deduplicates failures by session and prefers the newest durable error over the session row', () => {
+  const result = project({
+    sessions: [session('same', { status: CoworkSessionStatus.Error })],
+    activities: [1, 2].map(index => ({
+      id: `failed-${index}`,
+      sessionId: 'same',
+      source: ActivitySource.ScheduledTask,
+      status: ActivityStatus.Failed,
+      startedAt: now - 100,
+      updatedAt: now - 3 + index,
+      errorMessage: `failure ${index}`,
+    })),
+  });
+  expect(result.nextCount).toBe(1);
+  expect(result.next[0]).toMatchObject({ id: 'activity:failed-2', description: 'failure 2' });
 });
 
 test('groups live approvals by work and excludes Chat approvals and completed duplicates', () => {

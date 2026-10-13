@@ -284,7 +284,7 @@ export const resolveCodingPermissionActions = (
           option: secondaryOption,
         }
       : { outcome: CodingPermissionOutcome.Cancelled, option: null },
-    more: remaining.toSorted((left, right) => overflowRank(left) - overflowRank(right)),
+    more: [...remaining].sort((left, right) => overflowRank(left) - overflowRank(right)),
   };
 };
 

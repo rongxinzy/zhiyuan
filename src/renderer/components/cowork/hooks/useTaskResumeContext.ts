@@ -11,19 +11,28 @@ export const useTaskResumeContext = (sessionId: string | undefined) => {
   const [isResuming, setIsResuming] = useState(false);
   const contextVersion = useRef(0);
   const pendingResume = useRef<symbol | null>(null);
+  const activeSession = useRef(sessionId);
 
   useEffect(() => {
+    activeSession.current = sessionId;
     setInterruption(null);
     setIsResuming(false);
     return () => {
       contextVersion.current += 1;
       pendingResume.current = null;
+      activeSession.current = undefined;
     };
   }, [sessionId]);
 
   const select = useCallback(
     (next: CoworkSessionInterruption) => {
-      if (!next.recoverable || next.sessionId !== sessionId || !next.taskId) return;
+      if (
+        !next.recoverable ||
+        next.sessionId !== sessionId ||
+        activeSession.current !== sessionId ||
+        !next.taskId
+      )
+        return;
       contextVersion.current += 1;
       setInterruption(next);
     },
@@ -38,7 +47,13 @@ export const useTaskResumeContext = (sessionId: string | undefined) => {
   const resume = useCallback(
     async (input: Omit<WorkbenchTaskResumeInput, 'taskId'>): Promise<boolean> => {
       const taskId = interruption?.taskId;
-      if (!taskId || interruption.sessionId !== sessionId || pendingResume.current) return false;
+      if (
+        !taskId ||
+        interruption.sessionId !== sessionId ||
+        activeSession.current !== sessionId ||
+        pendingResume.current
+      )
+        return false;
       const target = interruption;
       const version = contextVersion.current;
       const request = Symbol();

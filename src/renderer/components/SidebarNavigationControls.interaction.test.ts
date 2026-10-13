@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -91,11 +91,13 @@ test('preserves new-task workspace cleanup and view navigation callbacks', async
   expect(screen.getByTestId('sidebar-work-tools')).toHaveAttribute('data-active', 'true');
   for (const [label, callback, prefetch] of views) {
     await user.click(screen.getByTestId('sidebar-work-tools'));
-    const button = screen.getByRole('menuitem', { name: label });
+    const button = await screen.findByRole('menuitem', { name: label });
     if (label === 'todoTitle') expect(button).toHaveAttribute('aria-current', 'page');
     handlers.onPrefetchView.mockClear();
     await user.hover(button);
     if (prefetch) expect(handlers.onPrefetchView).toHaveBeenCalledWith(prefetch);
+    // Menu hover moves focus as well; leave the item before testing focus intent separately.
+    button.blur();
     handlers.onPrefetchView.mockClear();
     button.focus();
     if (prefetch) expect(handlers.onPrefetchView).toHaveBeenCalledWith(prefetch);
@@ -135,9 +137,11 @@ test('preserves activity status and skill-aware new-conversation highlighting', 
     'sidebarWorkTools activityStatusRunning',
   );
   await user.click(screen.getByTestId('sidebar-work-tools'));
-  expect(screen.getByTestId('sidebar-view-activity')).toHaveTextContent('activityStatusRunning');
+  expect(await screen.findByTestId('sidebar-view-activity')).toHaveTextContent(
+    'activityStatusRunning',
+  );
   await user.keyboard('{Escape}');
-  expect(screen.getByTestId('sidebar-work-tools')).toHaveFocus();
+  await waitFor(() => expect(screen.getByTestId('sidebar-work-tools')).toHaveFocus());
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
   expect(screen.getByTestId('sidebar-new-conversation')).not.toHaveAttribute('data-active');
   mocks.state = { activity: { runs: [] }, skill: { activeSkillIds: [] } };

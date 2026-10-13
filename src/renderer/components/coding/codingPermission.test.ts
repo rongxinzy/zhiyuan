@@ -193,14 +193,17 @@ test('keeps custom command scopes in the menu with their agent-provided names', 
 });
 
 test('orders the menu with long-term grants first and destructive scopes last', () => {
-  const actions = resolveCodingPermissionActions([
+  const options = [
     option('reject-always', 'Always reject', CodingPermissionOptionKind.RejectAlways),
     option('allow-command', 'Allow Commands Starting With ls', null),
     option('allow-prefix', 'Allow Commands Starting With pwd', null),
     option('allow-always', 'Allow for session', CodingPermissionOptionKind.AllowAlways),
     option('allow-once', 'Allow once', CodingPermissionOptionKind.AllowOnce),
     option('reject-once', 'Reject once', CodingPermissionOptionKind.RejectOnce),
-  ]);
+  ];
+  const originalIds = options.map(item => item.optionId);
+  const actions = resolveCodingPermissionActions(options);
+  expect(options.map(item => item.optionId)).toEqual(originalIds);
 
   expect(actions.more.map(candidate => candidate.optionId)).toEqual([
     'allow-always',

@@ -9,7 +9,7 @@ const NVIDIA_SMI_TIMEOUT_MS = 2500;
 const NVIDIA_SMI_MAX_BUFFER = 128 * 1024;
 
 const NVIDIA_SMI_QUERY_ARGS = [
-  '--query-gpu=index,name,memory.total,memory.free',
+  '--query-gpu=index,name,memory.total,memory.free,utilization.gpu',
   '--format=csv,noheader,nounits',
 ];
 
@@ -86,16 +86,14 @@ export function parseNvidiaSmiCsv(output: string): NvidiaGpuInfo[] {
 }
 
 function parseNvidiaSmiLine(line: string): NvidiaGpuInfo | null {
-  const parts = line
-    .split(',')
-    .map(part => part.trim())
-    .filter(Boolean);
-  if (parts.length < 4) return null;
+  const parts = line.split(',').map(part => part.trim());
+  if (parts.length < 5 || !parts[0]) return null;
 
   const index = Number(parts[0]);
-  const memoryFreeMiB = parseMemoryMiB(parts[parts.length - 1]);
-  const memoryTotalMiB = parseMemoryMiB(parts[parts.length - 2]);
-  const name = parts.slice(1, -2).join(', ').trim();
+  const utilization = parseMeasurement(parts[parts.length - 1]);
+  const memoryFreeMiB = parseMemoryMiB(parts[parts.length - 2]);
+  const memoryTotalMiB = parseMemoryMiB(parts[parts.length - 3]);
+  const name = parts.slice(1, -3).join(', ').trim();
 
   if (!Number.isInteger(index) || index < 0 || memoryTotalMiB === null) {
     return null;
@@ -105,15 +103,21 @@ function parseNvidiaSmiLine(line: string): NvidiaGpuInfo | null {
     index,
     name: name || `GPU ${index}`,
     memoryTotalMiB,
-    ...(memoryFreeMiB !== null ? { memoryFreeMiB } : {}),
+    ...(memoryFreeMiB !== null && memoryFreeMiB <= memoryTotalMiB ? { memoryFreeMiB } : {}),
+    ...(utilization !== null && utilization <= 100 ? { utilizationPercent: utilization } : {}),
   };
 }
 
 function parseMemoryMiB(value: string): number | null {
   const normalized = value.replace(/\s*MiB$/i, '').trim();
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.round(parsed);
+  const parsed = parseMeasurement(normalized);
+  return parsed === null ? null : Math.round(parsed);
+}
+
+function parseMeasurement(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function unavailableSnapshot(checkedAt: string, error: string): NvidiaSmiSnapshot {

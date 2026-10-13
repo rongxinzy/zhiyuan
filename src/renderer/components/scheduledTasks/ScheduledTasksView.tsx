@@ -18,6 +18,7 @@ import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { RootState } from '../../store';
 import { setDraftPrompt } from '../../store/slices/coworkSlice';
+import { selectTask } from '../../store/slices/scheduledTaskSlice';
 import PageHeader from '../PageHeader';
 import AllRunsHistory from './AllRunsHistory';
 import DeleteConfirmModal from './DeleteConfirmModal';
@@ -49,9 +50,17 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
 }) => {
   const dispatch = useDispatch();
   const tasks = useSelector((state: RootState) => state.scheduledTask.tasks);
+  const selectedTaskId = useSelector((state: RootState) => state.scheduledTask.selectedTaskId);
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
   const [activeTab, setActiveTab] = useState<AutoTab>(AUTO_TAB.Tasks);
+  useEffect(() => {
+    if (!initialDataLoaded || !selectedTaskId) return;
+    setActiveTab(AUTO_TAB.Tasks);
+    setHighlightedTaskId(selectedTaskId);
+    dispatch(selectTask(null));
+  }, [dispatch, initialDataLoaded, selectedTaskId]);
   const [deleteTaskInfo, setDeleteTaskInfo] = useState<{ id: string; name: string } | null>(null);
 
   const activePaneScrollRef = useRef<HTMLDivElement>(null);
@@ -229,6 +238,7 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
 
             {activeTab === AUTO_TAB.Tasks && (
               <TaskList
+                highlightedTaskId={highlightedTaskId}
                 onRequestDelete={handleRequestDelete}
                 onRequestEdit={handleRequestEdit}
                 onCreateTask={() => openCreateModal(undefined)}

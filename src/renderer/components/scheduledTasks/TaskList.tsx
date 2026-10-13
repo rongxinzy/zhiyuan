@@ -20,7 +20,7 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import type { ScheduledTask } from '../../../scheduledTask/types';
@@ -42,6 +42,7 @@ import { computeNextRunAtMs } from './nextRun';
 
 interface TaskListItemProps {
   task: ScheduledTask;
+  highlighted?: boolean;
   onRequestDelete: (taskId: string, taskName: string) => void;
   onRequestEdit: (taskId: string) => void;
 }
@@ -85,7 +86,18 @@ function useDeliveryFailure(task: ScheduledTask): string | null {
   return failure;
 }
 
-const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete, onRequestEdit }) => {
+const TaskListItem: React.FC<TaskListItemProps> = ({
+  task,
+  highlighted,
+  onRequestDelete,
+  onRequestEdit,
+}) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!highlighted) return;
+    cardRef.current?.scrollIntoView({ block: 'center' });
+    cardRef.current?.focus({ preventScroll: true });
+  }, [highlighted]);
   const isRunning = task.state.runningAtMs !== null;
   const displayStatus = isRunning ? 'running' : task.state.lastStatus;
   const statusLabel = i18nService.t(getStatusLabelKey(displayStatus));
@@ -105,7 +117,12 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete, onRe
   const displayText = task.description || promptPreview;
 
   return (
-    <Card className="theme-page-task-list-card-1 flex flex-col gap-2 p-3 transition-colors">
+    <Card
+      ref={cardRef}
+      tabIndex={highlighted ? -1 : undefined}
+      aria-label={highlighted ? task.name : undefined}
+      className="theme-page-task-list-card-1 flex flex-col gap-2 p-3 transition-colors"
+    >
       <div className="flex items-center gap-3 min-w-0">
         <div className="size-8 rounded-lg bg-surface-raised flex items-center justify-center shrink-0 text-muted-foreground">
           <CalendarClock className="size-4" />
@@ -123,6 +140,9 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete, onRe
             >
               {task.name}
             </span>
+            {highlighted && (
+              <Badge variant="secondary">{i18nService.t('briefingLocatedSchedule')}</Badge>
+            )}
             {workspaceName && (
               <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 rounded px-1.5 py-0.5 bg-muted/60">
                 <Folder className="size-3" />
@@ -232,6 +252,7 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete, onRe
 // ── TaskList ──
 
 interface TaskListProps {
+  highlightedTaskId?: string | null;
   onRequestDelete: (taskId: string, taskName: string) => void;
   onRequestEdit: (taskId: string) => void;
   onCreateTask?: () => void;
@@ -240,6 +261,7 @@ interface TaskListProps {
 }
 
 const TaskList: React.FC<TaskListProps> = ({
+  highlightedTaskId,
   onRequestDelete,
   onRequestEdit,
   onCreateTask,
@@ -364,6 +386,7 @@ const TaskList: React.FC<TaskListProps> = ({
         <TaskListItem
           key={task.id}
           task={task}
+          highlighted={task.id === highlightedTaskId}
           onRequestDelete={onRequestDelete}
           onRequestEdit={onRequestEdit}
         />

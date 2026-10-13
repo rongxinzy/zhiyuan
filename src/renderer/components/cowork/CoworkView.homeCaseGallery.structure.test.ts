@@ -86,7 +86,10 @@ test('pins the prompt input while the case list scrolls underneath it', () => {
   expect(stickyIndex).toBeGreaterThan(columnIndex);
   expect(galleryIndex).toBeGreaterThan(stickyIndex);
 
-  const between = chatSource.slice(columnIndex, galleryIndex);
+  // Start at the opening tag, not its class text, so the containing column is counted.
+  const columnTagIndex = chatSource.lastIndexOf('<div', columnIndex);
+  expect(columnTagIndex).toBeGreaterThanOrEqual(0);
+  const between = chatSource.slice(columnTagIndex, galleryIndex);
   const openDivs = (between.match(/<div/g) ?? []).length;
   const closeDivs = (between.match(/<\/div>/g) ?? []).length;
   expect(openDivs - closeDivs).toBeGreaterThan(0);

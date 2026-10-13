@@ -110,6 +110,7 @@ export function SidebarNavigationView({
     [],
   );
   const shownIsChat = optimisticIsChat ?? isChat;
+  const hasRunningWork = workEntries.some(entry => entry.running);
   const handleModeChange = (checked: boolean) => {
     setOptimisticIsChat(checked);
     if (pendingModeChange.current !== null) cancelAnimationFrame(pendingModeChange.current);
@@ -166,6 +167,7 @@ export function SidebarNavigationView({
       {workEntries.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger
+            aria-label={hasRunningWork ? `${workToolsLabel} ${runningLabel}` : workToolsLabel}
             render={
               <Button
                 type="button"
@@ -178,9 +180,7 @@ export function SidebarNavigationView({
           >
             <Workflow aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.75} />
             <span className="min-w-0 truncate">{workToolsLabel}</span>
-            {workEntries.some(entry => entry.running) && (
-              <Activity className="ml-auto size-4 shrink-0" aria-label={runningLabel} />
-            )}
+            {hasRunningWork && <Activity className="ml-auto size-4 shrink-0" aria-hidden="true" />}
             <ChevronDown aria-hidden="true" className="ml-auto size-4 shrink-0" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">

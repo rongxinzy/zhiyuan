@@ -56,6 +56,7 @@ import { ModelInspectorSidebar, ModelInspectorTab } from './components/ModelInsp
 import { MarketplaceDownloadSidebar } from './components/MarketplaceDownloadSidebar';
 import { ModelLibrarySettingsModal } from './components/ModelLibrarySettingsModal';
 import { RuntimeInstallCard } from './components/RuntimeInstallCard';
+import { LocalGpuStatus } from './components/LocalGpuStatus';
 import {
   LOCAL_INFERENCE_PROGRESS_DISMISS_MS,
   MARKETPLACE_PREFETCH_PAGE_COUNT,
@@ -1189,6 +1190,7 @@ const LocalInferenceView: React.FC<LocalInferenceViewProps> = ({
                   : 'mx-auto w-full max-w-5xl space-y-4 px-4 py-4 sm:px-6'
               }
             >
+              <LocalGpuStatus active={isVisible} />
               <LayeredTabsContent
                 value="models"
                 activeValue={activeTab}

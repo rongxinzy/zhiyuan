@@ -137,3 +137,19 @@ test('restores the current task after an exception so it can be retried', async 
   });
   expect(mocks.resume).toHaveBeenCalledTimes(2);
 });
+
+test('rejects a saved resume callback after leaving its session', async () => {
+  const { result, rerender } = renderHook(({ sessionId }) => useTaskResumeContext(sessionId), {
+    initialProps: { sessionId: 'session-a' },
+  });
+  act(() => result.current.select(interruption()));
+  const oldResume = result.current.resume;
+  const oldSelect = result.current.select;
+  rerender({ sessionId: 'session-b' });
+  act(() => oldSelect(interruption()));
+  expect(result.current.interruption).toBeNull();
+  await act(async () => {
+    expect(await oldResume({})).toBe(false);
+  });
+  expect(mocks.resume).not.toHaveBeenCalled();
+});

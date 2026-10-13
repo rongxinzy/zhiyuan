@@ -220,7 +220,9 @@ test('shows matching permission immediately and forwards the original input', ()
 });
 
 test('never hides an approval when a completed turn also has collapsed tools', () => {
-  const item = tool();
+  // A pending approval has no result yet, even if a terminal turn update arrived.
+  // Completed tools intentionally leave approval rendering to the session fallback.
+  const item = tool(false);
   if (item.type !== CoworkDisplayItemType.ToolGroup) throw new Error('Expected a tool fixture');
   const permission: CoworkPermissionRequest = {
     origin: CoworkPermissionOrigin.PiWorkbench,
@@ -230,12 +232,21 @@ test('never hides an approval when a completed turn also has collapsed tools', (
     toolInput: { command: 'pwd' },
     toolUseId: item.group.toolUse.id,
   };
+  const onRespondToPermission = vi.fn();
   renderTurn([tool(), item, answer('Waiting')], {
     pendingPermission: permission,
-    onRespondToPermission: vi.fn(),
+    onRespondToPermission,
   });
+  expect(
+    screen.getByRole('button', { name: i18nService.t('coworkExecutionDetails') }),
+  ).toHaveAttribute('aria-expanded', 'false');
   expect(screen.getByRole('button', { name: i18nService.t('coworkApprove') })).toBeVisible();
   expect(screen.getByText(i18nService.t('coworkPermissionDecisionHint'))).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: i18nService.t('coworkApprove') }));
+  expect(onRespondToPermission).toHaveBeenCalledWith({
+    behavior: CoworkPermissionBehavior.Allow,
+    updatedInput: permission.toolInput,
+  });
 });
 
 test('keeps message-level states free of competing decorative animations', () => {

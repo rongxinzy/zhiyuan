@@ -296,7 +296,7 @@ export const projectCodingEvents = (events: CodingEvent[]): CodingConversationTu
     return turn;
   };
 
-  for (const event of events.toSorted((left, right) => left.sequence - right.sequence)) {
+  for (const event of [...events].sort((left, right) => left.sequence - right.sequence)) {
     if (event.kind === CodingEventKind.Message || event.kind === CodingEventKind.MessageDelta) {
       if (event.kind === CodingEventKind.Message) {
         const messageType = getMessageType(event);

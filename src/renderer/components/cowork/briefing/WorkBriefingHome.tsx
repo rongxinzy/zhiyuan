@@ -10,6 +10,7 @@ import { i18nService } from '../../../services/i18n';
 import { showAppErrorToast } from '../../../services/toastNotification';
 import type { RootState } from '../../../store';
 import { selectTask } from '../../../store/slices/scheduledTaskSlice';
+import MarkdownContent from '../../MarkdownContent';
 import { BRIEFING_CLOCK_INTERVAL_MS, BriefingTarget } from './constants';
 import { buildWorkBriefing, type BriefingItem } from './projection';
 import { useBriefingData } from './useBriefingData';
@@ -164,15 +165,21 @@ export function WorkBriefingHome({
                             {item.title || i18nService.t('briefingUntitled')}
                           </p>
                           <p className="theme-home-caption">{i18nService.t(item.reasonKey)}</p>
-                          {item.description && (
-                            <p
+                          {(item.description || item.descriptionKey) && (
+                            <div
                               className={cn(
-                                'theme-home-caption break-words whitespace-pre-wrap',
+                                'theme-home-caption min-w-0 break-words overflow-hidden',
                                 !expandedRecords.has(item.id) && 'line-clamp-3',
                               )}
                             >
-                              {item.description}
-                            </p>
+                              <MarkdownContent
+                                content={
+                                  item.descriptionKey
+                                    ? i18nService.t(item.descriptionKey)
+                                    : (item.description ?? '')
+                                }
+                              />
+                            </div>
                           )}
                           {item.timestamp !== undefined && (
                             <time

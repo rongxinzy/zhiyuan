@@ -8,8 +8,9 @@ import ScheduledTasksView from './ScheduledTasksView';
 import { consumeScheduledTaskCreateRequest, requestScheduledTaskCreate } from './createRequest';
 
 const mocks = vi.hoisted(() => ({
+  dispatch: vi.fn(),
   state: {
-    scheduledTask: { tasks: [] },
+    scheduledTask: { tasks: [], selectedTaskId: null as string | null },
     model: { availableModels: [], defaultSelectedModel: null },
     workspace: {
       currentWorkspaceId: 'current',
@@ -21,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 vi.mock('react-redux', () => ({
-  useDispatch: () => vi.fn(),
+  useDispatch: () => mocks.dispatch,
   useSelector: (select: (state: unknown) => unknown) => select(mocks.state),
 }));
 vi.mock('../../services/i18n', () => ({
@@ -38,7 +39,13 @@ vi.mock('../../services/cowork', () => ({ coworkService: {} }));
 vi.mock('../PageHeader', () => ({
   default: ({ tabs }: { tabs: ReactNode }) => createElement('header', null, tabs),
 }));
-vi.mock('./TaskList', () => ({ default: () => null }));
+vi.mock('./TaskList', () => ({
+  default: ({ highlightedTaskId }: { highlightedTaskId?: string | null }) =>
+    createElement('div', {
+      'data-testid': 'task-list',
+      'data-highlighted-task': highlightedTaskId ?? '',
+    }),
+}));
 vi.mock('./AllRunsHistory', () => ({ default: () => null }));
 vi.mock('./TaskTemplateGallery', () => ({
   default: ({ onCustom }: { onCustom: () => void }) =>
@@ -46,8 +53,23 @@ vi.mock('./TaskTemplateGallery', () => ({
 }));
 
 beforeEach(() => {
+  mocks.dispatch.mockClear();
+  mocks.state.scheduledTask.selectedTaskId = null;
   mocks.state.workspace.currentWorkspaceId = 'current';
   Element.prototype.scrollTo ??= vi.fn();
+});
+
+test('consumes a briefing selection and locates it in the task list without opening an edit form', async () => {
+  mocks.state.scheduledTask.selectedTaskId = 'briefing-target';
+  render(createElement(ScheduledTasksView));
+  await waitFor(() =>
+    expect(screen.getByTestId('task-list')).toHaveAttribute(
+      'data-highlighted-task',
+      'briefing-target',
+    ),
+  );
+  expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'scheduledTask/selectTask', payload: null });
+  expect(screen.queryByRole('dialog')).toBeNull();
 });
 afterEach(() => {
   cleanup();

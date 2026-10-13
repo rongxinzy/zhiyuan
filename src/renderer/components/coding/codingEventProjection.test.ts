@@ -32,6 +32,17 @@ const event = (
 });
 
 describe('projectCodingEvents', () => {
+  test('sorts event copies without mutating the caller order', () => {
+    const events = [
+      event(2, CodingEventKind.Message, { role: 'assistant', content: 'done' }),
+      event(1, CodingEventKind.Message, { role: 'user', content: 'start' }),
+    ];
+    const turns = projectCodingEvents(events);
+    expect(events.map(item => item.sequence)).toEqual([2, 1]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].userMessage?.content).toBe('start');
+    expect(turns[0].assistantMessages[0].content).toBe('done');
+  });
   test('groups a complete agent turn and merges reasoning chunks', () => {
     const turns = projectCodingEvents([
       event(1, CodingEventKind.Message, { role: 'user', content: '修复登录问题' }),

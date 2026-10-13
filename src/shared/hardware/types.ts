@@ -3,6 +3,8 @@ export type NvidiaGpuInfo = {
   name: string;
   memoryTotalMiB: number;
   memoryFreeMiB?: number;
+  /** Omitted when the driver cannot report a valid utilization sample. */
+  utilizationPercent?: number;
 };
 
 export type NvidiaSmiSnapshot = {

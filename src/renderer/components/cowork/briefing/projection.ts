@@ -1,4 +1,4 @@
-import { ActivityStatus } from '../../../../shared/activity/constants';
+import { ActivityErrorCode, ActivityStatus } from '../../../../shared/activity/constants';
 import type { ActivityRun } from '../../../../shared/activity/types';
 import {
   CoworkSessionMode,
@@ -13,6 +13,7 @@ export interface BriefingItem {
   id: string;
   title: string;
   description?: string;
+  descriptionKey?: string;
   reasonKey: string;
   timestamp?: number;
   target: (typeof BriefingTarget)[keyof typeof BriefingTarget];
@@ -86,8 +87,35 @@ export function buildWorkBriefing(input: BriefingInput) {
   progressed.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
   // Failed work is an invitation to inspect, not a claim that it can be resumed.
+  const failedActivitySessions = new Set<string>();
+  const failedActivities: BriefingItem[] = [];
+  for (const run of [...activities].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    if (run.status !== ActivityStatus.Failed) continue;
+    if (
+      run.sessionId &&
+      (waitingIds.has(run.sessionId) || failedActivitySessions.has(run.sessionId))
+    )
+      continue;
+    if (run.sessionId) failedActivitySessions.add(run.sessionId);
+    failedActivities.push({
+      id: `activity:${run.id}`,
+      title: run.taskName || run.inputPreview || '',
+      description:
+        run.errorMessage === ActivityErrorCode.Interrupted ? undefined : run.errorMessage,
+      descriptionKey:
+        run.errorMessage === ActivityErrorCode.Interrupted ? 'activityErrorInterrupted' : undefined,
+      reasonKey: 'briefingInspectWork',
+      timestamp: run.updatedAt,
+      target: BriefingTarget.Activity,
+    });
+  }
   const attention: BriefingItem[] = manualWork
-    .filter(session => session.status === CoworkSessionStatus.Error && !waitingIds.has(session.id))
+    .filter(
+      session =>
+        session.status === CoworkSessionStatus.Error &&
+        !waitingIds.has(session.id) &&
+        !failedActivitySessions.has(session.id),
+    )
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map(session => ({
       id: `attention:${session.id}`,
@@ -115,7 +143,10 @@ export function buildWorkBriefing(input: BriefingInput) {
       target: BriefingTarget.Schedule,
       taskId: task.id,
     }));
-  const next = [...attention, ...upcoming];
+  const next = [
+    ...[...failedActivities, ...attention].sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)),
+    ...upcoming,
+  ];
   return {
     decisions: decisions.slice(0, BRIEFING_ITEM_LIMIT),
     progressed: progressed.slice(0, BRIEFING_ITEM_LIMIT),
