@@ -647,7 +647,6 @@ test('IM turns use workspace session configuration without disabling Pi tools', 
     source: CoworkSessionSource.Im,
   });
   expect(runtime.startCalls[0].options).toMatchObject({
-    skillIds: [],
     workspaceRoot: session.cwd,
     sessionMode: 'work',
   });
@@ -680,7 +679,6 @@ test('IM turns use workspace session configuration without disabling Pi tools', 
   );
   await new Promise(resolve => setImmediate(resolve));
   expect(runtime.continueCalls[0].options).toMatchObject({
-    skillIds: [],
     workspaceRoot: session.cwd,
     sessionMode: 'work',
   });
@@ -818,16 +816,11 @@ test('closes a started run when existing-session setup fails before runtime exec
   const runtime = new FakeRuntime();
   const coworkStore = new FakeCoworkStore();
   const imStore = new FakeIMStore();
-  let failSkillsPrompt = false;
   const activityUpdates: Array<Record<string, unknown>> = [];
   const handler = new IMCoworkHandler({
     coworkRuntime: runtime,
     coworkStore,
     imStore,
-    getSkillsPrompt: async () => {
-      if (failSkillsPrompt) throw new Error('skill prompt unavailable');
-      return null;
-    },
     activityService: {
       upsertBestEffort: (run: Record<string, unknown>) => activityUpdates.push(run),
     } as any,
@@ -849,15 +842,16 @@ test('closes a started run when existing-session setup fails before runtime exec
   runtime.emit('complete', 'session-1');
   await expect(firstResponse).resolves.toBe('第一条回复');
 
-  imStore.settings.skillsEnabled = true;
-  failSkillsPrompt = true;
+  runtime.isSessionActive = () => {
+    throw new Error('session status unavailable');
+  };
   await expect(
     handler.processMessage(
       createMessage({ messageId: 'im-msg-2', content: '第二条消息' }),
       undefined,
       'workspace-1',
     ),
-  ).rejects.toThrow('skill prompt unavailable');
+  ).rejects.toThrow('session status unavailable');
 
   const secondRunUpdates = activityUpdates.slice(-2);
   expect(secondRunUpdates.map(event => event.status)).toEqual([
@@ -865,7 +859,7 @@ test('closes a started run when existing-session setup fails before runtime exec
     ActivityStatus.Failed,
   ]);
   expect(secondRunUpdates[1].id).toBe(secondRunUpdates[0].id);
-  expect(secondRunUpdates[1].errorMessage).toBe('skill prompt unavailable');
+  expect(secondRunUpdates[1].errorMessage).toBe('session status unavailable');
 
   handler.destroy();
 });

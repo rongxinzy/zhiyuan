@@ -32,14 +32,6 @@ export const PlusMenuFilesIcon: React.FC<PlusMenuIconProps> = ({ className }) =>
   </svg>
 );
 
-/** 技能：四角星光。 */
-export const PlusMenuSkillsIcon: React.FC<PlusMenuIconProps> = ({ className }) => (
-  <svg {...baseProps} className={className}>
-    <path d="M8 2.2l1.6 4.1 4.1 1.6-4.1 1.6L8 13.8l-1.6-4.3-4.1-1.6 4.1-1.6z" />
-    <path d="M12.6 11.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5z" />
-  </svg>
-);
-
 /** 会话专家：学位帽人物（学者意象）。 */
 export const PlusMenuExpertsIcon: React.FC<PlusMenuIconProps> = ({ className }) => (
   <svg {...baseProps} className={className}>
@@ -47,24 +39,6 @@ export const PlusMenuExpertsIcon: React.FC<PlusMenuIconProps> = ({ className }) 
     <path d="M5.3 6.3v2.2c0 1 1.2 1.7 2.7 1.7s2.7-.7 2.7-1.7V6.3" />
     <path d="M14 5v2.8" />
     <path d="M3.7 13.8c.7-1.9 2.3-2.9 4.3-2.9s3.6 1 4.3 2.9" />
-  </svg>
-);
-
-/** 连接器：两个节点与一条连接线。 */
-/** 管理：三行滑杆。 */
-export const PlusMenuManageIcon: React.FC<PlusMenuIconProps> = ({ className }) => (
-  <svg {...baseProps} className={className}>
-    <path d="M2 4.2h12M2 8h12M2 11.8h12" />
-    <circle cx="10" cy="4.2" r="1.4" fill="currentColor" stroke="none" />
-    <circle cx="5.5" cy="8" r="1.4" fill="currentColor" stroke="none" />
-    <circle cx="11.5" cy="11.8" r="1.4" fill="currentColor" stroke="none" />
-  </svg>
-);
-
-/** 技能行缺省图标：小星光。 */
-export const PlusMenuSkillGlyphIcon: React.FC<PlusMenuIconProps> = ({ className }) => (
-  <svg {...baseProps} className={className}>
-    <path d="M8 3l1.3 3.2 3.2 1.3-3.2 1.3L8 12l-1.3-3.2-3.2-1.3 3.2-1.3z" />
   </svg>
 );
 

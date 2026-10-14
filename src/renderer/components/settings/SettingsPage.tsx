@@ -24,8 +24,6 @@ import { localInferenceCompactButtonClass } from '../localInference/constants';
 import PageHeader from '../PageHeader';
 import AboutSettingsPanel from './about/AboutSettingsPanel';
 import { AppearanceSettingsPanel } from './appearance/AppearanceSettingsPanel';
-import type { EmailSettingsHandle } from './email/types';
-import { EmailSettingsPage } from './email/EmailSettingsPage';
 import GeneralSettingsPanel from './general/GeneralSettingsPanel';
 import ImSettingsPanel from './im/ImSettingsPanel';
 import { ManagedMemorySettings } from './memory/ManagedMemorySettings';
@@ -92,7 +90,6 @@ export default function SettingsPage({
   const initialThemeRef = useRef<'light' | 'dark' | 'system'>(themeService.getTheme());
   const initialLanguageRef = useRef<LanguageType>(i18nService.getLanguage());
   const didSaveRef = useRef(false);
-  const emailSettingsRef = useRef<EmailSettingsHandle>(null);
   const modelHandleRef = useRef<ModelSettingsHandle | null>(null);
 
   useEffect(() => {
@@ -252,12 +249,6 @@ export default function SettingsPage({
     let appConfigSaved = false;
 
     try {
-      const emailSaved = (await emailSettingsRef.current?.saveIfDirty()) ?? true;
-      if (!emailSaved) {
-        setActiveTab('email');
-        return;
-      }
-
       const modelSaveSnapshot = modelHandleRef.current?.getSaveSnapshot();
       if (!modelSaveSnapshot) {
         throw new Error(i18nService.t('failedToSaveSettings'));
@@ -565,9 +556,6 @@ export default function SettingsPage({
               )}
               style={{ scrollbarGutter: 'stable' }}
             >
-              <div className={activeTab === 'email' ? 'block' : 'hidden'}>
-                <EmailSettingsPage ref={emailSettingsRef} />
-              </div>
               <div className={activeTab === 'model' ? 'block h-full' : 'hidden'}>
                 <ModelSettingsPanel
                   initialProvider={initialProvider}
@@ -577,7 +565,7 @@ export default function SettingsPage({
                   setNoticeMessage={setNoticeMessage}
                 />
               </div>
-              {activeTab !== 'email' && activeTab !== 'model' && renderTabContent()}
+              {activeTab !== 'model' && renderTabContent()}
             </div>
 
             {/* Footer buttons */}

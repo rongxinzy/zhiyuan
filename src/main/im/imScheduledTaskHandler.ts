@@ -254,7 +254,6 @@ export function createIMScheduledTaskRequestDetector(options: {
     const detector = new IMChatHandler({
       getLLMConfig: async () => llmConfig,
       imSettings: {
-        skillsEnabled: false,
         systemPrompt: buildScheduledTaskDetectionPrompt(now),
       },
     });

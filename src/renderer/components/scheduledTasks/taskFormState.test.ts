@@ -7,7 +7,7 @@ import {
 } from '../../../scheduledTask/constants';
 import type { ScheduledTask } from '../../../scheduledTask/types';
 import { buildScheduleInput, buildTaskInput, createFormState } from './taskFormState';
-import type { TaskTemplateValues } from './TaskTemplateGallery';
+import type { TaskCreationValues as TaskTemplateValues } from './TaskCreationValues';
 
 const templatePrefill = (expr: string): TaskTemplateValues => ({
   name: '财经新闻',

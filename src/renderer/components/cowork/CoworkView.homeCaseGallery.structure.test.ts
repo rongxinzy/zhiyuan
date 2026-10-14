@@ -1,124 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-
 import { expect, test } from 'vitest';
 
 const source = readFileSync(fileURLToPath(new URL('./CoworkView.tsx', import.meta.url)), 'utf8');
 
-const compact = (value: string) => value.replace(/\s+/g, '');
-
-const barCall = '<QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />';
-const panelCall = '<PromptPanel action={selectedAction}';
-const barGuard = compact(
-  `{!selectedAction && (
-              <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />
-            )}`,
-);
-const panelGuard = compact(
-  `{selectedAction && (
-              <PromptPanel action={selectedAction} onPromptSelect={handleQuickActionPromptSelect} />
-            )}`,
-);
-const spacer = 'min-h-[max(1.5rem,calc(45%-10rem))]';
-const columnWrapper = 'mx-auto flex w-full max-w-4xl min-w-0 flex-col items-center gap-6 px-6';
-const galleryWrapper = 'flex w-full flex-col gap-4 pb-8';
-const chatSource = source.slice(source.indexOf('// Chat home retains'));
-
-const countOf = (needle: string) => source.split(needle).length - 1;
-
-/**
- * The category bar is the entry point: once a category is open the cases own the column
- * and the bar steps aside, so the gallery is not stacked under a second row of chrome.
- */
-test('hides the quick action category bar while a case gallery is open', () => {
-  const compactSource = compact(source);
-
-  expect(compactSource.split(compact(barCall)).length - 1).toBe(1);
-  expect(compactSource.split(compact(panelCall)).length - 1).toBe(1);
-
-  // The bar and the gallery are mutually exclusive branches of the same column. Matching
-  // the compacted source keeps this guard on the branching, not on the indentation.
-  expect(compactSource.split(barGuard).length - 1).toBe(1);
-  expect(compactSource.split(panelGuard).length - 1).toBe(1);
-  expect(compactSource.indexOf(panelGuard)).toBeGreaterThan(compactSource.indexOf(barGuard));
-
-  // The bare call may only exist inside the guard: an unguarded bar would keep showing.
-  const barGuardIndex = compactSource.indexOf(barGuard);
-  expect(compactSource.slice(0, barGuardIndex)).not.toContain(compact(barCall));
-  expect(compactSource.slice(barGuardIndex + barGuard.length)).not.toContain(compact(barCall));
-
-  // The bar used to be the else-branch of the gallery. The column keeps both branches
-  // explicit, so neither can silently re-introduce the other.
-  const column = compactSource.slice(
-    compactSource.indexOf(compact(galleryWrapper)),
-    compactSource.indexOf(panelGuard) + panelGuard.length,
-  );
-  expect(column).not.toContain('else');
-});
-
-/**
- * The case list is far taller than the viewport, so the brand block and the input cannot
- * be centred as one column: centring the column lets the cases drag the input up under
- * the page header. A spacer that measures the viewport holds the input on the visible
- * area's vertical middle instead, and the cases flow on below it.
- */
-test('anchors the hero on a viewport spacer instead of centring the column', () => {
-  const spacerIndex = source.indexOf(spacer);
-  const columnIndex = source.indexOf(columnWrapper);
-
-  expect(countOf(spacer)).toBe(1);
-  expect(countOf(columnWrapper)).toBe(1);
-  expect(spacerIndex).toBeGreaterThan(-1);
-  expect(columnIndex).toBeGreaterThan(spacerIndex);
-});
-
-/**
- * Once the cases start scrolling the input has to stay put: it is the one control the
- * user needs while reading them. Sticky only holds while there is a box to travel
- * through, so the case list must be nested in the input's column - a page-level gallery
- * would let the input scroll away again after roughly its own height.
- */
-test('pins the prompt input while the case list scrolls underneath it', () => {
-  const columnIndex = chatSource.indexOf(columnWrapper);
-  const stickyIndex = chatSource.indexOf('className="sticky');
-  const galleryIndex = chatSource.indexOf('{homeQuickActions}');
-
-  expect(stickyIndex).toBeGreaterThan(columnIndex);
-  expect(galleryIndex).toBeGreaterThan(stickyIndex);
-
-  // Start at the opening tag, not its class text, so the containing column is counted.
-  const columnTagIndex = chatSource.lastIndexOf('<div', columnIndex);
-  expect(columnTagIndex).toBeGreaterThanOrEqual(0);
-  const between = chatSource.slice(columnTagIndex, galleryIndex);
-  const openDivs = (between.match(/<div/g) ?? []).length;
-  const closeDivs = (between.match(/<\/div>/g) ?? []).length;
-  expect(openDivs - closeDivs).toBeGreaterThan(0);
-
-  const stickyClass = /<div className="(sticky[^"]*)"/.exec(chatSource)?.[1] ?? '';
-  expect(stickyClass).toContain('top-0');
-  expect(stickyClass).toContain('z-10');
-  expect(stickyClass).toContain('theme-home-sticky');
-  expect(stickyClass).toContain('w-full');
-
-  // The brand mark travels in the same layer: it has to stay on screen next to the
-  // input rather than sliding away with the cases, so it must be nested inside it.
-  const brandIndex = chatSource.indexOf('flex-col items-center justify-center gap-4');
-  expect(brandIndex).toBeGreaterThan(stickyIndex);
-  expect(chatSource.indexOf('max-w-3xl flex-col gap-3')).toBeGreaterThan(brandIndex);
-
-  const stickyInner = chatSource.slice(chatSource.indexOf('<div className="sticky'), brandIndex);
-  const openInSticky = (stickyInner.match(/<div/g) ?? []).length;
-  const closedInSticky = (stickyInner.match(/<\/div>/g) ?? []).length;
-  expect(openInSticky - closedInSticky).toBeGreaterThan(0);
-});
-
-test('uses the briefing only for Work and keeps the shared composer and case actions', () => {
-  expect(source).toContain(
-    'if (workMode === WorkMode.Work) {\n    return (\n      <WorkBriefingHome',
-  );
+test('keeps Work briefing and the shared composer without the legacy case gallery', () => {
+  expect(source).toContain('<WorkBriefingHome');
   expect(source).toContain('prompt={homePrompt}');
-  expect(source).toContain('quickActions={homeQuickActions}');
-  expect(chatSource).toContain('{homePrompt}');
-  expect(chatSource).toContain('{homeQuickActions}');
-  expect(source).toContain("size={workMode === WorkMode.Chat ? 'large' : 'normal'}");
+  expect(source).toContain('onFocusInput={() => promptInputRef.current?.focus()}');
+  expect(source).toContain('{homePrompt}');
+  for (const removed of [
+    'QuickActionBar',
+    'PromptPanel',
+    'quickActionService',
+    'homeQuickActions',
+  ]) {
+    expect(source).not.toContain(removed);
+  }
 });

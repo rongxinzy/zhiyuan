@@ -4,6 +4,6 @@ This module supplies product resources to the Inspect-owned Headless Pi Bridge w
 
 Build with `bun run build:eval-policy`, then set `ZHIYUAN_CANDIDATE_POLICY_MODULE` to `dist-eval/zhiyuan-evaluation-policy.mjs`. The exported policy factory is asynchronous; callers must await it.
 
-The execute track loads `resources/SYSTEM_PROMPT.md` asynchronously and advertises `SKILLs`. Commands and file effects use Inspect sandbox tools. Capture-only model controls bypass product resources and cannot be reported as agent capability tests.
+The execute track loads `resources/SYSTEM_PROMPT.md` asynchronously without advertising removed skill packages. Commands and file effects use Inspect sandbox tools. Capture-only model controls bypass product resources and cannot be reported as agent capability tests.
 
 Desktop approvals, SQLite task persistence, UI behavior, and domain-specific workflows remain outside this evaluation. Benchmark scoring must check actual results independently of normal model termination.

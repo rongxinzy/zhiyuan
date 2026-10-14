@@ -38,9 +38,9 @@ afterEach(() => {
 });
 
 describe('Windows offline component identity', () => {
-  test('uses cc-connect as the first of exactly seven cached components', () => {
+  test('uses cc-connect as the first of exactly two cached components', () => {
     const components = getWindowsResourceComponents(process.cwd());
-    expect(components).toHaveLength(7);
+    expect(components).toHaveLength(2);
     expect(components[0]).toMatchObject({
       key: 'channel-runtime',
       prefix: 'channel-runtime',
@@ -49,7 +49,7 @@ describe('Windows offline component identity', () => {
     expect(components.map(component => component.key)).not.toContain('openclaw');
   });
 
-  test('uses solid compression only for benchmarked multi-file runtimes', () => {
+  test('preserves the compression profiles for retained runtimes', () => {
     const components = getWindowsResourceComponents(process.cwd());
     const compressionByKey = Object.fromEntries(
       components.map(component => [
@@ -60,20 +60,13 @@ describe('Windows offline component identity', () => {
 
     expect(compressionByKey).toMatchObject({
       'channel-runtime': 'lzma2-mx9-nonsolid-v1',
-      skills: 'lzma2-mx9-solid-v1',
-      mcps: 'lzma2-mx9-solid-v1',
       'portable-git': 'lzma-bcj2-d128m-mx9-solid-v1',
-      python: 'lzma2-mx9-solid-v1',
-      'skill-python': 'lzma2-mx9-solid-v1',
-      uv: 'lzma2-mx9-nonsolid-v1',
     });
   });
 
-  test('excludes npm launchers because the connector creates its own launcher', () => {
-    expect(shouldExclude('feishu/runtime/node_modules/.bin/lark-cli.cmd')).toBe(true);
-    expect(shouldExclude('feishu/runtime/win32-x64/lark-cli.exe')).toBe(true);
-    expect(shouldExclude('SKILLs/example/node_modules/.bin/example.cmd')).toBe(true);
-    expect(shouldExclude('feishu/skills/document/SKILL.md')).toBe(false);
+  test('excludes dependency launchers without excluding runtime executables', () => {
+    expect(shouldExclude('node_modules/.bin/example.cmd')).toBe(true);
+    expect(shouldExclude('runtime/win32-x64/runtime.exe')).toBe(false);
   });
 
   test('is stable when only source mtimes change', () => {

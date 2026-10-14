@@ -10,7 +10,6 @@ export const ZHIYUAN_ENTERPRISE_SESSION_CAPABILITY_API_VERSION = 1 as const;
 export const ZHIYUAN_ENTERPRISE_RENDERER_CAPABILITY_API_VERSION = 1 as const;
 export const ZHIYUAN_ENTERPRISE_SETTINGS_CAPABILITY_API_VERSION = 1 as const;
 export const ZHIYUAN_MANAGED_PROVIDER_CAPABILITY_API_VERSION = 2 as const;
-export const ZHIYUAN_ENTERPRISE_SKILL_CAPABILITY_API_VERSION = 1 as const;
 
 export interface ZhiyuanEnterpriseSessionProvider {
   snapshot(): EnterpriseSessionSnapshot | Promise<EnterpriseSessionSnapshot>;
@@ -50,17 +49,6 @@ export interface ZhiyuanManagedProviderHostCapability {
   registerSource(source: ZhiyuanManagedProviderSource): () => void;
 }
 
-export interface ZhiyuanEnterpriseManagedSkillRegistration {
-  readonly directory: string;
-  notifyChanged(): void;
-  unregister(): void;
-}
-
-export interface ZhiyuanEnterpriseSkillHostCapability {
-  readonly apiVersion: typeof ZHIYUAN_ENTERPRISE_SKILL_CAPABILITY_API_VERSION;
-  registerManagedRoot(): ZhiyuanEnterpriseManagedSkillRegistration;
-}
-
 export interface ZhiyuanEnterpriseSettingsHostCapability {
   readonly apiVersion: typeof ZHIYUAN_ENTERPRISE_SETTINGS_CAPABILITY_API_VERSION;
   registerPage(page: ZhiyuanEnterpriseSettingsPageRegistration): () => void;
@@ -91,7 +79,6 @@ export interface ZhiyuanEnterpriseHostContext {
     readonly renderer: ZhiyuanEnterpriseRendererHostCapability | null;
     readonly settings: ZhiyuanEnterpriseSettingsHostCapability | null;
     readonly managedProvider: ZhiyuanManagedProviderHostCapability | null;
-    readonly skills: ZhiyuanEnterpriseSkillHostCapability | null;
   };
 }
 

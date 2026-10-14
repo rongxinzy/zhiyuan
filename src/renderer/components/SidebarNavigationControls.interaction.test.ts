@@ -125,7 +125,7 @@ test('keeps managed-only and chat navigation policies and chat workspace selecti
   expect(handlers.onWorkModeChange.mock.calls[0][0]).toBe(false);
 });
 
-test('preserves activity status and skill-aware new-conversation highlighting', async () => {
+test('preserves activity status and highlights the current conversation route', async () => {
   const user = userEvent.setup();
   mocks.state = {
     activity: { runs: [{ status: 'running' }] },
@@ -143,7 +143,7 @@ test('preserves activity status and skill-aware new-conversation highlighting', 
   await user.keyboard('{Escape}');
   await waitFor(() => expect(screen.getByTestId('sidebar-work-tools')).toHaveFocus());
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
-  expect(screen.getByTestId('sidebar-new-conversation')).not.toHaveAttribute('data-active');
+  expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active');
   mocks.state = { activity: { runs: [] }, skill: { activeSkillIds: [] } };
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
   expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active', 'true');

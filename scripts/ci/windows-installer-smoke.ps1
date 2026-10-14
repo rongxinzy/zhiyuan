@@ -151,7 +151,7 @@ $installer = $installers[0].FullName
 $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\zhiyuan-agent'
 $runtimeRoot = Join-Path $env:LOCALAPPDATA 'ZhiYuanAgent\runtimes'
 $timingLog = Join-Path $env:APPDATA 'ZhiYuanAgent\install-timing.log'
-$componentKeys = @('channel-runtime', 'skills', 'mcps', 'portable-git', 'python', 'skill-python', 'uv')
+$componentKeys = @('channel-runtime', 'portable-git')
 
 try {
   Invoke-Installer $installer 'cold installation' 2700 $timingLog
@@ -171,8 +171,8 @@ try {
   Assert-Path $timingLog 'cold installation timing log'
 
   $coldLog = Get-LatestRunLog $timingLog
-  if (($coldLog | Select-String -AllMatches 'phase=component-cache-miss ').Matches.Count -ne 7) {
-    throw 'Cold installation did not expand exactly seven offline components'
+  if (($coldLog | Select-String -AllMatches 'phase=component-cache-miss ').Matches.Count -ne 2) {
+    throw 'Cold installation did not expand exactly two offline components'
   }
   if ($coldLog -notmatch 'phase=custom-install-start ') {
     throw 'Cold installation did not record the application-files phase marker'
@@ -196,8 +196,8 @@ try {
   Assert-Path (Join-Path $installRoot 'resources\memory\engram.exe') 'upgraded memory runtime'
   Assert-Path $timingLog 'upgrade timing log'
   $upgradeLog = Get-LatestRunLog $timingLog
-  if (($upgradeLog | Select-String -AllMatches 'phase=component-cache-hit ').Matches.Count -ne 7) {
-    throw 'Repeated installation did not reuse exactly seven offline components'
+  if (($upgradeLog | Select-String -AllMatches 'phase=component-cache-hit ').Matches.Count -ne 2) {
+    throw 'Repeated installation did not reuse exactly two offline components'
   }
   if ($upgradeLog -match 'phase=component-cache-miss ') {
     throw 'Repeated installation unexpectedly expanded an offline component'

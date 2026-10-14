@@ -1,7 +1,5 @@
 import { AgentId } from '@shared/agent';
 
-import { CoworkSessionExpertSource } from '../../shared/cowork/sessionExperts';
-
 import { store } from '../store';
 import {
   addAgent,
@@ -13,7 +11,6 @@ import {
 } from '../store/slices/agentSlice';
 import { clearCurrentSession } from '../store/slices/coworkSlice';
 import { clearAgentSelectedModel } from '../store/slices/modelSlice';
-import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type { Agent } from '../types/agent';
 
 class AgentService {
@@ -36,7 +33,6 @@ class AgentService {
           source: a.source,
           presetId: a.presetId ?? '',
           systemPrompt: a.systemPrompt ?? '',
-          skillIds: a.skillIds ?? [],
         }));
         store.dispatch(setAgents(mappedAgents));
       }
@@ -55,7 +51,6 @@ class AgentService {
     model?: string;
     workingDirectory?: string;
     icon?: string;
-    skillIds?: string[];
   }): Promise<Agent | null> {
     try {
       const agent = await window.electron?.agents?.create(request);
@@ -75,7 +70,6 @@ class AgentService {
             source: agent.source,
             presetId: agent.presetId ?? '',
             systemPrompt: agent.systemPrompt ?? '',
-            skillIds: agent.skillIds ?? [],
           }),
         );
         return agent;
@@ -97,7 +91,6 @@ class AgentService {
       model?: string;
       workingDirectory?: string;
       icon?: string;
-      skillIds?: string[];
       enabled?: boolean;
       pinned?: boolean;
       triageOverride?: import('../../shared/triage').AgentTriageOverride | null;
@@ -118,17 +111,9 @@ class AgentService {
               enabled: agent.enabled,
               pinned: agent.pinned ?? false,
               pinOrder: agent.pinOrder ?? null,
-              skillIds: agent.skillIds ?? [],
             },
           }),
         );
-        // If the edited agent is the currently active one, sync skillIds
-        // to the runtime skill slice so new conversations pick up changes
-        // immediately (switchAgent handles this on explicit switch, but
-        // in-place editing without switching was missing the sync).
-        if (id === store.getState().agent.currentAgentId && updates.skillIds !== undefined) {
-          store.dispatch(setActiveSkillIds(agent.skillIds ?? []));
-        }
         return agent;
       }
       return null;
@@ -159,40 +144,9 @@ class AgentService {
     }
   }
 
-  async importExpertPackage(expertDir: string): Promise<{
-    success: boolean;
-    agentIds?: string[];
-    expertType?: string;
-    name?: string;
-    error?: string;
-  }> {
-    try {
-      const result = await window.electron?.agents?.importExpertPackage(expertDir);
-      if (result?.success) {
-        await this.loadAgents();
-      }
-      return result ?? { success: false, error: 'Import not supported' };
-    } catch (error) {
-      console.error('Failed to import expert package:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to import expert package',
-      };
-    }
-  }
-
   switchAgent(agentId: string): void {
     store.dispatch(setCurrentAgentId(agentId));
     store.dispatch(clearCurrentSession());
-    const agent = store.getState().agent.agents.find(a => a.id === agentId);
-    const isExpertAgent =
-      agent?.source === CoworkSessionExpertSource.Package ||
-      agent?.source === CoworkSessionExpertSource.Member;
-    if (agent?.skillIds?.length && !isExpertAgent) {
-      store.dispatch(setActiveSkillIds(agent.skillIds));
-    } else {
-      store.dispatch(clearActiveSkills());
-    }
   }
 }
 

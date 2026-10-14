@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { spawn } from 'child_process';
 import type { WebContents } from 'electron';
 import {
   app,
@@ -24,7 +23,6 @@ import { pathToFileURL } from 'url';
 
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
 import { parseCoworkExecutionMode } from '../shared/cowork/executionMode';
-import { reportPiSessionFailure } from './piSessionFailure';
 import { setPiCapabilityCorrectionStoreGetter } from './libs/agentEngine/piCapabilityCorrection';
 import { createPiUiEventBatcher } from './piUiEventBatcher';
 import { persistCoworkTerminalError } from './coworkTerminalErrorPersistence';
@@ -84,12 +82,10 @@ import {
   CoworkStreamIpc,
   HardwareIpc,
   ImIpc,
-  McpIpc,
   ManagedProviderIpc,
   ProjectIpc,
   RuntimeNoticeIpc,
   ShellIpc,
-  SkillsIpc,
   WeixinLoginErrorCode,
   WeixinInstallIpc,
   WindowIpc,
@@ -120,9 +116,7 @@ import {
   type WorkbenchTask,
 } from '../shared/workbenchTask';
 import { AgentManager } from './agentManager';
-import { ConversationHistoryService } from './conversationHistory/service';
 import { EngramManager } from './memory/engramManager';
-import { LegacyMemoryMigrationService } from './memory/legacyMemoryMigrationService';
 import {
   importLegacyMemoryFileCandidates,
   importLegacySqliteMemoryCandidates,
@@ -130,17 +124,11 @@ import {
 import { ProjectMemoryService } from './memory/projectMemoryService';
 import { resolveProjectIdentity } from './memory/projectIdentity';
 import { MemoryRepository } from './memory/repository';
-import { SessionSummaryService } from './memory/sessionSummaryService';
-import { SessionSummaryBackfillService } from './memory/sessionSummaryBackfillService';
 import { ZhiYuanEngramAdapter } from './memory/zhiyuanEngramAdapter';
 import { registerMemoryIpcHandlers } from './memory/ipc';
 import { registerModelPoolIpcHandlers } from './modelPoolIpc';
 import { resolveMemorySessionTitles } from './memory/sessionTitleResolver';
 import { promoteVerifiedWorkbenchRun } from './memory/taskMemoryPromotion';
-import {
-  resolveAnySearchGatewayToken,
-  resolveAnySearchGatewayUrl,
-} from './libs/anysearchGatewayCredentials';
 import {
   APP_DATA_DIR_NAME,
   APP_NAME,
@@ -163,7 +151,7 @@ import {
   slimImageAttachmentsForIpc,
   slimQueuedMessagesForIpc,
 } from './coworkImageAttachments';
-import { resolveCoworkContinuationSkillState } from './coworkSessionSkills';
+
 import {
   type CoworkMessageMetadata,
   type CoworkMessageType,
@@ -225,6 +213,7 @@ import { WorkbenchTaskService } from './workbenchTask/taskService';
 import { registerTodoIpcHandlers } from './todo/ipc';
 import { TodoReminderScheduler } from './todo/reminderScheduler';
 import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
+import { registerDurableIpc } from './libs/agentEngine/durable/ipc';
 import type { PiThinkingLevel } from './libs/agentEngine/piRuntimeTypes';
 import { PiModelCatalogRefreshCoordinator } from './libs/agentEngine/piModelCatalogRefresh';
 import { AppUpdateCoordinator } from './libs/appUpdateCoordinator';
@@ -257,12 +246,7 @@ import {
   startCoworkOpenAICompatProxy,
   stopCoworkOpenAICompatProxy,
 } from './libs/coworkOpenAICompatProxy';
-import {
-  applyApplicationRuntimeEnv,
-  generateSessionTitle,
-  getSkillsRoot,
-  probeCoworkModelReadiness,
-} from './libs/coworkUtil';
+import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
 import { createContentSecurityPolicy } from './contentSecurityPolicy';
 import { registerZhiyuanDeepLinkProtocol } from './deepLinkRegistration';
 import { refreshEndpointsTestMode } from './libs/endpoints';
@@ -290,7 +274,7 @@ import {
   publishDevNetworkLog,
 } from './devNetworkLog';
 import { truncateNetworkBody } from '../shared/devNetworkLog';
-import { ZhiyuanEnterpriseSkillBridge } from './enterpriseExtension/skillBridge';
+
 import { LlamaCppManager } from './libs/llamacppManager';
 import { CcConnectBridgeServer } from './libs/ccConnectBridgeServer';
 import { serializeCcConnectSidecarConfig } from './libs/ccConnectSidecarConfig';
@@ -303,39 +287,16 @@ import {
   isWeixinSetupTransportError,
   runCcConnectWeixinSetup,
 } from './libs/ccConnectWeixinSetup';
-import { MCP_OAUTH_STORE_PREFIX, McpOAuthManager } from './libs/mcpOAuthManager';
-import { getFeishuCliRoot, getFeishuConnectorSkillsRoot } from './libs/feishuConnectorPaths';
-import { getFeishuCliLauncherPath, writeFeishuCliLauncher } from './libs/feishuCliLauncher';
-import { installDownloadedFeishuCli } from './libs/feishuCliDownloader';
-import { McpCredentialVault } from './libs/mcpCredentialVault';
-import { exportMcpConfig, importMcpConfig } from './libs/mcpConfigCodec';
-import {
-  hasVerifiedAgentTools,
-  OfficialIntegrationId,
-  OfficialIntegrationManifests,
-} from './libs/mcpIntegrationManifest';
-import { IntegrationOperation, McpIntegrationRuntime } from './libs/mcpIntegrationRuntime';
+
 import { generateCorrelationId, runWithCorrelationId } from './libs/logCorrelation';
 import { exportLogsZip } from './libs/logExport';
-import {
-  validateMcpServerConfig,
-  validateStoredMcpServerConfig,
-} from './libs/mcpCommandValidation';
-import { probeMcpConnection } from './libs/mcpConnectionProbe';
-import type { McpToolManifestEntry } from './libs/mcpServerManager';
-import { McpServerManager } from './libs/mcpServerManager';
-import { loadBundledMcpMarketplace } from './mcpMarketplace';
-import {
-  fetchModelScopeSkillContent,
-  fetchModelScopeSkillMarketplace,
-} from './libs/modelscopeSkillMarketplace';
-import { createModelScopeTokenPool, ModelScopeStoreKey } from './libs/modelscopeTokenPool';
+
 import { getNvidiaSmiSnapshot } from './libs/nvidiaSmi';
 import { getSystemMemorySnapshot } from './libs/systemMemory';
 import { OllamaManager } from './libs/ollamaManager';
 import { resolveQualifiedAgentModelRef } from './libs/agentModels';
 import { consumePendingLocalInferenceInstall } from './libs/pendingLocalInferenceInstall';
-import { appendPythonRuntimeToEnv, ensurePythonRuntimeReady } from './libs/pythonRuntime';
+
 import { serializeForLog } from './libs/sanitizeForLog';
 import { SqliteBackupManager } from './libs/sqliteBackup/sqliteBackupManager';
 import { createLogger } from './libs/structuredLog';
@@ -346,8 +307,7 @@ import {
   setSystemProxyEnabled,
 } from './libs/systemProxy';
 import { getLogFilePath, getRecentMainLogEntries, initLogger, log } from './logger';
-import type { McpServerFormData } from './mcpStore';
-import { McpStore } from './mcpStore';
+
 import { parseCcConnectScopedConversationId } from './im/ccConnectConversationId';
 import { CcConnectPiBridge } from './im/ccConnectPiBridge';
 import { ChannelInboxStore } from './im/channelInboxStore';
@@ -356,10 +316,7 @@ import { createIMScheduledTaskRequestDetector } from './im/imScheduledTaskHandle
 import { IMStore } from './im/imStore';
 import { shouldReloadRendererProcess } from './rendererProcessRecovery';
 import { configureRendererStartup } from './rendererStartup';
-import { SkillManager } from './skillManager';
-import { listPresetExperts } from './presetExpertCatalog';
-import { resolveBundledPresetExpertSnapshot } from './presetExpertSnapshot';
-import { getSkillServiceManager } from './skillServices';
+
 import { SqliteStore } from './sqliteStore';
 import { startSqliteDiagnostics } from './sqliteDiagnostics';
 import { createUncaughtReporter, installStdioErrorGuards } from './stdioErrorGuard';
@@ -1182,27 +1139,14 @@ const getWorkbenchTaskService = (): WorkbenchTaskService => {
 };
 
 /**
- * The built-in coding agent advertises installed skills, experts and MCP servers
- * as slash-command candidates. An open lane re-reads that catalog only when this
- * generation moves, so every path that changes one of the three bumps it: skill
- * installs and removals, expert imports, agent edits, MCP configuration.
+ * Refresh installed expert command choices after agent edits.
  */
 let codingCommandCatalogGeneration = 0;
 const bumpCodingCommandCatalog = (): void => {
   codingCommandCatalogGeneration += 1;
 };
 
-let codingCommandCatalogWatchInstalled = false;
-const ensureCodingCommandCatalogWatch = (): void => {
-  if (codingCommandCatalogWatchInstalled) return;
-  codingCommandCatalogWatchInstalled = true;
-  // Skills are watched on disk, so a skill dropped into the skills folder also
-  // reaches open lanes through this notification.
-  getSkillManager().onSkillsChanged(bumpCodingCommandCatalog);
-};
-
 const getCodingRoomService = (): CodingRoomService => {
-  ensureCodingCommandCatalogWatch();
   if (!codingRoomService) {
     const runtime = getPiRuntimeAdapter();
     codingRoomService = new CodingRoomService(
@@ -1227,9 +1171,6 @@ const getCodingRoomService = (): CodingRoomService => {
           modelOverride,
           thinkingLevel,
           permissionMode,
-          goalMode,
-          planMode,
-          skillIds,
           expertIds,
         }) => {
           const approvalMode =
@@ -1267,9 +1208,6 @@ const getCodingRoomService = (): CodingRoomService => {
             codingElicitation: true,
             ...(modelOverride ? { modelOverride } : {}),
             ...(thinkingLevel ? { thinkingLevel: thinkingLevel as PiThinkingLevel } : {}),
-            ...(goalMode ? { goalMode: true } : {}),
-            ...(planMode ? { planMode: true } : {}),
-            ...(skillIds ? { skillIds } : {}),
             ...(expertSelection
               ? { expertIds: expertSelection.expertIds, systemPrompt: expertSelection.systemPrompt }
               : {}),
@@ -1299,14 +1237,6 @@ const getCodingRoomService = (): CodingRoomService => {
         cancelBuiltinSession: async sessionId => runtime.stopSession(sessionId),
         commandCatalogGeneration: () => codingCommandCatalogGeneration,
         listCommandChoices: () => ({
-          skills: getSkillManager()
-            .listSkills()
-            .filter(skill => skill.enabled)
-            .map(skill => ({
-              id: skill.id,
-              name: skill.displayName?.trim() || skill.name,
-              description: skill.displayDescription?.trim() || skill.description,
-            })),
           experts: getAgentManager()
             .listAgents()
             .filter(
@@ -1319,50 +1249,12 @@ const getCodingRoomService = (): CodingRoomService => {
               name: agent.name,
               description: agent.description,
             })),
-          mcpServers: getMcpStore()
-            .listServers()
-            // `/mcp <name>` carries the name as a single token, so a configured
-            // name containing whitespace cannot be addressed from the composer.
-            // Disabled servers stay listed: the scoped report names them and
-            // reports that they are off, which is usually the answer people want.
-            .filter(server => !/\s/u.test(server.name))
-            .map(server => ({
-              id: server.name,
-              name: server.name,
-              description: server.description,
-            })),
         }),
         respondBuiltinElicitation: (requestId, answer) =>
           runtime.respondToCodingElicitation(requestId, answer),
         cancelBuiltinElicitation: (requestId, reason) =>
           runtime.cancelCodingElicitation(requestId, reason),
         compactBuiltinSession: sessionId => runtime.compactSession(sessionId),
-        describeBuiltinMcp: (target?: string) => {
-          const statuses = new Map(
-            (mcpServerManager?.serverStatuses ?? []).map(status => [status.name, status] as const),
-          );
-          const manifest = mcpServerManager?.toolManifest ?? [];
-          return {
-            gatewayAvailable: piRuntimeAdapter?.hasMcpServerManager() ?? false,
-            target: target ?? null,
-            servers: getMcpStore()
-              .listServers()
-              .filter(server => !target || server.name === target)
-              .map(server => {
-                const status = statuses.get(server.name);
-                return {
-                  name: server.name,
-                  enabled: server.enabled,
-                  connected: status?.connected ?? false,
-                  toolCount: status?.toolCount ?? 0,
-                  ...(status?.error ? { error: status.error } : {}),
-                };
-              }),
-            tools: manifest
-              .filter(entry => !target || entry.server === target)
-              .map(entry => ({ server: entry.server, name: entry.name })),
-          };
-        },
         enqueueBuiltinControlAction: (sessionId, action) =>
           runtime.enqueueControlAction(sessionId, action),
         isBuiltinSessionRunning: sessionId => runtime.isSessionRunning(sessionId),
@@ -1370,7 +1262,7 @@ const getCodingRoomService = (): CodingRoomService => {
         enqueueBuiltinMessage: (sessionId, prompt) =>
           runtime.enqueuePendingMessage(sessionId, prompt),
         steerBuiltinMessage: async (sessionId, prompt) => {
-          const queued = runtime.enqueuePendingMessage(sessionId, prompt);
+          const queued = await runtime.enqueuePendingMessage(sessionId, prompt);
           if (!queued.success || !queued.item) return queued;
           return await runtime.steerPendingMessage(sessionId, queued.item.id);
         },
@@ -1592,67 +1484,11 @@ const getProjectMemoryService = (): ProjectMemoryService => {
 
 const getPiRuntimeAdapter = (): PiRuntimeAdapter => {
   if (!piRuntimeAdapter) {
-    // Pi shell tools inherit the main-process environment. Keep the gateway
-    // credential here so installed builds work without user configuration.
-    process.env.ZHIYUAN_ANYSEARCH_GATEWAY_TOKEN = resolveAnySearchGatewayToken();
-    process.env.ZHIYUAN_ANYSEARCH_GATEWAY_URL = resolveAnySearchGatewayUrl();
-    // Pi SDK resolves API keys from environment variables (ANTHROPIC_API_KEY etc.).
-    // Inject keys from ZhiYuanAgent's provider configuration before initializing Pi.
-    const keys = resolveAllProviderApiKeys();
-    const injected: string[] = [];
-    for (const [suffix, value] of Object.entries(keys)) {
-      const envKey = `${suffix}_API_KEY`;
-      if (!process.env[envKey] && value) {
-        process.env[envKey] = value;
-        injected.push(envKey);
-      }
-    }
-    console.log(
-      '[PiRuntime] Injected API keys:',
-      injected.length > 0 ? injected.join(', ') : '(none — provider config may be empty)',
-    );
     piRuntimeAdapter = new PiRuntimeAdapter();
-    piRuntimeAdapter.setImageAttachmentRoot(coworkImageRoot(app.getPath('userData')));
     piRuntimeAdapter.setCoworkStore(getCoworkStore());
-    piRuntimeAdapter.setWorkbenchTaskService(getWorkbenchTaskService());
-    piRuntimeAdapter.setProjectMemoryService(getProjectMemoryService());
-    piRuntimeAdapter.setSessionSummaryService(
-      new SessionSummaryService(getProjectMemoryService(), getCoworkStore()),
-    );
-    piRuntimeAdapter.setSessionSummaryBackfillService(
-      new SessionSummaryBackfillService(getProjectMemoryService(), getCoworkStore()),
-    );
-    piRuntimeAdapter.setLegacyMemoryMigrationService(
-      new LegacyMemoryMigrationService(
-        getProjectMemoryService(),
-        getCoworkStore(),
-        getWorkbenchTaskService(),
-      ),
-    );
-    piRuntimeAdapter.setConversationHistoryService(
-      new ConversationHistoryService(getStore().getDatabase()),
-    );
-    // Live team member definitions must read the same bundled truth as the
-    // main-session preset snapshot, not the userData skills copy.
-    piRuntimeAdapter.setBundledSkillsRoot(getSkillManager().getBundledSkillsRoot());
-    // MCP initialization runs asynchronously, so late injection may still be needed.
-    console.log('[PiRuntime] mcpServerManager available at init:', mcpServerManager !== null);
-  }
-  // Late-injection: mcpServerManager is created async after Pi init.
-  // On subsequent calls (e.g. from IPC handlers), it is available and
-  // we inject it so Pi sessions can use MCP tools.
-  if (mcpServerManager && !piRuntimeAdapter.hasMcpServerManager()) {
-    console.log('[PiRuntime] Late-injecting mcpServerManager (was null at init)');
-    piRuntimeAdapter.setMcpServerManager(mcpServerManager);
   }
   return piRuntimeAdapter;
 };
-let skillManager: SkillManager | null = null;
-let mcpStore: McpStore | null = null;
-let mcpServerManager: McpServerManager | null = null;
-let mcpInitPromise: Promise<McpToolManifestEntry[]> | null = null;
-let mcpLifecycleGeneration = 0;
-const activeMcpAuthorizations = new Map<string, AbortController>();
 let imGatewayManager: ChannelAccountManager | null = null;
 let ccConnectBridgeServer: CcConnectBridgeServer | null = null;
 let ccConnectSidecarManager: CcConnectSidecarManager | null = null;
@@ -1756,7 +1592,6 @@ const getCanonicalScheduledTaskService = (): CanonicalScheduledTaskService => {
       taskStore,
       canonicalSchedulerRuntime,
     );
-    piRuntimeAdapter?.setScheduledTaskService(canonicalScheduledTaskService);
   }
   return canonicalScheduledTaskService;
 };
@@ -1771,7 +1606,6 @@ const startCcConnectBridge = async (): Promise<void> => {
     turnCoordinator: new ChannelTurnCoordinator(new ChannelInboxStore(getStore().getDatabase())),
     activityService:
       activityService ?? (activityService = new ActivityService(getStore().getDatabase())),
-    getSkillsPrompt: async () => getSkillManager().buildAutoRoutingPrompt(),
     detectScheduledTaskRequest: createIMScheduledTaskRequestDetector({
       getLLMConfig: getScheduledTaskDetectorConfig,
     }),
@@ -2300,472 +2134,6 @@ const bindPiWorkbenchRuntimeForwarder = (): void => {
   piWorkbenchRuntimeForwarderBound = true;
 };
 
-const getSkillManager = () => {
-  if (!skillManager) {
-    skillManager = new SkillManager(getStore);
-  }
-  return skillManager;
-};
-
-const getMcpStore = () => {
-  if (!mcpStore) {
-    const sqliteStore = getStore();
-    const nextMcpStore = new McpStore(
-      sqliteStore.getDatabase(),
-      new McpCredentialVault(sqliteStore),
-    );
-    nextMcpStore.migrateLegacyCredentials();
-    mcpStore = nextMcpStore;
-  }
-  return mcpStore;
-};
-
-const MCP_BUILT_IN_DEFAULTS_DISABLED_KEY = 'mcp_builtin_defaults_disabled_v1';
-
-const ensureBuiltInMcpDefaultsDisabled = (): void => {
-  const store = getStore();
-  const defaultsAlreadyDisabled = store.get<boolean>(MCP_BUILT_IN_DEFAULTS_DISABLED_KEY) === true;
-
-  for (const server of getMcpStore().listServers()) {
-    const isUnverifiedOfficialConnector =
-      server.registryId === FEISHU_MCP_REGISTRY_ID &&
-      !hasVerifiedAgentTools(OfficialIntegrationManifests[OfficialIntegrationId.Feishu]);
-    if (
-      (isUnverifiedOfficialConnector || (!defaultsAlreadyDisabled && server.isBuiltIn)) &&
-      server.enabled
-    ) {
-      getMcpStore().setEnabled(server.id, false);
-    }
-  }
-  if (defaultsAlreadyDisabled) return;
-  store.set(MCP_BUILT_IN_DEFAULTS_DISABLED_KEY, true);
-};
-
-const FEISHU_CLI_TIMEOUT_MS = 120_000;
-const FEISHU_CLI_AUTH_TIMEOUT_MS = 600_000;
-const FEISHU_MCP_REGISTRY_ID = OfficialIntegrationId.Feishu;
-const getCurrentFeishuCliRoot = (): string => getFeishuCliRoot(app.getPath('userData'));
-
-const getLocalFeishuCliCommand = (): string | null => {
-  const command = getFeishuCliLauncherPath(app.getPath('userData'));
-  return fs.existsSync(command) ? command : null;
-};
-
-const decodeFeishuCliOutput = (chunks: Buffer[]): string => {
-  const bytes = Buffer.concat(chunks);
-  const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  if (!utf8.includes('\uFFFD')) return utf8;
-  return new TextDecoder('gb18030', { fatal: false }).decode(bytes);
-};
-
-const runFeishuCliCommand = (
-  command: string,
-  args: string[],
-  cwd?: string,
-  timeoutMs = FEISHU_CLI_TIMEOUT_MS,
-  signal?: AbortSignal,
-): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const env: Record<string, string | undefined> = { ...process.env };
-    // Keep the Agent process environment consistent with the app-managed
-    // connector binary directory.
-    applyApplicationRuntimeEnv(env, { includePackageMirrors: true });
-    const child = spawn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      cwd,
-      shell: process.platform === 'win32' && command.toLowerCase().endsWith('.cmd'),
-      env,
-    });
-    const outputChunks: Buffer[] = [];
-    let settled = false;
-    let timer: NodeJS.Timeout | null = null;
-    const abort = () => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      child.kill();
-      reject(new Error('MCP authorization was cancelled'));
-    };
-    if (signal?.aborted) {
-      abort();
-      return;
-    }
-    signal?.addEventListener('abort', abort, { once: true });
-    const finish = () => signal?.removeEventListener('abort', abort);
-    timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      finish();
-      child.kill();
-      reject(new Error(`Feishu CLI command timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    child.stdout.on('data', chunk =>
-      outputChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
-    );
-    child.stderr.on('data', chunk =>
-      outputChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
-    );
-    child.once('error', error => {
-      if (settled) return;
-      settled = true;
-      finish();
-      if (timer) clearTimeout(timer);
-      reject(error);
-    });
-    child.once('close', code => {
-      if (settled) return;
-      settled = true;
-      finish();
-      if (timer) clearTimeout(timer);
-      const output = decodeFeishuCliOutput(outputChunks).trim();
-      if (code === 0) {
-        resolve(output);
-        return;
-      }
-      reject(new Error(output || `${command} exited with code ${code ?? 'unknown'}`));
-    });
-  });
-
-const findFeishuCliCommand = async (): Promise<string | null> => {
-  return getLocalFeishuCliCommand();
-};
-
-const installFeishuCli = async (): Promise<void> => {
-  await installDownloadedFeishuCli(app.getPath('userData'));
-  await writeFeishuCliLauncher(app.getPath('userData'));
-  // Pi's bash tool snapshots this process environment. Refresh the managed
-  // PATH now so a connector installed after the first session is usable.
-  applyApplicationRuntimeEnv(process.env as Record<string, string | undefined>);
-};
-
-const verifyFeishuCli = async (command: string): Promise<void> => {
-  await runFeishuCliCommand(command, ['--version'], getCurrentFeishuCliRoot());
-};
-
-const prepareFeishuCli = async (): Promise<void> => {
-  let cliCommand = await findFeishuCliCommand();
-  const cliRoot = getCurrentFeishuCliRoot();
-  await fs.promises.mkdir(cliRoot, { recursive: true });
-  if (cliCommand) {
-    try {
-      await verifyFeishuCli(cliCommand);
-    } catch (error) {
-      console.warn('[Feishu] CLI health check failed, reinstalling the pinned version:', error);
-      await installFeishuCli();
-      cliCommand = await findFeishuCliCommand();
-    }
-  } else {
-    await installFeishuCli();
-    cliCommand = await findFeishuCliCommand();
-  }
-  if (!cliCommand) throw new Error('Feishu CLI installation did not provide lark-cli');
-  await verifyFeishuCli(cliCommand);
-
-  try {
-    await runFeishuCliCommand(cliCommand, ['config', 'show'], cliRoot);
-  } catch {
-    await runFeishuCliCommand(cliCommand, ['config', 'init', '--new', '--lang', 'en'], cliRoot);
-  }
-};
-
-const authorizeFeishuCli = async (signal?: AbortSignal): Promise<void> => {
-  await prepareFeishuCli();
-  const cliCommand = await findFeishuCliCommand();
-  if (!cliCommand) throw new Error('Feishu CLI installation did not provide lark-cli');
-  const cliRoot = getCurrentFeishuCliRoot();
-
-  const authOutput = await runFeishuCliCommand(
-    cliCommand,
-    ['auth', 'login', '--recommend', '--no-wait', '--json'],
-    cliRoot,
-    FEISHU_CLI_TIMEOUT_MS,
-    signal,
-  );
-  let authPayload: { device_code?: string; verification_url?: string } | null = null;
-  for (const line of authOutput.trim().split(/\r?\n/).reverse()) {
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (parsed && typeof parsed === 'object') {
-        authPayload = parsed as { device_code?: string; verification_url?: string };
-        break;
-      }
-    } catch {
-      // The CLI may include human-readable notices around its JSON output.
-    }
-  }
-  if (!authPayload?.device_code || !authPayload.verification_url) {
-    throw new Error('Feishu CLI did not return a browser authorization URL');
-  }
-  await shell.openExternal(authPayload.verification_url);
-  await runFeishuCliCommand(
-    cliCommand,
-    ['auth', 'login', '--device-code', authPayload.device_code, '--json'],
-    cliRoot,
-    FEISHU_CLI_AUTH_TIMEOUT_MS,
-    signal,
-  );
-  await runFeishuCliCommand(cliCommand, ['auth', 'status'], cliRoot, FEISHU_CLI_TIMEOUT_MS, signal);
-};
-
-const logoutFeishuCli = async (): Promise<void> => {
-  const cliCommand = await findFeishuCliCommand();
-  if (!cliCommand) return;
-
-  await runFeishuCliCommand(cliCommand, ['auth', 'logout'], getCurrentFeishuCliRoot());
-  console.log('[Feishu] official CLI authorization removed');
-};
-
-const resolveBundledFeishuSkills = (): string | null => {
-  const candidates = [
-    path.join(process.resourcesPath, 'MCPs', 'feishu', 'skills'),
-    path.join(app.getAppPath(), 'MCPs', 'feishu', 'skills'),
-    path.join(process.cwd(), 'MCPs', 'feishu', 'skills'),
-  ];
-  return candidates.find(candidate => fs.existsSync(candidate)) || null;
-};
-
-const installFeishuSkills = async (): Promise<void> => {
-  const source = resolveBundledFeishuSkills();
-  if (!source) throw new Error('Bundled Feishu skills were not found');
-  // Keep connector-provided skills in the per-user directory. This avoids
-  // mutating the checked-out development SKILLs tree while still letting the
-  // Agent load them through its user extraDirs configuration.
-  const target = getFeishuConnectorSkillsRoot(app.getPath('userData'));
-  await fs.promises.mkdir(target, { recursive: true });
-  const entries = await fs.promises.readdir(source, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    await fs.promises.cp(path.join(source, entry.name), path.join(target, entry.name), {
-      recursive: true,
-      force: true,
-    });
-  }
-  console.log('[Feishu] official CLI skills installed for the Agent');
-};
-
-const removeFeishuSkills = async (): Promise<void> => {
-  const target = getFeishuConnectorSkillsRoot(app.getPath('userData'));
-  await fs.promises.rm(target, { recursive: true, force: true });
-  console.log('[Feishu] official CLI skills removed from the Agent');
-};
-
-const verifyFeishuConnector = async (signal?: AbortSignal): Promise<void> => {
-  const cliCommand = await findFeishuCliCommand();
-  if (!cliCommand) throw new Error('Feishu CLI is not installed.');
-  const cliRoot = getCurrentFeishuCliRoot();
-  await verifyFeishuCli(cliCommand);
-  await runFeishuCliCommand(cliCommand, ['auth', 'status'], cliRoot, FEISHU_CLI_TIMEOUT_MS, signal);
-};
-
-const repairFeishuConnector = async (): Promise<void> => {
-  const cliRoot = getCurrentFeishuCliRoot();
-  await fs.promises.mkdir(cliRoot, { recursive: true });
-  await installFeishuCli();
-  await prepareFeishuCli();
-};
-
-let mcpIntegrationRuntime: McpIntegrationRuntime | null = null;
-
-const getMcpIntegrationRuntime = (): McpIntegrationRuntime => {
-  if (mcpIntegrationRuntime) return mcpIntegrationRuntime;
-  const runtime = new McpIntegrationRuntime();
-  runtime.register({
-    manifest: OfficialIntegrationManifests[OfficialIntegrationId.Feishu],
-    provision: () => prepareFeishuCli(),
-    authenticate: async signal => {
-      await authorizeFeishuCli(signal);
-      await installFeishuSkills();
-    },
-    verify: signal => verifyFeishuConnector(signal),
-    repair: () => repairFeishuConnector(),
-    uninstall: async () => {
-      try {
-        await logoutFeishuCli();
-      } finally {
-        await removeFeishuSkills();
-      }
-    },
-  });
-  mcpIntegrationRuntime = runtime;
-  return runtime;
-};
-
-const refreshMcpOAuthHeaders = async <
-  T extends { id: string; registryId?: string; url?: string; headers?: Record<string, string> },
->(
-  servers: T[],
-): Promise<T[]> => {
-  const oauthManager = new McpOAuthManager(getStore());
-  return Promise.all(
-    servers.map(async server => {
-      if (!server.registryId || !server.url) return server;
-      try {
-        const accessToken = await oauthManager.refreshAccessToken(server.registryId, server.url);
-        if (!accessToken) return server;
-        const headers = { ...server.headers, Authorization: `Bearer ${accessToken}` };
-        getMcpStore().updateServer(server.id, { headers });
-        return { ...server, headers };
-      } catch (error) {
-        console.warn(
-          `[McpAuth] failed to refresh OAuth token for ${server.registryId}; using the stored token:`,
-          error,
-        );
-        return server;
-      }
-    }),
-  );
-};
-
-/**
- * Initialize MCP servers and discover tools.
- *
- * Safe to call from any Pi initialization context.
- * deduplicates concurrent calls via a promise lock and skips if the
- * McpServerManager is already running.
- *
- * Returns the tool manifest (may be empty if no MCP servers are configured).
- */
-const initMcpServers = async (): Promise<McpToolManifestEntry[]> => {
-  if (mcpInitPromise) return mcpInitPromise;
-  const generation = mcpLifecycleGeneration;
-
-  mcpInitPromise = (async (): Promise<McpToolManifestEntry[]> => {
-    try {
-      ensureBuiltInMcpDefaultsDisabled();
-      const enabledServers = await refreshMcpOAuthHeaders(getMcpStore().getEnabledServers());
-      if (enabledServers.length === 0) {
-        console.log('[McpInit] No MCP servers configured, skipping');
-        return [];
-      }
-
-      if (!mcpServerManager) {
-        mcpServerManager = new McpServerManager();
-      }
-
-      // If already running (e.g. initMcpServers called before startMcpBridge),
-      // reuse the existing connections instead of restarting.
-      if (mcpServerManager.isRunning) {
-        const count = mcpServerManager.toolManifest.length;
-        console.log(`[McpInit] MCP already running, reusing ${count} tools`);
-        return mcpServerManager.toolManifest;
-      }
-
-      console.log(`[McpInit] Starting ${enabledServers.length} MCP servers...`);
-      const tools = await mcpServerManager.startServers(enabledServers);
-      if (generation !== mcpLifecycleGeneration) {
-        await mcpServerManager.stopServers();
-        return [];
-      }
-      console.log(`[McpInit] MCP servers started: ${tools.length} tools discovered`);
-      syncPiMcpToolManifest();
-      bumpCodingCommandCatalog();
-      return tools;
-    } catch (err) {
-      console.error('[McpInit] Failed to start MCP servers:', err);
-      return [];
-    }
-  })().finally(() => {
-    mcpInitPromise = null;
-  });
-
-  return mcpInitPromise;
-};
-
-/**
- * Pi sessions capture their custom-tool topology at creation time. Keep an
- * already-created Pi runtime synchronized after both startup discovery and
- * later connector refreshes without instantiating Pi just for MCP bootstrap.
- */
-const syncPiMcpToolManifest = (): void => {
-  if (!piRuntimeAdapter || !mcpServerManager) return;
-  if (!piRuntimeAdapter.hasMcpServerManager()) {
-    piRuntimeAdapter.setMcpServerManager(mcpServerManager);
-    return;
-  }
-  piRuntimeAdapter.refreshMcpTools();
-};
-
-/**
- * Refresh in-process MCP servers after configuration changes.
- * Returns a summary for the renderer to display.
- */
-let mcpBridgeRefreshPromise: Promise<{ tools: number; error?: string }> | null = null;
-let mcpBridgeRefreshPending = false;
-
-const broadcastMcpBridgeSync = (channel: string, data?: Record<string, unknown>): void => {
-  const windows = BrowserWindow.getAllWindows();
-  windows.forEach(win => {
-    if (win.isDestroyed()) return;
-    try {
-      win.webContents.send(channel, data ?? {});
-    } catch (error) {
-      console.error(`[McpBridge] Failed to broadcast ${channel}:`, error);
-    }
-  });
-};
-
-const refreshMcpBridge = (): Promise<{ tools: number; error?: string }> => {
-  if (mcpBridgeRefreshPromise) {
-    // A server setting changed while the current pass was reading the enabled
-    // list. Schedule one more pass after it completes so the bridge converges
-    // on the latest persisted configuration.
-    mcpBridgeRefreshPending = true;
-    return mcpBridgeRefreshPromise;
-  }
-  mcpBridgeRefreshPromise = (async () => {
-    try {
-      const generation = ++mcpLifecycleGeneration;
-      console.log('[McpBridge] refreshing after config change...');
-      broadcastMcpBridgeSync('mcp:bridge:syncStart');
-
-      ensureBuiltInMcpDefaultsDisabled();
-      const enabledServers = await refreshMcpOAuthHeaders(getMcpStore().getEnabledServers());
-      if (!mcpServerManager) {
-        mcpServerManager = new McpServerManager();
-      }
-      // Reconcile preserves healthy, unchanged connections. A change to one
-      // integration must not interrupt every other configured MCP server.
-      const tools = await mcpServerManager.reconcileServers(enabledServers);
-      if (generation !== mcpLifecycleGeneration) {
-        return { tools: 0, error: 'MCP configuration changed during refresh' };
-      }
-      const toolCount = tools.length;
-      console.log(`[McpBridge] refresh: ${toolCount} tools discovered`);
-      bumpCodingCommandCatalog();
-
-      // Pi's custom tool topology is captured when a session is created.
-      // Mark live sessions stale after discovery so their next user turn is
-      // rebuilt with the freshly discovered MCP proxy instead of relying on
-      // whichever servers happened to be ready during app startup.
-      syncPiMcpToolManifest();
-      console.log(`[McpBridge] refresh complete: ${toolCount} tools discovered`);
-      return { tools: toolCount };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error('[McpBridge] refresh error:', msg);
-      return { tools: 0, error: msg };
-    }
-  })()
-    .then(result => {
-      broadcastMcpBridgeSync('mcp:bridge:syncDone', { tools: result.tools, error: result.error });
-      return result;
-    })
-    .catch(err => {
-      const error = err instanceof Error ? err.message : String(err);
-      broadcastMcpBridgeSync('mcp:bridge:syncDone', { tools: 0, error });
-      return { tools: 0, error };
-    })
-    .finally(() => {
-      mcpBridgeRefreshPromise = null;
-      if (mcpBridgeRefreshPending) {
-        mcpBridgeRefreshPending = false;
-        void refreshMcpBridge();
-      }
-    });
-  return mcpBridgeRefreshPromise;
-};
-
 const getIMGatewayManager = () => {
   if (!imGatewayManager) {
     imGatewayManager = new ChannelAccountManager(getStore().getDatabase(), async accountId => {
@@ -2819,28 +2187,9 @@ const resolveSessionExpertSnapshots = (expertIds: string[]): CoworkSessionExpert
     ) {
       throw new Error(`Expert '${expertId}' is not installed or is not an expert package agent`);
     }
-    let promptSnapshot = expert.systemPrompt.trim();
+    const promptSnapshot = expert.systemPrompt.trim();
     const packageId = expert.presetId.trim() || expert.id;
-    let skillIds = [...expert.skillIds];
-
-    // Bundled presets are file-sourced like regular skills: the preset
-    // markdown is read live on every session so editing the preset takes
-    // effect without re-importing. The DB snapshot remains the fallback
-    // when the preset directory is missing or unreadable.
-    if (expert.presetId.trim()) {
-      const bundledSkillsRoot = getSkillManager().getBundledSkillsRoot();
-      // The main session loads only the selected agent's file: the lead for
-      // teams, the single file for standalone agents.
-      const liveSnapshot = resolveBundledPresetExpertSnapshot(
-        bundledSkillsRoot,
-        packageId,
-        expert.id,
-      );
-      if (liveSnapshot) {
-        promptSnapshot = liveSnapshot.promptSnapshot;
-        skillIds = liveSnapshot.skillIds;
-      }
-    }
+    const skillIds: string[] = [];
 
     if (!promptSnapshot) {
       throw new Error(`Expert '${expertId}' has an empty system prompt`);
@@ -3685,629 +3034,6 @@ if (!gotTheLock) {
     }
   });
 
-  // Skills IPC handlers
-  ipcMain.handle('skills:list', () => {
-    try {
-      const skills = getSkillManager().listSkills();
-      return { success: true, skills };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to load skills',
-      };
-    }
-  });
-
-  ipcMain.handle(SkillsIpc.SetEnabled, (_event, options: { id: string; enabled: boolean }) => {
-    try {
-      const skills = getSkillManager().setSkillEnabled(options.id, options.enabled);
-      return { success: true, skills };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to update skill',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    SkillsIpc.SetEnabledBatch,
-    (_event, options: { ids: string[]; enabled: boolean }) => {
-      try {
-        const skills = getSkillManager().setSkillsEnabled(options.ids, options.enabled);
-        return { success: true, skills };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to update skills',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(SkillsIpc.SetPinned, (_event, options: { id: string; pinned: boolean }) => {
-    try {
-      const skills = getSkillManager().setSkillPinned(options.id, options.pinned);
-      return { success: true, skills };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to update skill',
-      };
-    }
-  });
-
-  ipcMain.handle('skills:delete', async (_event, id: string) => {
-    try {
-      const skills = await getSkillManager().deleteSkill(id);
-      return { success: true, skills };
-    } catch (error) {
-      console.error('[skills] Failed to delete skill:', id, error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete skill',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'skills:download',
-    async (_event, source: string, options?: { iconUrl?: string; displayName?: string }) => {
-      return getSkillManager().downloadSkill(source, options);
-    },
-  );
-
-  ipcMain.handle('skills:confirmInstall', async (_event, pendingId: string, action: string) => {
-    const validActions = ['install', 'installDisabled', 'cancel'];
-    if (!validActions.includes(action)) {
-      return { success: false, error: 'Invalid action' };
-    }
-    return getSkillManager().confirmPendingInstall(
-      pendingId,
-      action as 'install' | 'installDisabled' | 'cancel',
-    );
-  });
-
-  ipcMain.handle('skills:getRoot', () => {
-    try {
-      const root = getSkillManager().getSkillsRoot();
-      return { success: true, path: root };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to resolve skills root',
-      };
-    }
-  });
-
-  ipcMain.handle(SkillsIpc.GetContent, async (_event, skillId: string) => {
-    return getSkillManager().getSkillContent(skillId);
-  });
-
-  ipcMain.handle('skills:autoRoutingPrompt', () => {
-    try {
-      const prompt = getSkillManager().buildAutoRoutingPrompt();
-      return { success: true, prompt };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to build auto-routing prompt',
-      };
-    }
-  });
-
-  ipcMain.handle('skills:getConfig', (_event, skillId: string) => {
-    return getSkillManager().getSkillConfig(skillId);
-  });
-
-  ipcMain.handle(
-    'skills:setConfig',
-    async (_event, skillId: string, config: Record<string, string>) => {
-      const result = getSkillManager().setSkillConfig(skillId, config);
-      return result;
-    },
-  );
-
-  ipcMain.handle(
-    'skills:testEmailConnectivity',
-    async (_event, skillId: string, config: Record<string, string>) => {
-      return getSkillManager().testEmailConnectivity(skillId, config);
-    },
-  );
-
-  ipcMain.handle(
-    SkillsIpc.FetchMarketplace,
-    async (_event, options?: { pageNumber?: number; pageSize?: number }) => {
-      try {
-        const userToken = getStore().get<string>(ModelScopeStoreKey.ApiToken);
-        const token = createModelScopeTokenPool({
-          extraTokens: userToken ? [userToken] : [],
-        }).nextToken();
-        console.log('[SkillMarketplace] fetching skills from ModelScope OpenAPI');
-        const data = await fetchModelScopeSkillMarketplace({
-          token,
-          pageNumber: options?.pageNumber,
-          pageSize: options?.pageSize,
-          fetchImpl: (input, init) =>
-            session.defaultSession.fetch(input, init as RequestInit) as unknown as ReturnType<
-              typeof fetch
-            >,
-        });
-        return { success: true, data };
-      } catch (error) {
-        console.error('[SkillMarketplace] fetch error:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to fetch skill marketplace',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(SkillsIpc.FetchMarketplaceContent, async (_event, skillId: string) => {
-    try {
-      const userToken = getStore().get<string>(ModelScopeStoreKey.ApiToken);
-      const token = createModelScopeTokenPool({
-        extraTokens: userToken ? [userToken] : [],
-      }).nextToken();
-      const content = await fetchModelScopeSkillContent(skillId, {
-        token,
-        fetchImpl: (input, init) =>
-          session.defaultSession.fetch(input, init as RequestInit) as unknown as ReturnType<
-            typeof fetch
-          >,
-      });
-      return { success: true, content };
-    } catch (error) {
-      console.warn('[SkillMarketplace] content fetch failed:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch skill content',
-      };
-    }
-  });
-
-  // MCP Server IPC handlers
-  ipcMain.handle(McpIpc.List, () => {
-    try {
-      ensureBuiltInMcpDefaultsDisabled();
-      const servers = getMcpStore().listServers();
-      return { success: true, servers };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to list MCP servers',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    McpIpc.Create,
-    async (
-      _event,
-      data: {
-        name: string;
-        description: string;
-        transportType: string;
-        command?: string;
-        args?: string[];
-        env?: Record<string, string>;
-        url?: string;
-        headers?: Record<string, string>;
-        isBuiltIn?: boolean;
-        registryId?: string;
-        exposure?: 'codemode' | 'deferred' | 'direct' | 'hidden';
-      },
-    ) => {
-      try {
-        const validationError = await validateMcpServerConfig(data as McpServerFormData);
-        if (validationError) {
-          return { success: false, error: validationError };
-        }
-
-        getMcpStore().createServer(data as McpServerFormData);
-        const servers = getMcpStore().listServers();
-        // Trigger async MCP bridge refresh (don't await — let UI show DB result immediately)
-        refreshMcpBridge().catch(err =>
-          console.error('[McpBridge] background refresh error:', err),
-        );
-        return { success: true, servers };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to create MCP server',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    McpIpc.Update,
-    async (
-      _event,
-      id: string,
-      data: {
-        name?: string;
-        description?: string;
-        transportType?: string;
-        command?: string;
-        args?: string[];
-        env?: Record<string, string>;
-        url?: string;
-        headers?: Record<string, string>;
-        githubUrl?: string;
-        registryId?: string;
-        exposure?: 'codemode' | 'deferred' | 'direct' | 'hidden';
-      },
-    ) => {
-      try {
-        const existing = getMcpStore().getServer(id);
-        if (!existing) {
-          return { success: false, error: 'MCP server not found' };
-        }
-
-        const merged: McpServerFormData = {
-          name: data.name ?? existing.name,
-          description: data.description ?? existing.description,
-          transportType: (data.transportType ??
-            existing.transportType) as McpServerFormData['transportType'],
-          command: data.command !== undefined ? data.command : existing.command,
-          args: data.args !== undefined ? data.args : existing.args,
-          env: data.env !== undefined ? data.env : existing.env,
-          url: data.url !== undefined ? data.url : existing.url,
-          headers: data.headers !== undefined ? data.headers : existing.headers,
-          isBuiltIn: existing.isBuiltIn,
-          githubUrl: data.githubUrl !== undefined ? data.githubUrl : existing.githubUrl,
-          registryId: data.registryId !== undefined ? data.registryId : existing.registryId,
-          exposure: data.exposure !== undefined ? data.exposure : existing.exposure,
-        };
-
-        const validationError = await validateMcpServerConfig(merged);
-        if (validationError) {
-          return { success: false, error: validationError };
-        }
-
-        getMcpStore().updateServer(id, data as Partial<McpServerFormData>);
-        const servers = getMcpStore().listServers();
-        refreshMcpBridge().catch(err =>
-          console.error('[McpBridge] background refresh error:', err),
-        );
-        return { success: true, servers };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to update MCP server',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(McpIpc.TestConnection, async (_event, data: McpServerFormData) => {
-    try {
-      const validationError = await validateMcpServerConfig(data);
-      if (validationError) {
-        return { success: false, error: validationError };
-      }
-      return await probeMcpConnection(data);
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to test MCP connection',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.Delete, async (_event, id: string) => {
-    try {
-      const existing = getMcpStore().getServer(id);
-      if (!existing) {
-        return { success: false, error: 'MCP server not found' };
-      }
-      if (existing.registryId === FEISHU_MCP_REGISTRY_ID) {
-        const uninstallStatus = await getMcpIntegrationRuntime().run(
-          OfficialIntegrationId.Feishu,
-          IntegrationOperation.Uninstall,
-        );
-        if (uninstallStatus.error) {
-          return { success: false, error: uninstallStatus.error };
-        }
-      }
-      getMcpStore().deleteServer(id);
-      // OAuth sessions are keyed by the registry id during authorization,
-      // while the installed server row has its own random database id. Clear
-      // both keys so uninstall actually unlinks this App's authorization.
-      const oauthKeys = new Set([id, existing.registryId].filter(Boolean));
-      for (const oauthKey of oauthKeys) {
-        getStore().delete(`${MCP_OAUTH_STORE_PREFIX}${oauthKey}`);
-        new McpCredentialVault(getStore()).deleteValue(`${MCP_OAUTH_STORE_PREFIX}${oauthKey}`);
-      }
-      const servers = getMcpStore().listServers();
-      const refreshResult = await refreshMcpBridge();
-      if (refreshResult.error) {
-        console.error('[McpBridge] refresh after uninstall failed:', refreshResult.error);
-      }
-      return { success: true, servers, refreshError: refreshResult.error };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete MCP server',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.SetEnabled, async (_event, options: { id: string; enabled: boolean }) => {
-    try {
-      if (options.enabled) {
-        const existing = getMcpStore().getServer(options.id);
-        if (!existing) {
-          return { success: false, error: 'MCP server not found' };
-        }
-        if (
-          existing.registryId === FEISHU_MCP_REGISTRY_ID &&
-          !hasVerifiedAgentTools(OfficialIntegrationManifests[OfficialIntegrationId.Feishu])
-        ) {
-          return {
-            success: false,
-            error:
-              'Feishu is installed as an official connector, but no verified agent tools are available yet.',
-          };
-        }
-        if (existing.registryId !== FEISHU_MCP_REGISTRY_ID) {
-          const validationError = await validateStoredMcpServerConfig(existing);
-          if (validationError) {
-            return { success: false, error: validationError };
-          }
-          // Enabling must remain responsive. refreshMcpBridge() immediately
-          // follows this write and performs the single authoritative OAuth
-          // refresh plus MCP initialization. Doing it here as a synchronous
-          // probe duplicated that network work and blocked the switch.
-        }
-      }
-
-      getMcpStore().setEnabled(options.id, options.enabled);
-      const servers = getMcpStore().listServers();
-      refreshMcpBridge().catch(err => console.error('[McpBridge] background refresh error:', err));
-      return { success: true, servers };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to update MCP server',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.FetchMarketplace, async () => {
-    try {
-      return {
-        success: true,
-        data: loadBundledMcpMarketplace(app.getAppPath(), process.resourcesPath),
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to load bundled MCP marketplace',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.LoadIcon, async (_event, iconPath: string) => {
-    try {
-      const marketplace = loadBundledMcpMarketplace(app.getAppPath(), process.resourcesPath);
-      if (
-        !marketplace.servers.some(server => (server as { iconPath?: string }).iconPath === iconPath)
-      ) {
-        return { success: false, error: 'MCP icon is not registered' };
-      }
-      const roots = [
-        path.join(process.resourcesPath, 'MCPs'),
-        path.join(app.getAppPath(), 'MCPs'),
-        path.join(process.cwd(), 'MCPs'),
-      ];
-      for (const root of roots) {
-        const filePath = path.resolve(root, iconPath);
-        if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath)) continue;
-        const extension = path.extname(filePath).toLowerCase();
-        const mimeType =
-          extension === '.png'
-            ? 'image/png'
-            : extension === '.jpg' || extension === '.jpeg'
-              ? 'image/jpeg'
-              : extension === '.svg'
-                ? 'image/svg+xml'
-                : null;
-        if (!mimeType) return { success: false, error: 'Unsupported MCP icon format' };
-        return {
-          success: true,
-          data: `data:${mimeType};base64,${fs.readFileSync(filePath).toString('base64')}`,
-        };
-      }
-      return { success: false, error: 'MCP icon was not found' };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to load MCP icon',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.ExportConfig, async () => {
-    try {
-      const result = await dialog.showSaveDialog({
-        title: 'Export MCP configuration',
-        defaultPath: 'mcp.json',
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      });
-      if (result.canceled || !result.filePath) return { success: true, cancelled: true };
-      const document = exportMcpConfig(getMcpStore().listServers());
-      await fs.promises.writeFile(
-        result.filePath,
-        `${JSON.stringify(document, null, 2)}\n`,
-        'utf8',
-      );
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to export MCP configuration',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.ImportConfig, async () => {
-    try {
-      const result = await dialog.showOpenDialog({
-        title: 'Import MCP configuration',
-        properties: ['openFile'],
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      });
-      if (result.canceled || result.filePaths.length === 0)
-        return { success: true, cancelled: true };
-      const input = JSON.parse(await fs.promises.readFile(result.filePaths[0], 'utf8')) as unknown;
-      const servers = importMcpConfig(input);
-      const existingNames = new Set(
-        getMcpStore()
-          .listServers()
-          .map(server => server.name),
-      );
-      for (const server of servers) {
-        if (existingNames.has(server.name)) {
-          return { success: false, error: `MCP server "${server.name}" already exists.` };
-        }
-        const validationError = await validateMcpServerConfig(server);
-        if (validationError) return { success: false, error: validationError };
-      }
-      for (const server of servers) getMcpStore().createServer(server);
-      const refreshed = await refreshMcpBridge();
-      return {
-        success: !refreshed.error,
-        servers: getMcpStore().listServers(),
-        error: refreshed.error,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to import MCP configuration',
-      };
-    }
-  });
-
-  ipcMain.handle(McpIpc.CancelAuthorize, (_event, requestId: string) => {
-    activeMcpAuthorizations.get(requestId)?.abort();
-    return { success: true };
-  });
-
-  ipcMain.handle(McpIpc.GetFeishuCliStatus, () => ({
-    success: true,
-    installed: Boolean(getLocalFeishuCliCommand()),
-  }));
-
-  ipcMain.handle(McpIpc.PrepareFeishuCli, async () => {
-    try {
-      const status = await getMcpIntegrationRuntime().run(
-        OfficialIntegrationId.Feishu,
-        IntegrationOperation.Provision,
-      );
-      return status.error ? { success: false, error: status.error } : { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to install Feishu CLI',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    McpIpc.Authorize,
-    async (_event, rawData: McpServerFormData & { authorizationRequestId?: string }) => {
-      const { authorizationRequestId, ...data } = rawData;
-      const cancellation = authorizationRequestId ? new AbortController() : null;
-      if (authorizationRequestId && cancellation) {
-        activeMcpAuthorizations.set(authorizationRequestId, cancellation);
-      }
-      const ensureNotCancelled = () => {
-        if (cancellation?.signal.aborted) throw new Error('MCP authorization was cancelled');
-      };
-      try {
-        ensureNotCancelled();
-        if (data.registryId === FEISHU_MCP_REGISTRY_ID) {
-          const status = await getMcpIntegrationRuntime().run(
-            OfficialIntegrationId.Feishu,
-            IntegrationOperation.Authenticate,
-            cancellation?.signal,
-          );
-          if (status.error) throw new Error(status.error);
-          ensureNotCancelled();
-          const existingFeishu = getMcpStore()
-            .listServers()
-            .find(server => server.registryId === FEISHU_MCP_REGISTRY_ID);
-          if (!existingFeishu) {
-            getMcpStore().createServer({
-              name: data.name,
-              description: data.description || 'Official Feishu CLI and Skills connector',
-              transportType: 'stdio',
-              // Presentation-only record. The CLI is intentionally not started
-              // by McpServerManager until a verified MCP tool protocol exists.
-              command: 'lark-cli',
-              isBuiltIn: true,
-              registryId: FEISHU_MCP_REGISTRY_ID,
-            });
-          }
-          const servers = getMcpStore().listServers();
-          const refreshResult = await refreshMcpBridge();
-          if (refreshResult.error) {
-            console.error('[McpBridge] Feishu refresh error:', refreshResult.error);
-          }
-          return { success: true, servers, refreshError: refreshResult.error };
-        }
-        const validationError = await validateMcpServerConfig(data);
-        if (validationError) return { success: false, error: validationError };
-        if (!data.registryId || !data.url)
-          return { success: false, error: 'Official MCP configuration is incomplete' };
-
-        const accessToken = await new McpOAuthManager(getStore()).authorize(
-          data.registryId,
-          data.url,
-          cancellation?.signal,
-        );
-        ensureNotCancelled();
-        if (!accessToken)
-          return { success: false, error: 'OAuth authorization did not return an access token' };
-
-        getMcpStore().createServer({
-          ...data,
-          isBuiltIn: true,
-          headers: { ...data.headers, Authorization: `Bearer ${accessToken}` },
-        });
-        const servers = getMcpStore().listServers();
-        refreshMcpBridge().catch(err =>
-          console.error('[McpBridge] background refresh error:', err),
-        );
-        return { success: true, servers };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to authorize MCP server',
-        };
-      } finally {
-        if (authorizationRequestId) activeMcpAuthorizations.delete(authorizationRequestId);
-      }
-    },
-  );
-
-  // Explicit bridge refresh — renderer can await this for loading state
-  ipcMain.handle(McpIpc.RefreshBridge, async () => {
-    try {
-      const result = await refreshMcpBridge();
-      return { success: true, tools: result.tools, error: result.error };
-    } catch (error) {
-      return {
-        success: false,
-        tools: 0,
-        error: error instanceof Error ? error.message : 'Failed to refresh MCP bridge',
-      };
-    }
-  });
-
   ipcMain.handle(WorkspaceIpc.List, async () => {
     try {
       const store = getCoworkStore();
@@ -4615,6 +3341,9 @@ if (!gotTheLock) {
     }
   });
 
+  registerDurableIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
+    Boolean(getCoworkStore().getSession(sessionId, 0)),
+  );
   // Cowork IPC handlers
   ipcMain.handle(CoworkSessionIpc.Start, async (_event, rawOptions: unknown) => {
     const cid = generateCorrelationId();
@@ -4678,19 +3407,29 @@ if (!gotTheLock) {
         const title = options.title?.trim() || fallbackTitle;
         const taskWorkingDirectory = resolveTaskWorkingDirectory(selectedTaskDirectory);
 
-        const session = coworkStoreInstance.createSession(
-          title,
-          taskWorkingDirectory,
-          systemPrompt,
-          config.executionMode || CoworkExecutionMode.Local,
-          options.activeSkillIds || [],
-          options.agentId || 'main',
-          options.modelOverride || '',
-          options.mode ?? CoworkSessionMode.Work,
-          undefined,
-          selectedWorkspace.id,
-          expertSnapshots,
-        );
+        const priorSessionId = options.requestId
+          ? getStore().get<string>(`cowork-start:${options.requestId}`)
+          : undefined;
+        const priorSession = priorSessionId
+          ? coworkStoreInstance.getSession(priorSessionId)
+          : undefined;
+        const session =
+          priorSession ??
+          coworkStoreInstance.createSession(
+            title,
+            taskWorkingDirectory,
+            systemPrompt,
+            config.executionMode || CoworkExecutionMode.Local,
+            options.activeSkillIds || [],
+            options.agentId || 'main',
+            options.modelOverride || '',
+            options.mode ?? CoworkSessionMode.Work,
+            undefined,
+            selectedWorkspace.id,
+            expertSnapshots,
+          );
+
+        if (options.requestId) getStore().set(`cowork-start:${options.requestId}`, session.id);
 
         if (options.modelOverride) {
           console.log(
@@ -4733,54 +3472,36 @@ if (!gotTheLock) {
         if (options.fileAttachments?.length) {
           messageMetadata.fileAttachments = options.fileAttachments;
         }
-        coworkStoreInstance.addMessage(session.id, {
-          type: 'user',
-          content: options.prompt,
-          metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
-        });
+        const initialMessage =
+          priorSession?.messages.find(message => message.type === 'user') ??
+          coworkStoreInstance.addMessage(session.id, {
+            type: 'user',
+            content: options.prompt,
+            metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
+          });
         coworkStoreInstance.touchWorkspace(session.workspaceId);
 
         // Start the session asynchronously (skip initial user message since we already added it)
         const runtime = getPiRuntimeAdapter();
-        const runtimeSkillIds = [
-          ...new Set([
-            ...(options.activeSkillIds || []),
-            ...expertSnapshots.flatMap(expert => expert.skillIds),
-          ]),
-        ];
-        runtime
-          .startSession(session.id, options.prompt, {
-            skipInitialUserMessage: true,
-            systemPrompt,
-            skillIds: runtimeSkillIds,
-            workspaceRoot: taskWorkingDirectory,
-            confirmationMode: 'modal',
-            sessionMode: options.mode ?? CoworkSessionMode.Work,
-            goalMode: options.goalMode,
-            codemode: config.codemodeEnabled === true,
-            mcpNativeBridge: config.mcpNativeBridge === true,
-            approvalMode:
-              (options.permissionMode ?? config.permissionMode) === CoworkPermissionMode.AllowAll
-                ? WorkbenchApprovalMode.AllowAll
-                : WorkbenchApprovalMode.Ask,
-            imageAttachments: storedImages,
-            fileAttachments: options.fileAttachments,
-            agentId: options.agentId,
-            expertIds: expertSnapshots.map(expert => expert.expertId),
-            modelOverride: options.modelOverride,
-          })
-          .catch(error => {
-            console.error('[Cowork] session error:', error);
-            try {
-              const existing = coworkStoreInstance.getSession(session.id);
-              reportPiSessionFailure(runtime, session.id, error, existing?.status);
-            } catch (handlerError) {
-              console.error(
-                '[Cowork] failed to send error notification to renderer:',
-                handlerError,
-              );
-            }
-          });
+        await runtime.startSession(session.id, options.prompt, {
+          skipInitialUserMessage: true,
+          _userMessageId: initialMessage.id,
+          requestId: options.requestId,
+          systemPrompt,
+          workspaceRoot: taskWorkingDirectory,
+          confirmationMode: 'modal',
+          sessionMode: options.mode ?? CoworkSessionMode.Work,
+          goalMode: options.goalMode,
+          approvalMode:
+            (options.permissionMode ?? config.permissionMode) === CoworkPermissionMode.AllowAll
+              ? WorkbenchApprovalMode.AllowAll
+              : WorkbenchApprovalMode.Ask,
+          imageAttachments: storedImages,
+          fileAttachments: options.fileAttachments,
+          agentId: options.agentId,
+          expertIds: expertSnapshots.map(expert => expert.expertId),
+          modelOverride: options.modelOverride,
+        });
 
         const sessionWithMessages = coworkStoreInstance.getSession(session.id) || {
           ...session,
@@ -4802,7 +3523,38 @@ if (!gotTheLock) {
       // Work sessions use Pi (SDK mode, instant availability).
       const runtime = getPiRuntimeAdapter();
       const store = getCoworkStore();
+      const priorContinuation = options.requestId
+        ? getStore().get<string>(`cowork-continue:${options.requestId}`)
+        : undefined;
+      if (priorContinuation && store.getSession(priorContinuation))
+        options.sessionId = priorContinuation;
       let existingSession = store.getSession(options.sessionId);
+      if (existingSession && !(await runtime.hasDurableWork(existingSession.id))) {
+        const previous = existingSession;
+        const replacement = store.createSession(
+          previous.title,
+          previous.cwd,
+          previous.systemPrompt,
+          previous.executionMode,
+          [],
+          previous.agentId,
+          previous.modelOverride,
+          previous.mode,
+          undefined,
+          previous.workspaceId,
+          previous.experts,
+        );
+        store.addMessage(replacement.id, {
+          type: 'system',
+          content: t('durableNewWorkFromHistory', { title: previous.title }),
+          metadata: { sourceSessionId: previous.id },
+        });
+        if (options.requestId)
+          getStore().set(`cowork-continue:${options.requestId}`, replacement.id);
+        options.sessionId = replacement.id;
+        existingSession = replacement;
+      }
+
       if (existingSession) {
         const previousExpertSnapshots = existingSession.experts;
         const expertSnapshots =
@@ -4849,25 +3601,6 @@ if (!gotTheLock) {
         );
       }
 
-      const continuationSkillState = resolveCoworkContinuationSkillState({
-        activeSkillIds: options.activeSkillIds,
-        savedSkillIds: existingSession?.activeSkillIds,
-        expertSkillIds: (existingSession?.experts || []).flatMap(expert => expert.skillIds),
-      });
-
-      // The session keeps a skill until the user removes it, so this turn's
-      // picks are added to the persisted capability set rather than replacing it.
-      try {
-        store.updateSession(
-          options.sessionId,
-          { activeSkillIds: continuationSkillState.sessionSkillIds },
-          { touchUpdatedAt: false },
-        );
-      } catch (error) {
-        console.error('[Cowork:ContinueSession] failed to persist activeSkillIds:', error);
-      }
-
-      const runtimeSkillIds = continuationSkillState.runtimeSkillIds;
       const sessionMode = existingSession?.mode ?? CoworkSessionMode.Work;
 
       const runtimeSystemPrompt = existingSession
@@ -4889,45 +3622,24 @@ if (!gotTheLock) {
         console.warn('[Triage] routing failed; continuing with the current model:', triageError);
       }
 
-      runtime
-        .continueSession(options.sessionId, options.prompt, {
-          systemPrompt: runtimeSystemPrompt,
-          skillIds: runtimeSkillIds,
-          // The user's per-input selection (empty when they attached none) is
-          // what the transcript shows; runtimeSkillIds also carries the expert
-          // preset bundle and must not reappear as chips on this turn.
-          attachedSkillIds: options.activeSkillIds,
-          sessionMode,
-          goalMode: options.goalMode,
-          codemode: store.getConfig().codemodeEnabled === true,
-          mcpNativeBridge: store.getConfig().mcpNativeBridge === true,
-          imageAttachments: storedImages,
-          fileAttachments: options.fileAttachments,
-          workspaceRoot: existingSession?.cwd,
-          agentId: existingSession?.agentId,
-          expertIds: existingSession?.experts.map(expert => expert.expertId),
-          modelOverride: existingSession?.modelOverride,
-          approvalMode:
-            (options.permissionMode ??
-              store.getConfig().permissionModeBySession[options.sessionId] ??
-              store.getConfig().permissionMode) === CoworkPermissionMode.AllowAll
-              ? WorkbenchApprovalMode.AllowAll
-              : WorkbenchApprovalMode.Ask,
-        })
-        .catch(error => {
-          console.error('[Cowork] continue error:', error);
-          try {
-            const existing = getCoworkStore().getSession(options.sessionId);
-            reportPiSessionFailure(
-              getPiRuntimeAdapter(),
-              options.sessionId,
-              error,
-              existing?.status,
-            );
-          } catch (handlerError) {
-            console.error('[Cowork] failed to send error notification to renderer:', handlerError);
-          }
-        });
+      await runtime.continueSession(options.sessionId, options.prompt, {
+        requestId: options.requestId,
+        systemPrompt: runtimeSystemPrompt,
+        sessionMode,
+        goalMode: options.goalMode,
+        imageAttachments: storedImages,
+        fileAttachments: options.fileAttachments,
+        workspaceRoot: existingSession?.cwd,
+        agentId: existingSession?.agentId,
+        expertIds: existingSession?.experts.map(expert => expert.expertId),
+        modelOverride: existingSession?.modelOverride,
+        approvalMode:
+          (options.permissionMode ??
+            store.getConfig().permissionModeBySession[options.sessionId] ??
+            store.getConfig().permissionMode) === CoworkPermissionMode.AllowAll
+            ? WorkbenchApprovalMode.AllowAll
+            : WorkbenchApprovalMode.Ask,
+      });
 
       const session = getCoworkStore().getSession(options.sessionId);
       if (session) materializeSessionImages(options.sessionId, session.messages);
@@ -4965,29 +3677,13 @@ if (!gotTheLock) {
             input.imageAttachments,
           )
         : undefined;
-      // Attaching a skill is a session-level action: a queued input's picks join
-      // the session's capability set like a directly submitted one. Commit them
-      // only once the queue accepts the item, so a rejected enqueue (e.g. the
-      // turn settled first) cannot leave a skill active that nothing revealed.
-      const enqueueResult = getPiRuntimeAdapter().enqueuePendingMessage(
+      const enqueueResult = await getPiRuntimeAdapter().enqueuePendingMessage(
         input.sessionId,
         input.text,
         storedImages,
         input.fileAttachments,
-        input.skillIds,
+        input.requestId,
       );
-      if (enqueueResult.success && input.skillIds?.length) {
-        const queuedSession = getCoworkStore().getSession(input.sessionId, 0);
-        if (queuedSession) {
-          getCoworkStore().updateSession(
-            input.sessionId,
-            {
-              activeSkillIds: [...new Set([...queuedSession.activeSkillIds, ...input.skillIds])],
-            },
-            { touchUpdatedAt: false },
-          );
-        }
-      }
       return enqueueResult;
     } catch (error) {
       return {
@@ -5518,121 +4214,6 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle(AgentIpcChannel.ImportExpertPackage, async (_event, expertDir: string) => {
-    try {
-      const bundledSkillsRoot = getSkillManager().getBundledSkillsRoot();
-      const registerExpertModule = require(
-        path.join(bundledSkillsRoot, 'zhiyuan-expert-manager', 'scripts', 'register_expert'),
-      ) as {
-        parseExpertPackage: (...args: unknown[]) => {
-          pluginJson: { name?: unknown; version?: unknown; expertType?: unknown };
-          requests: Array<{
-            id: string;
-            name: string;
-            description: string;
-            systemPrompt: string;
-            identity: string;
-            icon: string;
-            skillIds?: string[];
-          }>;
-          piSyncedFiles?: string[];
-        };
-        upsertExpertRegistry: (options: {
-          registryPath: string;
-          entry: Record<string, unknown>;
-          skipIfWithin?: string[];
-        }) => void;
-      };
-      const { parseExpertPackage, upsertExpertRegistry } = registerExpertModule;
-      const dbPath = path.join(app.getPath('userData'), DB_FILENAME);
-      const agentManager = getAgentManager();
-
-      // Re-importing an installed preset upgrades it in place: existing
-      // agents are updated, packaged skills are refreshed, and the stale
-      // preset registry entry is replaced.
-      const packageJson = JSON.parse(
-        fs.readFileSync(path.join(expertDir, 'plugin.json'), 'utf-8'),
-      ) as { name?: unknown; version?: unknown; expertType?: unknown };
-      const isUpgrade =
-        typeof packageJson.name === 'string' &&
-        agentManager.listAgents().some(agent => agent.presetId === packageJson.name);
-      const { pluginJson, requests, piSyncedFiles } = parseExpertPackage(expertDir, {
-        dbPath,
-        update: isUpgrade,
-      });
-
-      const defaultModel = resolveDefaultAgentModelRef();
-      const agentIds: string[] = [];
-
-      for (const request of requests) {
-        // Re-importing an installed preset upgrades it in place instead of
-        // failing on the duplicate name — preset updates (system prompt,
-        // skills, workflow) must reach already-installed experts.
-        const existing = agentManager.getAgent(request.id);
-        // Only an expert package agent may be upgraded in place. A user-created
-        // agent can own the same derived id (ids come from names), and updating
-        // it here would silently rename it and replace its system prompt.
-        const isExpertAgent =
-          existing?.source === CoworkSessionExpertSource.Package ||
-          existing?.source === CoworkSessionExpertSource.Member;
-        if (existing && isExpertAgent) {
-          agentManager.updateAgent(existing.id, {
-            name: request.name,
-            description: request.description,
-            systemPrompt: request.systemPrompt,
-            identity: request.identity,
-            icon: request.icon,
-            skillIds: request.skillIds ?? [],
-          });
-          agentIds.push(existing.id);
-        } else {
-          const agent = agentManager.createAgent(request, defaultModel);
-          agentIds.push(agent.id);
-        }
-      }
-      bumpCodingCommandCatalog();
-
-      // Bundled presets are file-sourced (方案A): they never enter the
-      // registry. The single registry service (register_expert.js) enforces
-      // containment server-side, drops stale bundled records idempotently,
-      // and only records user-imported packages.
-      const packagesDir = path.join(app.getPath('userData'), 'expert-packages');
-      fs.mkdirSync(packagesDir, { recursive: true });
-      upsertExpertRegistry({
-        registryPath: path.join(packagesDir, 'registry.json'),
-        entry: {
-          name: pluginJson.name,
-          version: pluginJson.version,
-          expertType: pluginJson.expertType,
-          path: expertDir,
-          agentIds,
-          piSyncedFiles: piSyncedFiles || [],
-          createdAt: new Date().toISOString(),
-        },
-        skipIfWithin: [bundledSkillsRoot],
-      });
-
-      return { success: true, agentIds, expertType: pluginJson.expertType, name: pluginJson.name };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to import expert package',
-      };
-    }
-  });
-
-  ipcMain.handle(AgentIpcChannel.GetPresetExperts, async () => {
-    try {
-      const bundledSkillsRoot = getSkillManager().getBundledSkillsRoot();
-      return { experts: listPresetExperts(bundledSkillsRoot) };
-    } catch (error) {
-      return {
-        experts: [],
-        error: error instanceof Error ? error.message : 'Failed to list preset experts',
-      };
-    }
-  });
-
   ipcMain.handle(
     'cowork:session:exportResultImage',
     async (
@@ -5864,8 +4445,6 @@ if (!gotTheLock) {
         embeddingVectorWeight?: number;
         embeddingRemoteBaseUrl?: string;
         embeddingRemoteApiKey?: string;
-        codemodeEnabled?: boolean;
-        mcpNativeBridge?: boolean;
       },
     ) => {
       try {
@@ -5889,14 +4468,9 @@ if (!gotTheLock) {
           executionMode: parseCoworkExecutionMode(config.executionMode),
           permissionMode: normalizedPermissionMode,
           permissionModeBySession: normalizedPermissionModeBySession,
-          codemodeEnabled:
-            typeof config.codemodeEnabled === 'boolean' ? config.codemodeEnabled : undefined,
-          mcpNativeBridge:
-            typeof config.mcpNativeBridge === 'boolean' ? config.mcpNativeBridge : undefined,
           ...normalizedEmbedding,
         };
         const previousConfig = getCoworkStore().getConfig();
-        const previousWorkingDir = previousConfig.workingDirectory;
         getCoworkStore().setConfig(normalizedConfig);
         if (normalizedPermissionModeBySession !== undefined) {
           for (const [sessionId, mode] of getChangedSessionPermissionModes(
@@ -5912,16 +4486,6 @@ if (!gotTheLock) {
             );
           }
         }
-        if (
-          normalizedConfig.workingDirectory !== undefined &&
-          normalizedConfig.workingDirectory !== previousWorkingDir
-        ) {
-          getSkillManager().handleWorkingDirectoryChange();
-          // Main agent workspace is decoupled from workingDirectory — no MEMORY.md
-          // sync needed here. The workspace is always at
-          // {STATE_DIR}/workspace-main/ regardless of the user's working directory.
-        }
-
         return { success: true };
       } catch (error) {
         return {
@@ -7672,7 +6236,6 @@ if (!gotTheLock) {
   const runAppCleanup = async (): Promise<void> => {
     console.log('[AppLifecycle] App cleanup started.');
     destroyTray();
-    skillManager?.stopWatching();
 
     await disposeZhiyuanEnterpriseExtension().catch(error => {
       console.error('[EnterpriseExtension] Failed to dispose enterprise extension:', error);
@@ -7680,7 +6243,7 @@ if (!gotTheLock) {
 
     // Stop all active Pi sessions without blocking shutdown.
     console.log('[Main] Stopping cowork sessions...');
-    if (piRuntimeAdapter) piRuntimeAdapter.stopAllSessions();
+    if (piRuntimeAdapter) await piRuntimeAdapter.close();
 
     await piModelCatalogRefreshCoordinator?.stop();
     piModelCatalogRefreshCoordinator = null;
@@ -7688,10 +6251,6 @@ if (!gotTheLock) {
     await stopCoworkOpenAICompatProxy().catch(error => {
       console.error('Failed to stop OpenAI compatibility proxy:', error);
     });
-
-    // Stop skill services.
-    const skillServices = getSkillServiceManager();
-    await skillServices.stopAll();
 
     await ccConnectBridgeServer?.stop().catch(error => {
       console.error('[cc-connect] Failed to stop bridge on quit:', error);
@@ -7838,11 +6397,6 @@ if (!gotTheLock) {
       developmentExtensionPath: process.env.ZHIYUAN_ENTERPRISE_EXTENSION_DEV_PATH,
       sessionCapability: zhiyuanEnterpriseSessionBridge,
       managedProviderCapability: zhiyuanManagedProviderBridge,
-      createSkillCapability: () =>
-        new ZhiyuanEnterpriseSkillBridge({
-          userDataPath: app.getPath('userData'),
-          refreshSkills: () => getSkillManager().handleWorkingDirectoryChange(),
-        }),
       createRendererCapability: extensionDirectory =>
         zhiyuanEnterpriseRendererBridge.createScopedCapability(extensionDirectory),
       createSettingsCapability: extensionDirectory =>
@@ -8103,43 +6657,10 @@ if (!gotTheLock) {
     const enterpriseConfigPath = resolveEnterpriseConfigPath();
     if (enterpriseConfigPath) {
       try {
-        const mcpStoreInstance = getMcpStore();
-        syncEnterpriseConfig(
-          enterpriseConfigPath,
-          store,
-          server => {
-            const existing = mcpStoreInstance.listServers().find(s => s.name === server.name);
-            if (existing) {
-              mcpStoreInstance.updateServer(existing.id, {
-                name: server.name,
-                description: server.description,
-                transportType: server.transportType as 'stdio' | 'sse' | 'http',
-                command: server.command,
-                args: server.args,
-                env: server.env,
-              });
-            } else {
-              mcpStoreInstance.createServer({
-                name: server.name,
-                description: server.description,
-                transportType: server.transportType as 'stdio' | 'sse' | 'http',
-                command: server.command,
-                args: server.args,
-                env: server.env,
-              });
-            }
-          },
-          () => {
-            // Clear all MCP servers (for overwrite mode)
-            for (const s of mcpStoreInstance.listServers()) {
-              mcpStoreInstance.deleteServer(s.id);
-            }
-          },
-          () => {
-            const cs = getCoworkStore();
-            return cs.getConfig().workingDirectory;
-          },
-        );
+        syncEnterpriseConfig(enterpriseConfigPath, store, () => {
+          const cs = getCoworkStore();
+          return cs.getConfig().workingDirectory;
+        });
       } catch (error) {
         console.error('[Enterprise] config sync failed:', error);
       }
@@ -8159,25 +6680,20 @@ if (!gotTheLock) {
     }
     profiler.measure('enterpriseConfigSync');
 
-    // Start MCP servers early so Pi sessions have access to MCP tools.
-    // initMcpServers is concurrency-safe: it deduplicates via a promise lock
-    // and skips startServers() if the McpServerManager is already running.
-    const mcpTools = await initMcpServers();
-    console.log(`[Main] initApp: MCP init done, ${mcpTools.length} tools available`);
-
     bindPiWorkbenchRuntimeForwarder();
 
     // Wire pi's classifier API for message triage; failures disable the
     // classifier path (rules still classify).
     void (async () => {
       try {
-        const [codingAgent, lazyApi] = await Promise.all([
-          import('@earendil-works/pi-coding-agent'),
+        const [modelsApi, lazyApi] = await Promise.all([
+          import('@earendil-works/pi-ai/models'),
           import('@earendil-works/pi-ai/api/llama-cpp-classify.lazy'),
         ]);
         setTriageClassifierDeps({
-          ModelRuntime: codingAgent.ModelRuntime as never,
-          llamaCppClassifyApi: lazyApi.llamaCppClassifyApi as never,
+          createModels: modelsApi.createModels,
+          createProvider: modelsApi.createProvider,
+          llamaCppClassifyApi: lazyApi.llamaCppClassifyApi,
         });
       } catch (error) {
         console.warn('[Triage] pi classifier API unavailable:', error);
@@ -8215,9 +6731,6 @@ if (!gotTheLock) {
     }
 
     // ── Step 1: Show window ASAP ──────────────────────────────────────
-    // CSP + createWindow moved before skill initialisation so the user
-    // sees the loading UI within ~1-2 s instead of waiting for the full
-    // skill bootstrap (~6-8 s previously).
     setContentSecurityPolicy();
 
     profiler.mark('createWindow');
@@ -8227,94 +6740,6 @@ if (!gotTheLock) {
     console.log('[Main] initApp: window created');
     piModelCatalogRefreshCoordinator.start();
     startAppUpdatePolling();
-
-    // ── Step 2-4: Skill bootstrap (non-blocking) ────────────────────
-    console.log('[Main] initApp: starting skill bootstrap');
-    profiler.mark('skillManager');
-    const manager = getSkillManager();
-    console.log('[Main] initApp: getSkillManager done');
-
-    // Inject SKILLS_ROOT into process.env so ALL subprocesses (Pi sessions,
-    // shell tools spawned by the agent, skill scripts, etc.) inherit it.
-    // Set this globally so Pi sessions and their subprocesses inherit it.
-    const skillsRoot = getSkillsRoot().replace(/\\/g, '/');
-    process.env.SKILLS_ROOT = skillsRoot;
-    process.env.ZHIYUAN_SKILLS_ROOT = skillsRoot;
-    console.log('[Main] initApp: SKILLS_ROOT =', skillsRoot);
-
-    // Parallelise independent skill sub-tasks (Step 4).
-    await Promise.all([
-      // Group A: file-system skill operations (sync, must run in order)
-      (async () => {
-        profiler.mark('syncBundledSkills');
-        try {
-          manager.syncBundledSkillsToUserData();
-          console.log('[Main] initApp: syncBundledSkillsToUserData done');
-        } catch (error) {
-          console.error('[Main] initApp: syncBundledSkillsToUserData failed:', error);
-        }
-        profiler.measure('syncBundledSkills');
-
-        try {
-          manager.recoverInterruptedUpgrades();
-          console.log('[Main] initApp: recoverInterruptedUpgrades done');
-        } catch (error) {
-          console.error('[Main] initApp: recoverInterruptedUpgrades failed:', error);
-        }
-
-        try {
-          manager.startWatching();
-          console.log('[Main] initApp: startWatching done');
-        } catch (error) {
-          console.error('[Main] initApp: startWatching failed:', error);
-        }
-      })(),
-
-      // Group B: python runtime (independent, async)
-      (async () => {
-        profiler.mark('pythonRuntime');
-        try {
-          const runtimeResult = await ensurePythonRuntimeReady();
-          if (!runtimeResult.success) {
-            console.error('[Main] initApp: ensurePythonRuntimeReady failed:', runtimeResult.error);
-          } else {
-            console.log('[Main] initApp: ensurePythonRuntimeReady done');
-            appendPythonRuntimeToEnv(process.env as Record<string, string | undefined>);
-          }
-        } catch (error) {
-          console.error('[Main] initApp: ensurePythonRuntimeReady threw:', error);
-        }
-        profiler.measure('pythonRuntime');
-      })(),
-    ]);
-
-    // Skill services (web-search bridge) — fire-and-forget (Step 2).
-    // No IPC handler or downstream init depends on this completing. The
-    // memory-leak scenario intentionally omits optional services so a fresh
-    // isolated profile cannot block the Electron first-window check while
-    // synchronously repairing web-search dependencies.
-    if (process.env.ZHIYUAN_MEMORY_LEAK_TEST === '1') {
-      console.log('[Main] initApp: skipping optional skill services for memory leak test');
-    } else {
-      try {
-        const skillServices = getSkillServiceManager();
-        console.log('[Main] initApp: getSkillServiceManager done');
-        const t0 = performance.now();
-        void skillServices
-          .startAll()
-          .then(() => {
-            console.log(
-              `[Main] initApp: skill services started (background, ${(performance.now() - t0).toFixed(0)}ms)`,
-            );
-          })
-          .catch(error => {
-            console.error('[Main] initApp: skill services failed:', error);
-          });
-      } catch (error) {
-        console.error('[Main] initApp: skill services init failed:', error);
-      }
-    }
-    profiler.measure('skillManager');
 
     console.log(profiler.summary());
 

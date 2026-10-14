@@ -82,23 +82,6 @@ Write-Host "NODE_OPTIONS set to $env:NODE_OPTIONS"
 
 pnpm config set registry https://registry.npmmirror.com
 
-# 使用应用内置 uv 管理应用内置 Python 3.14.6；不依赖 Runner 或最终用户的 Python。
-$uvArchive = 'C:\ci-cache\uv-x86_64-pc-windows-msvc-0.11.32.zip'
-if (Test-Path $uvArchive) {
-  $env:ZHIYUAN_PORTABLE_UV_ARCHIVE = $uvArchive
-  Write-Host "Using cached uv runtime archive: $uvArchive"
-} else {
-  Write-Warning "Cached uv archive not found at $uvArchive; setup will download the pinned release"
-}
-
-& node scripts/setup-uv-runtime.js --required
-if ($LASTEXITCODE -ne 0) { Write-Error 'FATAL: bundled uv setup failed'; exit $LASTEXITCODE }
-& node scripts/setup-python-runtime.js --required
-if ($LASTEXITCODE -ne 0) { Write-Error 'FATAL: uv-managed Python setup failed'; exit $LASTEXITCODE }
-$pythonDir = 'resources\python-win'
-& "$pythonDir\python.exe" --version
-& "$pythonDir\python.exe" -m pip --version
-
 # CI 中跳过了 Electron postinstall 下载，因此在 electron-builder 运行前
 # 需要手动确保 Windows Electron 二进制文件存在。
 $electronVersion = $env:ELECTRON_VERSION
@@ -136,7 +119,7 @@ if (-not $isRelease) {
 $distWinCommand = 'dist:win:offline'
 
 # 完整 Windows 打包流程由 npm run dist:win:* 编排：
-# 应用构建、Channel 运行时、技能构建以及 electron-builder NSIS 输出。
+# 应用构建、Channel 运行时以及 electron-builder NSIS 输出。
 $env:DEBUG = 'electron-builder'
 npm run $distWinCommand
 $builderExit = $LASTEXITCODE

@@ -29,7 +29,6 @@ import {
   ImIpc,
   LogIpc,
   ManagedProviderIpc,
-  McpIpc,
   ModelPoolIpc,
   NetworkIpc,
   DevNetworkIpc,
@@ -37,7 +36,6 @@ import {
   PermissionsIpc,
   ProjectIpc,
   ShellIpc,
-  SkillsIpc,
   StoreIpc,
   WindowIpc,
   WeixinInstallIpc,
@@ -98,56 +96,6 @@ contextBridge.exposeInMainWorld('electron', {
     get: (key: string) => ipcRenderer.invoke(StoreIpc.Get, key),
     set: (key: string, value: unknown) => ipcRenderer.invoke(StoreIpc.Set, key, value),
     remove: (key: string) => ipcRenderer.invoke(StoreIpc.Remove, key),
-  },
-
-  skills: {
-    list: () => ipcRenderer.invoke(SkillsIpc.List),
-    setEnabled: (options: { id: string; enabled: boolean }) =>
-      ipcRenderer.invoke(SkillsIpc.SetEnabled, options),
-    setEnabledBatch: (options: { ids: string[]; enabled: boolean }) =>
-      ipcRenderer.invoke(SkillsIpc.SetEnabledBatch, options),
-    setPinned: (options: { id: string; pinned: boolean }) =>
-      ipcRenderer.invoke(SkillsIpc.SetPinned, options),
-    delete: (id: string) => ipcRenderer.invoke(SkillsIpc.Delete, id),
-    download: (source: string, options?: { iconUrl?: string; displayName?: string }) =>
-      ipcRenderer.invoke(SkillsIpc.Download, source, options),
-    confirmInstall: (pendingId: string, action: string) =>
-      ipcRenderer.invoke(SkillsIpc.ConfirmInstall, pendingId, action),
-    getRoot: () => ipcRenderer.invoke(SkillsIpc.GetRoot),
-    getContent: (skillId: string) => ipcRenderer.invoke(SkillsIpc.GetContent, skillId),
-    autoRoutingPrompt: () => ipcRenderer.invoke(SkillsIpc.AutoRoutingPrompt),
-    getConfig: (skillId: string) => ipcRenderer.invoke(SkillsIpc.GetConfig, skillId),
-    setConfig: (skillId: string, config: Record<string, string>) =>
-      ipcRenderer.invoke(SkillsIpc.SetConfig, skillId, config),
-    testEmailConnectivity: (skillId: string, config: Record<string, string>) =>
-      ipcRenderer.invoke(SkillsIpc.TestEmailConnectivity, skillId, config),
-    fetchMarketplace: (options?: { pageNumber?: number; pageSize?: number }) =>
-      ipcRenderer.invoke(SkillsIpc.FetchMarketplace, options),
-    fetchMarketplaceContent: (skillId: string) =>
-      ipcRenderer.invoke(SkillsIpc.FetchMarketplaceContent, skillId),
-    onChanged: (callback: () => void) => onPushVoid(SkillsIpc.Changed, callback),
-  },
-
-  mcp: {
-    list: () => ipcRenderer.invoke(McpIpc.List),
-    create: (data: unknown) => ipcRenderer.invoke(McpIpc.Create, data),
-    update: (id: string, data: unknown) => ipcRenderer.invoke(McpIpc.Update, id, data),
-    delete: (id: string) => ipcRenderer.invoke(McpIpc.Delete, id),
-    setEnabled: (options: { id: string; enabled: boolean }) =>
-      ipcRenderer.invoke(McpIpc.SetEnabled, options),
-    testConnection: (data: unknown) => ipcRenderer.invoke(McpIpc.TestConnection, data),
-    fetchMarketplace: () => ipcRenderer.invoke(McpIpc.FetchMarketplace),
-    refreshBridge: () => ipcRenderer.invoke(McpIpc.RefreshBridge),
-    authorize: (data: unknown) => ipcRenderer.invoke(McpIpc.Authorize, data),
-    cancelAuthorize: (requestId: string) => ipcRenderer.invoke(McpIpc.CancelAuthorize, requestId),
-    getFeishuCliStatus: () => ipcRenderer.invoke(McpIpc.GetFeishuCliStatus),
-    prepareFeishuCli: () => ipcRenderer.invoke(McpIpc.PrepareFeishuCli),
-    loadIcon: (iconPath: string) => ipcRenderer.invoke(McpIpc.LoadIcon, iconPath),
-    exportConfig: () => ipcRenderer.invoke(McpIpc.ExportConfig),
-    importConfig: () => ipcRenderer.invoke(McpIpc.ImportConfig),
-    onBridgeSyncStart: (callback: () => void) => onPushVoid(McpIpc.BridgeSyncStart, callback),
-    onBridgeSyncDone: (callback: (data: { tools: number; error?: string }) => void) =>
-      onPush(McpIpc.BridgeSyncDone, callback),
   },
 
   ollama: {
@@ -424,15 +372,12 @@ contextBridge.exposeInMainWorld('electron', {
       const result = await ipcRenderer.invoke(AgentIpcChannel.Delete, id);
       return result?.success ? result.deleted : false;
     },
-    importExpertPackage: async (expertDir: string) => {
-      return await ipcRenderer.invoke(AgentIpcChannel.ImportExpertPackage, expertDir);
-    },
-    getPresetExperts: async () => {
-      return await ipcRenderer.invoke(AgentIpcChannel.GetPresetExperts);
-    },
   },
 
   cowork: {
+    getDurableWork: (sessionId: string) => ipcRenderer.invoke('cowork:getDurableWork', sessionId),
+    resumeDurableWork: (sessionId: string) =>
+      ipcRenderer.invoke('cowork:resumeDurableWork', sessionId),
     getRunSnapshot: (sessionId: string, replayContent = false) =>
       ipcRenderer.invoke(CoworkSessionIpc.RunSnapshot, sessionId, replayContent),
     onStreamRunState: (callback: (snapshot: CoworkRunSnapshot) => void) =>
@@ -454,6 +399,7 @@ contextBridge.exposeInMainWorld('electron', {
     }) => ipcRenderer.invoke(WorkspaceIpc.Update, options),
     deleteWorkspace: (id: string) => ipcRenderer.invoke(WorkspaceIpc.Delete, id),
     startSession: (options: {
+      requestId?: string;
       prompt: string;
       cwd?: string;
       systemPrompt?: string;
@@ -476,6 +422,7 @@ contextBridge.exposeInMainWorld('electron', {
     }) => ipcRenderer.invoke(CoworkSessionIpc.Start, options),
 
     continueSession: (options: {
+      requestId?: string;
       sessionId: string;
       prompt: string;
       systemPrompt?: string;
@@ -494,6 +441,7 @@ contextBridge.exposeInMainWorld('electron', {
 
     listPendingMessages: (sessionId: string) => ipcRenderer.invoke(CoworkQueueIpc.List, sessionId),
     enqueuePendingMessage: (options: {
+      requestId?: string;
       sessionId: string;
       text: string;
       imageAttachments?: Array<{
@@ -574,8 +522,6 @@ contextBridge.exposeInMainWorld('electron', {
       embeddingVectorWeight?: number;
       embeddingRemoteBaseUrl?: string;
       embeddingRemoteApiKey?: string;
-      codemodeEnabled?: boolean;
-      mcpNativeBridge?: boolean;
     }) => ipcRenderer.invoke(CoworkConfigIpc.Set, config),
 
     onStreamUiEvent: (callback: (event: import('../shared/cowork/piUiEvent').PiUiEvent) => void) =>

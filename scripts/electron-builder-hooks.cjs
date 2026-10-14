@@ -6,36 +6,16 @@ const {
   existsSync,
   cpSync,
   readFileSync,
-  readdirSync,
   statSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
   renameSync,
-  lstatSync,
   writeFileSync,
   symlinkSync,
 } = require('fs');
 const { spawnSync } = require('child_process');
-const { ensurePortablePythonRuntime, checkRuntimeHealth } = require('./setup-python-runtime.js');
-const {
-  ensurePortableUvRuntime,
-  checkRuntimeHealth: checkUvRuntimeHealth,
-} = require('./setup-uv-runtime.js');
-const {
-  ensurePosixUvRuntime,
-  checkRuntimeHealth: checkMacUvRuntimeHealth,
-} = require('./setup-mac-uv-runtime.js');
-const {
-  ensurePosixPythonRuntime,
-  checkRuntimeHealth: checkMacPythonRuntimeHealth,
-} = require('./setup-mac-python-runtime.js');
 const { ensurePortableGit } = require('./setup-mingit.js');
-const {
-  ensureSkillPythonRuntimes,
-  checkSkillPythonRuntimeHealth,
-} = require('./setup-skill-python-runtime.js');
-
 const {
   buildWindowsResourceBundleManifest,
   buildWindowsResourceComponentManifest,
@@ -52,10 +32,6 @@ function isWindowsTarget(context) {
 
 function isMacTarget(context) {
   return context?.electronPlatformName === 'darwin';
-}
-
-function isLinuxTarget(context) {
-  return context?.electronPlatformName === 'linux';
 }
 
 function configureMacAutoUpdateMetadata(context, env = process.env) {
@@ -251,21 +227,6 @@ function verifyPackagedPortableGitRuntimeDirs(appOutDir) {
   );
 }
 
-function findPackagedPythonExecutable(appOutDir) {
-  const candidates = [
-    path.join(appOutDir, 'resources', 'python-win', 'python.exe'),
-    path.join(appOutDir, 'resources', 'python-win', 'python3.exe'),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
 function applyMacIconFix(appPath) {
   console.log('[electron-builder-hooks] Applying macOS Launchpad icon fix...');
 
@@ -324,108 +285,9 @@ function applyMacIconFix(appPath) {
   console.log('[electron-builder-hooks] macOS Launchpad icon fix applied');
 }
 
-/**
- * Remove node_modules/.bin directories from bundled dependency trees.
- *
- * macOS codesign rejects symlinks inside app bundles (even valid relative ones).
- * .bin/ directories contain only CLI wrapper symlinks that are never used at
- * runtime, so removing them entirely is safe and fixes signing.
- */
-
-/**
- * Check if a command exists in the system PATH.
- */
-function hasCommand(command) {
-  const checker = process.platform === 'win32' ? 'where' : 'which';
-  const result = spawnSync(checker, [command], { stdio: 'ignore' });
-  return result.status === 0;
-}
-
-/**
- * Install dependencies for all skills in the SKILLs directory.
- * This ensures bundled skills include node_modules for users without npm.
- */
-function installSkillDependencies() {
-  // Check if npm is available (should be available during build)
-  if (!hasCommand('npm')) {
-    console.warn(
-      '[electron-builder-hooks] npm not found in PATH, skipping skill dependency installation',
-    );
-    console.warn(
-      '[electron-builder-hooks]   (This is only a warning - skills will be installed at runtime if needed)',
-    );
-    return;
-  }
-
-  const skillsDir = path.join(__dirname, '..', 'SKILLs');
-  if (!existsSync(skillsDir)) {
-    console.log(
-      '[electron-builder-hooks] SKILLs directory not found, skipping skill dependency installation',
-    );
-    return;
-  }
-
-  console.log('[electron-builder-hooks] Installing skill dependencies...');
-
-  const entries = readdirSync(skillsDir);
-  let installedCount = 0;
-  let skippedCount = 0;
-  let failedCount = 0;
-
-  for (const entry of entries) {
-    const skillPath = path.join(skillsDir, entry);
-    const stat = statSync(skillPath);
-    if (!stat.isDirectory()) continue;
-
-    const packageJsonPath = path.join(skillPath, 'package.json');
-    const nodeModulesPath = path.join(skillPath, 'node_modules');
-
-    if (!existsSync(packageJsonPath)) {
-      continue; // No package.json, skip
-    }
-
-    if (existsSync(nodeModulesPath)) {
-      console.log(`[electron-builder-hooks]   ${entry}: node_modules exists, skipping`);
-      skippedCount++;
-      continue;
-    }
-
-    console.log(`[electron-builder-hooks]   ${entry}: installing dependencies...`);
-    // On Windows, use shell: true so cmd.exe resolves npm.cmd correctly
-    const isWin = process.platform === 'win32';
-    const result = spawnSync('npm', ['install'], {
-      cwd: skillPath,
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      timeout: 5 * 60 * 1000, // 5 minute timeout
-      shell: isWin,
-    });
-
-    if (result.status === 0) {
-      console.log(`[electron-builder-hooks]   ${entry}: ✓ installed`);
-      installedCount++;
-    } else {
-      console.error(`[electron-builder-hooks]   ${entry}: ✗ failed`);
-      if (result.error) {
-        console.error(`[electron-builder-hooks]     Error: ${result.error.message}`);
-      }
-      if (result.stderr) {
-        console.error(`[electron-builder-hooks]     ${result.stderr.substring(0, 200)}`);
-      }
-      failedCount++;
-    }
-  }
-
-  console.log(
-    `[electron-builder-hooks] Skill dependencies: ${installedCount} installed, ${skippedCount} skipped, ${failedCount} failed`,
-  );
-}
-
 async function beforePack(context) {
   configureMacAutoUpdateMetadata(context);
   ensureBundledChannelRuntime(context);
-  // Install skill dependencies first (for all platforms)
-  installSkillDependencies();
 
   if (isWindowsTarget(context)) {
     console.log(
@@ -440,97 +302,6 @@ async function beforePack(context) {
     if (!portableGitBash) {
       throw new Error('Bundled PortableGit health check failed before pack: bash.exe is missing.');
     }
-
-    console.log(
-      '[electron-builder-hooks] Windows target detected, ensuring portable uv runtime is prepared...',
-    );
-    await ensurePortableUvRuntime({ required: true });
-    const uvRuntimeRoot = path.join(__dirname, '..', 'resources', 'uv-win');
-    const uvRuntimeHealth = checkUvRuntimeHealth(uvRuntimeRoot);
-    if (!uvRuntimeHealth.ok) {
-      throw new Error(
-        'Portable uv runtime health check failed before pack. Missing files: ' +
-          uvRuntimeHealth.missing.join(', '),
-      );
-    }
-
-    console.log(
-      '[electron-builder-hooks] Windows target detected, ensuring uv-managed Python 3.14.6 runtime is prepared...',
-    );
-    await ensurePortablePythonRuntime({ required: true });
-    const pythonRuntimeRoot = path.join(__dirname, '..', 'resources', 'python-win');
-    const pythonRuntimeHealth = checkRuntimeHealth(pythonRuntimeRoot, {
-      requirePip: true,
-    });
-    if (!pythonRuntimeHealth.ok) {
-      throw new Error(
-        'Portable Python runtime health check failed before pack. Missing files: ' +
-          pythonRuntimeHealth.missing.join(', '),
-      );
-    }
-  }
-
-  if (isMacTarget(context) || isLinuxTarget(context)) {
-    const targetArch = resolveTargetArch(context);
-    const targetPlatform = context.electronPlatformName;
-    const resourceSuffix = targetPlatform === 'darwin' ? 'mac' : 'linux';
-    console.log(
-      `[electron-builder-hooks] ${targetPlatform} target detected, ensuring bundled uv and uv-managed Python 3.14.6...`,
-    );
-    await ensurePosixUvRuntime({
-      required: true,
-      platform: targetPlatform,
-      arch: targetArch,
-    });
-    const uvHealth = checkMacUvRuntimeHealth(
-      path.join(__dirname, '..', 'resources', `uv-${resourceSuffix}`),
-      targetArch,
-      targetPlatform,
-    );
-    if (!uvHealth.ok)
-      throw new Error(
-        `Bundled ${targetPlatform} uv health check failed: ${uvHealth.missing.join(', ')}`,
-      );
-    await ensurePosixPythonRuntime({
-      required: true,
-      platform: targetPlatform,
-      arch: targetArch,
-    });
-    const pythonHealth = checkMacPythonRuntimeHealth(
-      path.join(__dirname, '..', 'resources', `python-${resourceSuffix}`),
-      targetArch,
-      targetPlatform,
-    );
-    if (!pythonHealth.ok)
-      throw new Error(
-        `Bundled ${targetPlatform} Python health check failed: ${pythonHealth.missing.join(', ')}`,
-      );
-  }
-
-  if (isWindowsTarget(context) || isMacTarget(context) || isLinuxTarget(context)) {
-    const targetPlatform = context.electronPlatformName;
-    const targetArch = resolveTargetArch(context);
-    console.log(
-      `[electron-builder-hooks] Preparing bundled Python environments for Skills (${targetPlatform}-${targetArch})...`,
-    );
-    const skillPythonResult = await ensureSkillPythonRuntimes({
-      platform: targetPlatform,
-      arch: targetArch,
-      required: true,
-    });
-    const skillPythonHealth = checkSkillPythonRuntimeHealth({
-      platform: targetPlatform,
-      arch: targetArch,
-    });
-    if (!skillPythonHealth.ok) {
-      throw new Error(
-        'Bundled Skill Python runtime health check failed before pack. Missing: ' +
-          skillPythonHealth.missing.join(', '),
-      );
-    }
-    console.log(
-      `[electron-builder-hooks] Bundled Python environments ready: ${skillPythonResult.environments.length}`,
-    );
   }
 
   if (isWindowsTarget(context)) {

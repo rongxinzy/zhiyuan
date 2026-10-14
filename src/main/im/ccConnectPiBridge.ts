@@ -43,7 +43,6 @@ export class CcConnectPiBridge {
     runtime: PiRuntimeAdapter;
     coworkStore: CoworkStore;
     imStore: IMStore;
-    getSkillsPrompt: () => Promise<string | null>;
     onCronTrigger: (trigger: CcConnectCronTrigger) => Promise<void>;
     detectScheduledTaskRequest?: IMScheduledTaskRequestDetector;
     createScheduledTask?: (input: {
@@ -62,7 +61,6 @@ export class CcConnectPiBridge {
       coworkRuntime: options.runtime,
       coworkStore: options.coworkStore,
       imStore: options.imStore,
-      getSkillsPrompt: options.getSkillsPrompt,
       detectScheduledTaskRequest: options.detectScheduledTaskRequest,
       createScheduledTask: options.createScheduledTask,
       activityService: options.activityService,

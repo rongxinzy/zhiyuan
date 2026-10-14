@@ -96,7 +96,10 @@ export type PiConversationHistoryMessage = {
 };
 
 export type PiStartOptions = {
+  requestId?: string;
   skipInitialUserMessage?: boolean;
+  /** Existing UI projection for an input durably admitted next. */
+  _userMessageId?: string;
   /** Execution skill set for this session (user selection plus expert preset). */
   skillIds?: string[];
   /**
@@ -120,7 +123,6 @@ export type PiStartOptions = {
   /** pi 1.0 codemode sandbox tool orchestration (work sessions, default off). */
   codemode?: boolean;
   /** pi 1.0 builtin MCP extension replaces the gateway tool (default off). */
-  mcpNativeBridge?: boolean;
   /** Read-only planning turn: excludes workspace-mutating tools and requires plan_write. */
   planMode?: boolean;
   /** Registers plan_write for the whole session, so plan mode also works on a live session. */
@@ -143,6 +145,7 @@ export type PiStartOptions = {
 };
 
 export type PiContinueOptions = {
+  requestId?: string;
   systemPrompt?: string;
   /** Execution skill set for this turn (user selection plus expert preset). */
   skillIds?: string[];
@@ -159,7 +162,6 @@ export type PiContinueOptions = {
   /** pi 1.0 codemode sandbox orchestration, forwarded when the runtime recreates the session. */
   codemode?: boolean;
   /** pi 1.0 native MCP bridge, forwarded when the runtime recreates the session. */
-  mcpNativeBridge?: boolean;
   /** Read-only planning turn, forwarded when the runtime recreates the session. */
   planMode?: boolean;
   /** Registers plan_write when the runtime has to recreate the session. */
@@ -221,14 +223,17 @@ export interface PiRuntime {
     text: string,
     imageAttachments?: PiImageAttachment[],
     fileAttachments?: Array<{ name: string; path: string; extension: string; isImage?: boolean }>,
-    skillIds?: string[],
-  ): { success: boolean; item?: CoworkPendingMessage; error?: string };
+    requestId?: string,
+  ): Promise<{ success: boolean; item?: CoworkPendingMessage; error?: string }>;
   updatePendingMessage(
     sessionId: string,
     itemId: string,
     text: string,
-  ): { success: boolean; item?: CoworkPendingMessage; error?: string };
-  deletePendingMessage(sessionId: string, itemId: string): { success: boolean; error?: string };
+  ): Promise<{ success: boolean; item?: CoworkPendingMessage; error?: string }>;
+  deletePendingMessage(
+    sessionId: string,
+    itemId: string,
+  ): Promise<{ success: boolean; error?: string }>;
   steerPendingMessage(
     sessionId: string,
     itemId: string,

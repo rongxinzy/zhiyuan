@@ -23,17 +23,13 @@ function workflow(file: string): Workflow {
   ) as Workflow;
 }
 
-const compressionAction = './.github/actions/verify-windows-compression';
 const windows = workflow('windows-installer-pr.yml');
 const steps = windows.jobs['package-and-install'].steps;
 
-test('PRs defer compression qualification while manual and scheduled builds retain it', () => {
+test('Windows packaging retains required installation and size checks', () => {
   expect(windows.on).toHaveProperty('schedule');
   expect(windows.on).toHaveProperty('workflow_dispatch');
   expect(windows.on).toHaveProperty('workflow_call');
-  expect(steps.find(step => step.uses === compressionAction)?.if).toBe(
-    "${{ github.event_name != 'pull_request' }}",
-  );
   for (const script of [
     'windows-installer-size-smoke.ps1',
     'windows-runtime-smoke.ps1',
@@ -63,32 +59,4 @@ test('PRs restore without saving; verified main runs publish the same cache grap
   const install = steps.find(step => step.run === 'bun install --frozen-lockfile --ignore-scripts');
   expect(install).toBeDefined();
   expect(install?.if).toBeUndefined();
-});
-
-test.each([
-  ['release-candidate.yml', 'build-candidate', 'Assemble Windows candidate payload'],
-  ['online-update-release.yml', 'build-platforms', 'Upload Windows immutable artifact to R2'],
-])('compression qualification blocks the publication path in %s', (file, job, publishName) => {
-  const releaseSteps = workflow(file).jobs[job].steps;
-  const index = releaseSteps.findIndex(step => step.uses === compressionAction);
-  expect(index).toBeGreaterThan(-1);
-  expect(releaseSteps[index].if).toBe("${{ matrix.platform == 'windows' }}");
-  expect(releaseSteps[index]['continue-on-error']).toBeUndefined();
-  const publishIndex = releaseSteps.findIndex(step => step.name === publishName);
-  expect(publishIndex).toBeGreaterThan(index);
-  expect(releaseSteps[publishIndex].if).toBe("${{ matrix.platform == 'windows' }}");
-});
-
-test('shared qualification fails on thresholds and retains reports without hiding failure', () => {
-  const action = load(
-    readFileSync(
-      new URL('../../../.github/actions/verify-windows-compression/action.yml', import.meta.url),
-      'utf8',
-    ),
-  ) as { runs: { steps: Step[] } };
-  expect(action.runs.steps[0].run).toContain('-RequireQualified');
-  expect(action.runs.steps[0].run).not.toContain('-SkipPythonProbe');
-  expect(action.runs.steps.every(step => !step['continue-on-error'])).toBe(true);
-  expect(action.runs.steps[1].if).toBe('always()');
-  expect(action.runs.steps[1].with?.['retention-days']).toBe(3);
 });

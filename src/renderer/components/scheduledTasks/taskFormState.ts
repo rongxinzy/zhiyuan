@@ -24,7 +24,7 @@ import {
   type CronMode,
   type CronPreview,
 } from './CronBuilder';
-import type { TaskTemplateValues } from './TaskTemplateGallery';
+import type { TaskCreationValues as TaskTemplateValues } from './TaskCreationValues';
 import { formatScheduleLabel, type PlanType, scheduleToPlanInfo } from './utils';
 
 export interface FormState {

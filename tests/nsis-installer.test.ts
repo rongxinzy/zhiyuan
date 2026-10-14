@@ -28,7 +28,7 @@ describe('NSIS offline resource and local inference flow', () => {
     );
     expect(cacheMissIndex).toBeGreaterThan(-1);
     expect(payloadIndex).toBeGreaterThan(cacheMissIndex);
-    expect(installerScript.match(/!insertmacro QueueOfflineComponent /g)).toHaveLength(7);
+    expect(installerScript.match(/!insertmacro QueueOfflineComponent /g)).toHaveLength(2);
     expect(installerScript).toContain('phase=component-cache-hit');
     expect(installerScript).toContain('component-${KEY}.sentinel-sha256');
     expect(installerScript).toContain('File /oname=7za.exe');
@@ -212,16 +212,7 @@ describe('NSIS offline resource and local inference flow', () => {
         prefix: 'channel-runtime',
         sentinel: 'channel-runtime\\cc-connect-sidecar.exe',
       },
-      { key: 'skills', prefix: 'SKILLs', sentinel: 'SKILLs\\skills.config.json' },
-      { key: 'mcps', prefix: 'MCPs', sentinel: 'MCPs\\compatibility-review.md' },
       { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\usr\\bin\\bash.exe' },
-      { key: 'python', prefix: 'python-win', sentinel: 'python-win\\python.exe' },
-      {
-        key: 'skill-python',
-        prefix: 'skill-python',
-        sentinel: 'skill-python\\layers\\shared\\Scripts\\python.exe',
-      },
-      { key: 'uv', prefix: 'uv-win', sentinel: 'uv-win\\uv.exe' },
     ]);
   });
 
@@ -253,7 +244,7 @@ describe('NSIS offline resource and local inference flow', () => {
     expect(installerScript).not.toMatch(
       /^\s*FileOpen \$\d+ "\$APPDATA\\ZhiYuanAgent\\install-timing\.log" a$/m,
     );
-    expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(16);
+    expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(15);
   });
 
   test('records optional local inference intent via an options checkbox instead of a popup', () => {
@@ -327,7 +318,7 @@ describe('NSIS offline resource and local inference flow', () => {
       installerScript.indexOf('!macroend', prepareStart),
     );
     expect(prepareBlock).toContain('StrLen $R8 $INSTDIR');
-    expect(prepareBlock).toContain('skipping process stop, Skill migration and detach');
+    expect(prepareBlock).toContain('skipping process stop and detach');
     expect(prepareBlock).toContain('reason=shallow-root');
 
     // Mirror electron-builder's stock behavior: a browsed folder becomes the
@@ -459,7 +450,6 @@ describe('NSIS offline resource and local inference flow', () => {
     for (const destructive of ['StopAppProcesses', 'Detaching previous application version']) {
       expect(customInitBlock).not.toContain(destructive);
     }
-    expect(customInitBlock).not.toContain('skill-migration-complete');
 
     // The timing log appends across runs with an explicit run marker, and the
     // previously uninstrumented application-files span gets its own marker.

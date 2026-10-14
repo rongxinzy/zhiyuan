@@ -904,7 +904,7 @@ export const PromptInputTextarea = ({
       }
 
       if (e.key === 'Enter') {
-        if (isComposing || e.nativeEvent.isComposing) {
+        if (isComposing || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
           return;
         }
         if (e.shiftKey) {
@@ -966,13 +966,15 @@ export const PromptInputTextarea = ({
   const handleCompositionEnd = useCallback(() => setIsComposing(false), []);
   const handleCompositionStart = useCallback(() => setIsComposing(true), []);
 
+  // An explicitly controlled textarea owns its draft (including rejected-send
+  // recovery). The provider remains the default for uncontrolled callers.
   const controlledProps = controller
     ? {
         onChange: (e: ChangeEvent<HTMLTextAreaElement>) => {
           controller.textInput.setInput(e.currentTarget.value);
           onChange?.(e);
         },
-        value: controller.textInput.value,
+        value: props.value !== undefined ? props.value : controller.textInput.value,
       }
     : {
         onChange,

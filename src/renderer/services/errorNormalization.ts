@@ -14,7 +14,6 @@ const CATEGORY_KEYS = {
   permission: 'permissionDenied',
   file: 'fileNotFound',
   git: 'gitConflict',
-  mcp: 'mcpEndpointInvalid',
 } as const;
 
 const patterns: Array<[keyof typeof CATEGORY_KEYS, RegExp]> = [
@@ -25,7 +24,6 @@ const patterns: Array<[keyof typeof CATEGORY_KEYS, RegExp]> = [
   ['permission', /\b(403|forbidden|permission denied|access denied)\b/i],
   ['file', /(enoent|file|path).{0,30}(not found|does not exist)|no such file/i],
   ['git', /git.{0,30}(conflict|merge conflict)|would be overwritten by merge/i],
-  ['mcp', /mcp.{0,30}(endpoint|url).{0,20}(invalid|malformed)|invalid mcp endpoint/i],
   ['network', /network error|failed to fetch|fetch failed|econnrefused|enotfound|offline/i],
 ];
 

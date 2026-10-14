@@ -271,11 +271,8 @@ test('advertises the builtin commands for a lane whose row predates them', async
   const snapshot = await service.prepareLane(workspaceRoot, lane.id);
 
   expect(snapshot.lanes[0].availableCommands.map(command => command.name)).toEqual([
-    'plan',
-    'goal',
     'compact',
     'status',
-    'mcp',
   ]);
 });
 
@@ -297,8 +294,7 @@ test('refreshes stale builtin commands and config options when the lane is prepa
     title: 'Stale lane',
   });
   const lane = created.lanes[0];
-  // A lane written by an older build keeps retired commands and the config
-  // options that predate planning mode, including the user's own selections.
+  // Refresh obsolete controls while preserving the user's valid selections.
   const legacyOptions: CodingAgentConfigOption[] = [
     {
       id: BuiltinCodingConfigId.ThinkingLevel,
@@ -313,20 +309,19 @@ test('refreshes stale builtin commands and config options when the lane is prepa
       type: 'select',
       currentValue: WorkbenchApprovalMode.AllowAll,
     },
+    { id: 'plan-mode', name: 'Plan mode', type: 'select', currentValue: 'plan' },
   ];
   repository.updateLaneConfigOptions(lane.id, legacyOptions);
   repository.updateLaneAvailableCommands(lane.id, [
     { name: 'compact', description: 'Compress the current session.' },
+    ...['mcp', 'skill', 'goal', 'plan'].map(name => ({ name, description: 'Retired command' })),
   ]);
 
   const snapshot = await service.prepareLane(workspaceRoot, lane.id);
 
   expect(snapshot.lanes[0].availableCommands.map(command => command.name)).toEqual([
-    'plan',
-    'goal',
     'compact',
     'status',
-    'mcp',
   ]);
   expect(snapshot.lanes[0].configOptions).toEqual([
     expect.objectContaining({
@@ -337,7 +332,6 @@ test('refreshes stale builtin commands and config options when the lane is prepa
       id: BuiltinCodingConfigId.PermissionMode,
       currentValue: WorkbenchApprovalMode.AllowAll,
     }),
-    expect.objectContaining({ id: BuiltinCodingConfigId.PlanMode }),
   ]);
 });
 
@@ -371,80 +365,9 @@ test('re-projects builtin commands for an already bound lane on the next prompt'
   await Promise.resolve();
 
   expect(service.bootstrap(workspaceRoot).lanes[0].availableCommands.map(c => c.name)).toEqual([
-    'plan',
-    'goal',
     'compact',
     'status',
-    'mcp',
   ]);
-});
-
-test('forwards the goal command to the builtin runtime as goal mode', async () => {
-  db = new Database(':memory:');
-  initializeCodingAgentSchema(db);
-  const startBuiltinSession = vi.fn(async () => undefined);
-  const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
-    startBuiltinSession,
-    cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
-  });
-  const workspaceRoot = '/workspace/project';
-  const created = await service.createMission({
-    workspaceRoot,
-    profileId: CodingAgentProfileId.Builtin,
-    title: 'Ship the migration',
-  });
-  const lane = created.lanes[0];
-
-  await service.prompt(workspaceRoot, {
-    laneId: lane.id,
-    prompt: '/goal ship the migration end to end',
-  });
-  await Promise.resolve();
-
-  expect(startBuiltinSession).toHaveBeenCalledWith(
-    expect.objectContaining({
-      sessionId: lane.localSessionId,
-      prompt: 'ship the migration end to end',
-      goalMode: true,
-    }),
-  );
-});
-
-test('forwards the plan command to the builtin runtime as a planning turn', async () => {
-  db = new Database(':memory:');
-  initializeCodingAgentSchema(db);
-  const startBuiltinSession = vi.fn(async () => undefined);
-  const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
-    startBuiltinSession,
-    cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
-  });
-  const workspaceRoot = '/workspace/project';
-  const created = await service.createMission({
-    workspaceRoot,
-    profileId: CodingAgentProfileId.Builtin,
-    title: 'Plan the migration',
-  });
-  const lane = created.lanes[0];
-
-  await service.prompt(workspaceRoot, {
-    laneId: lane.id,
-    prompt: '/plan migrate the auth flow',
-  });
-  await Promise.resolve();
-
-  expect(startBuiltinSession).toHaveBeenCalledWith(
-    expect.objectContaining({
-      sessionId: lane.localSessionId,
-      prompt: 'migrate the auth flow',
-      planMode: true,
-    }),
-  );
 });
 
 test('reacquires the workspace writer lease before resuming a builtin elicitation', async () => {
@@ -635,11 +558,8 @@ test('runs builtin control commands locally instead of forwarding them to the ag
   const lane = created.lanes[0];
   const prepared = await service.prepareLane(workspaceRoot, lane.id);
   expect(prepared.lanes[0].availableCommands.map(command => command.name)).toEqual([
-    'plan',
-    'goal',
     BuiltinCodingControlCommand.Compact,
     BuiltinCodingControlCommand.Status,
-    BuiltinCodingControlCommand.Mcp,
   ]);
 
   await service.prompt(workspaceRoot, {
@@ -659,59 +579,6 @@ test('runs builtin control commands locally instead of forwarding them to the ag
       expect.objectContaining({
         kind: CodingEventKind.Message,
         payload: expect.objectContaining({ role: 'system' }),
-      }),
-    ]),
-  );
-  expect(events.some(event => event.payload.role === 'user')).toBe(false);
-});
-
-test('answers the mcp command from the runtime instead of the agent', async () => {
-  db = new Database(':memory:');
-  initializeCodingAgentSchema(db);
-  const startBuiltinSession = vi.fn(async () => undefined);
-  const describeBuiltinMcp = vi.fn((target?: string) => ({
-    gatewayAvailable: true,
-    target: target ?? null,
-    servers: [{ name: 'github', enabled: true, connected: true, toolCount: 1 }],
-    tools: [{ server: 'github', name: 'create_issue' }],
-  }));
-  const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
-    startBuiltinSession,
-    describeBuiltinMcp,
-    isBuiltinSessionRunning: () => false,
-    cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
-  });
-  const workspaceRoot = '/workspace/mcp-command';
-  const created = await service.createMission({
-    workspaceRoot,
-    profileId: CodingAgentProfileId.Builtin,
-  });
-  await service.prepareLane(workspaceRoot, created.lanes[0].id);
-  await service.prompt(workspaceRoot, {
-    laneId: created.lanes[0].id,
-    prompt: `/${BuiltinCodingControlCommand.Mcp}`,
-  });
-  await service.prompt(workspaceRoot, {
-    laneId: created.lanes[0].id,
-    prompt: `/${BuiltinCodingControlCommand.Mcp} github`,
-  });
-
-  expect(startBuiltinSession).not.toHaveBeenCalled();
-  // A bare command reports on everything; the menu narrows it to one server.
-  expect(describeBuiltinMcp).toHaveBeenNthCalledWith(1, undefined);
-  expect(describeBuiltinMcp).toHaveBeenNthCalledWith(2, 'github');
-  const events = service.bootstrap(workspaceRoot).events;
-  expect(events).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        kind: CodingEventKind.Message,
-        payload: expect.objectContaining({
-          role: 'system',
-          content: expect.stringContaining('create_issue'),
-        }),
       }),
     ]),
   );
@@ -1793,8 +1660,11 @@ test('getProfileAvailableCommands returns the builtin command list without a ses
   const names = service
     .getProfileAvailableCommands(CodingAgentProfileId.Builtin)
     .map(command => command.name);
-  expect(names).toContain('plan');
-  expect(names).toContain('mcp');
+  expect(names).not.toContain('plan');
+  expect(names).not.toContain('goal');
+  expect(names).not.toContain('skill');
+  expect(names).not.toContain('mcp');
+  expect(names).toEqual(['compact', 'status']);
   expect(service.getProfileAvailableCommands('unknown-profile')).toEqual([]);
 });
 

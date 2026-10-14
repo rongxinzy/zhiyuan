@@ -47,9 +47,9 @@ function copyPhotonWasm() {
   const sourceCandidates = [
     path.join(
       projectRoot,
-      'node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm',
+      'node_modules/@earendil-works/pi-durable/node_modules/@silvia-odwyer/photon/photon_rs_bg.wasm',
     ),
-    path.join(projectRoot, 'node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm'),
+    path.join(projectRoot, 'node_modules/@silvia-odwyer/photon/photon_rs_bg.wasm'),
   ];
   const source = sourceCandidates.find(candidate => fs.existsSync(candidate));
   if (!source) {

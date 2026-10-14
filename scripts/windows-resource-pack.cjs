@@ -30,7 +30,6 @@ const EXCLUDED_DIRECTORIES = new Set([
 ]);
 
 function shouldExclude(entryPath) {
-  if (/^feishu[/\\]runtime(?:[/\\]|$)/i.test(entryPath)) return true;
   const segments = entryPath.split(/[/\\]/);
   if (segments.some(segment => EXCLUDED_DIRECTORIES.has(segment.toLowerCase()))) return true;
   const basename = path.basename(entryPath);
@@ -45,10 +44,6 @@ const WINDOWS_RESOURCE_ARCHIVE_COMPRESSION = {
   NonSolid: {
     id: 'lzma2-mx9-nonsolid-v1',
     sevenZipArgs: ['-mx=9', '-m0=lzma2', '-ms=off', '-mmt=on'],
-  },
-  Solid: {
-    id: 'lzma2-mx9-solid-v1',
-    sevenZipArgs: ['-mx=9', '-m0=lzma2', '-ms=on', '-mmt=on'],
   },
   PortableGitBcj2: {
     id: 'lzma-bcj2-d128m-mx9-solid-v1',
@@ -66,15 +61,12 @@ const WINDOWS_RESOURCE_ARCHIVE_COMPRESSION = {
     ],
   },
 };
-const SOLID_ARCHIVE_COMPONENT_KEYS = new Set(['skills', 'mcps', 'python', 'skill-python']);
 
 function getWindowsResourceArchiveCompression(component) {
   if (component.key === 'portable-git') {
     return WINDOWS_RESOURCE_ARCHIVE_COMPRESSION.PortableGitBcj2;
   }
-  return SOLID_ARCHIVE_COMPONENT_KEYS.has(component.key)
-    ? WINDOWS_RESOURCE_ARCHIVE_COMPRESSION.Solid
-    : WINDOWS_RESOURCE_ARCHIVE_COMPRESSION.NonSolid;
+  return WINDOWS_RESOURCE_ARCHIVE_COMPRESSION.NonSolid;
 }
 
 function getWindowsResourceComponents(projectRoot) {
@@ -87,48 +79,27 @@ function getWindowsResourceComponents(projectRoot) {
       sentinel: 'channel-runtime/cc-connect-sidecar.exe',
     },
     {
-      key: 'skills',
-      label: 'Built-in Skills',
-      dir: path.join(projectRoot, 'SKILLs'),
-      prefix: 'SKILLs',
-      sentinel: 'SKILLs/skills.config.json',
-    },
-    {
-      key: 'mcps',
-      label: 'Built-in MCPs',
-      dir: path.join(projectRoot, 'MCPs'),
-      prefix: 'MCPs',
-      sentinel: 'MCPs/compatibility-review.md',
-    },
-    {
       key: 'portable-git',
       label: 'PortableGit runtime',
       dir: path.join(projectRoot, 'resources', 'mingit'),
       prefix: 'mingit',
       sentinel: 'mingit/usr/bin/bash.exe',
     },
-    {
-      key: 'python',
-      label: 'Python runtime',
-      dir: path.join(projectRoot, 'resources', 'python-win'),
-      prefix: 'python-win',
-      sentinel: 'python-win/python.exe',
-    },
-    {
-      key: 'skill-python',
-      label: 'Skill Python runtimes',
-      dir: path.join(projectRoot, 'resources', 'skill-python'),
-      prefix: 'skill-python',
-      sentinel: 'skill-python/layers/shared/Scripts/python.exe',
-    },
-    {
-      key: 'uv',
-      label: 'uv runtime',
-      dir: path.join(projectRoot, 'resources', 'uv-win'),
-      prefix: 'uv-win',
-      sentinel: 'uv-win/uv.exe',
-    },
   ];
+}
+
+function getWindowsResourcePayloadFiles(manifest, projectRoot) {
+  const components = getWindowsResourceComponents(projectRoot);
+  const expectedKeys = components.map(component => component.key).sort();
+  const actualKeys = (manifest.components || []).map(component => component.key).sort();
+  if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
+    throw new Error(
+      '[windows-resource-pack] Component manifest does not match current packaging inputs.',
+    );
+  }
+  return components.flatMap(component =>
+    ['7z', 'version', 'sha256', 'sentinel-sha256'].map(suffix => `${component.key}.${suffix}`),
+  );
 }
 
 function computeWindowsResourceComponentId(component) {
@@ -266,6 +237,7 @@ module.exports = {
   buildWindowsResourceComponentManifest,
   computeWindowsResourceComponentId,
   getWindowsResourceComponents,
+  getWindowsResourcePayloadFiles,
   getWindowsResourceArchiveCompression,
   isWindowsResourceComponentReusable,
   sha256File,

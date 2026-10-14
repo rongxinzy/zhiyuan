@@ -37,7 +37,7 @@ public sealed class EngineException : Exception
 }
 
 /// <summary>
-/// Real install engine for the WebView2 shell. Orchestrates the exact 14-step
+/// Real install engine for the WebView2 shell. Orchestrates the installation
 /// sequence of scripts/nsis-installer.nsh customInit/customInstall semantics;
 /// component logic itself lives in the shared scripts under scripts/installer
 /// (the same files the NSIS installer -File-invokes), so both installers
@@ -147,7 +147,6 @@ public sealed class InstallerEngine
         {
             await ResolvePayloadDirAsync(cancellationToken);
             await StepStopAppProcesses(cancellationToken);
-            await StepMigrateUserSkills(cancellationToken);
             await StepDetachPreviousInstall(cancellationToken);
             await StepExtractAppPackage(cancellationToken);
             await StepRecoverComponentSwitch(cancellationToken);
@@ -392,46 +391,6 @@ public sealed class InstallerEngine
         }
     }
 
-    /// <summary>Step 2 — port of the SKILLs migration: user-created Skills copy
-    /// to %APPDATA%\ZhiYuanAgent\SKILLs, bundled entries skipped.</summary>
-    private Task StepMigrateUserSkills(CancellationToken ct)
-    {
-        ReportPhase("正在迁移用户创建的 Skills");
-        ct.ThrowIfCancellationRequested();
-        var source = Path.Combine(installDir, "resources", "SKILLs");
-        if (!Directory.Exists(source)) return Task.CompletedTask;
-        var destination = Path.Combine(appDataRoot, "SKILLs");
-        Directory.CreateDirectory(destination);
-        var bundled = ReadBundledSkillNames(source);
-        foreach (var dir in Directory.EnumerateDirectories(source))
-        {
-            ct.ThrowIfCancellationRequested();
-            var name = Path.GetFileName(dir);
-            if (bundled.Contains(name)) continue;
-            var target = Path.Combine(destination, name);
-            if (Directory.Exists(target)) continue;
-            CopyDirectory(dir, target);
-        }
-        return Task.CompletedTask;
-    }
-
-    private static HashSet<string> ReadBundledSkillNames(string skillsRoot)
-    {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var configPath = Path.Combine(skillsRoot, "skills.config.json");
-        try
-        {
-            if (!File.Exists(configPath)) return names;
-            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
-            if (doc.RootElement.TryGetProperty("defaults", out var defaults))
-            {
-                foreach (var prop in defaults.EnumerateObject()) names.Add(prop.Name);
-            }
-        }
-        catch { /* a broken bundled config must not block user-data migration */ }
-        return names;
-    }
-
     /// <summary>Step 3 — port of the old-install detach: rename INSTDIR away and
     /// remember the path; a failed rename is diagnosed as running app vs a
     /// directory handle held by another program (ZY_APP_UNCLOSABLE / ZY_DIR_OCCUPIED).</summary>
@@ -559,15 +518,14 @@ public sealed class InstallerEngine
             failureMessage: "离线运行环境连接失败");
     }
 
-    /// <summary>Step 10 — the same three sentinel files the NSIS installer checks.</summary>
+    /// <summary>Step 10 — the same sentinel files the NSIS installer checks.</summary>
     private void StepVerifyRuntimeSentinels()
     {
         ReportPhase("正在校验运行环境");
         var resources = Path.Combine(installDir, "resources");
         foreach (var sentinel in new[]
         {
-            Path.Combine(resources, "python-win", "python.exe"),
-            Path.Combine(resources, "uv-win", "uv.exe"),
+            Path.Combine(resources, "mingit", "usr", "bin", "bash.exe"),
             Path.Combine(resources, "channel-runtime", "cc-connect-sidecar.exe"),
         })
         {
@@ -779,18 +737,5 @@ public sealed class InstallerEngine
         return ShellProcessRunner.RunAsync("powershell.exe",
             $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File {quoted}", ct,
             failureMessage: failureMessage);
-    }
-
-    private static void CopyDirectory(string source, string destination)
-    {
-        Directory.CreateDirectory(destination);
-        foreach (var dir in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
-        {
-            Directory.CreateDirectory(dir.Replace(source, destination, StringComparison.Ordinal));
-        }
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-        {
-            File.Copy(file, file.Replace(source, destination, StringComparison.Ordinal), overwrite: false);
-        }
     }
 }

@@ -273,19 +273,6 @@ describe('Zhiyuan enterprise extension contract', () => {
     await extension.dispose();
     expect(unregister).toHaveBeenCalledOnce();
   });
-
-  test('fails closed for an incompatible managed Skill capability', async () => {
-    const extension = createZhiyuanEnterpriseExtension();
-
-    await expect(
-      extension.initialize(
-        hostContext(null, null, null, null, {
-          apiVersion: 2,
-          registerManagedRoot: vi.fn(),
-        } as never),
-      ),
-    ).rejects.toThrow('Skill capability API version is not supported');
-  });
 });
 
 function hostContext(
@@ -293,7 +280,6 @@ function hostContext(
   renderer: ZhiyuanEnterpriseHostContext['capabilities']['renderer'] = null,
   settings: ZhiyuanEnterpriseHostContext['capabilities']['settings'] = null,
   managedProvider: ZhiyuanEnterpriseHostContext['capabilities']['managedProvider'] = null,
-  skills: ZhiyuanEnterpriseHostContext['capabilities']['skills'] = null,
 ): ZhiyuanEnterpriseHostContext {
   return Object.freeze({
     apiVersion: ZHIYUAN_ENTERPRISE_EXTENSION_API_VERSION,
@@ -304,7 +290,7 @@ function hostContext(
       resources: 'D:\\zhiyuan\\resources',
       userData: 'D:\\zhiyuan\\user-data',
     }),
-    capabilities: Object.freeze({ session, renderer, settings, managedProvider, skills }),
+    capabilities: Object.freeze({ session, renderer, settings, managedProvider }),
   });
 }
 

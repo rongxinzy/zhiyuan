@@ -8,7 +8,6 @@ interface EnqueuePayload {
   text: string;
   imageAttachments?: unknown;
   fileAttachments?: unknown;
-  skillIds?: string[];
 }
 
 const enqueuePendingMessage = vi.hoisted(() =>
@@ -22,13 +21,12 @@ beforeEach(() => {
   };
 });
 
-test('forwards both attachment kinds and the skill picks', async () => {
+test('forwards both attachment kinds without a retired capability selection', async () => {
   await coworkQueueService.enqueue(
     'session-1',
     'review this',
     [{ name: 'screen.png', mimeType: 'image/png', base64Data: 'a' }],
     [{ name: 'brief.docx', path: '/tmp/brief.docx', extension: 'DOCX' }],
-    ['skill-docx'],
   );
 
   expect(enqueuePendingMessage).toHaveBeenCalledWith({
@@ -36,7 +34,6 @@ test('forwards both attachment kinds and the skill picks', async () => {
     text: 'review this',
     imageAttachments: [{ name: 'screen.png', mimeType: 'image/png', base64Data: 'a' }],
     fileAttachments: [{ name: 'brief.docx', path: '/tmp/brief.docx', extension: 'DOCX' }],
-    skillIds: ['skill-docx'],
   });
 });
 
@@ -48,6 +45,5 @@ test('forwards an input that attached nothing as empty fields', async () => {
     text: 'plain follow-up',
     imageAttachments: undefined,
     fileAttachments: undefined,
-    skillIds: undefined,
   });
 });

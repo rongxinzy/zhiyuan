@@ -19,6 +19,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { getWindowsResourcePayloadFiles } = require('../windows-resource-pack.cjs');
 
 const projectRoot = path.resolve(__dirname, '..', '..');
 const shellExe = path.join(
@@ -94,11 +95,9 @@ try {
     // component-<key>.* when staging for the shared validator).
     const manifestPath = path.join(componentsDir, 'manifest.json');
     if (!fs.existsSync(manifestPath)) fail(`component manifest missing: ${manifestPath}`);
-    for (const suffix of ['7z', 'version', 'sha256', 'sentinel-sha256']) {
-      for (const file of fs.readdirSync(componentsDir)) {
-        if (!file.endsWith('.' + suffix)) continue;
-        fs.copyFileSync(path.join(componentsDir, file), path.join(payloadDir, 'components', file));
-      }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    for (const file of getWindowsResourcePayloadFiles(manifest, projectRoot)) {
+      fs.copyFileSync(path.join(componentsDir, file), path.join(payloadDir, 'components', file));
     }
 
     fs.copyFileSync(manifestPath, path.join(payloadDir, 'component-manifest.json'));

@@ -18,10 +18,7 @@ import {
   extractApiErrorSnippet,
 } from './coworkModelApi';
 import type { OpenAICompatProxyTarget } from './coworkOpenAICompatProxy';
-import { applyUvPackageIndexDefaults, PythonPackageIndexUrl } from './pythonPackageIndexes';
-import { applyManagedPythonEnv } from './managedPythonEnv';
 import { isSystemProxyEnabled, resolveSystemProxyUrlForTargets } from './systemProxy';
-import { getFeishuCliBinDirectory } from './feishuConnectorPaths';
 
 const DOMESTIC_NPM_REGISTRY_URL = 'https://registry.npmmirror.com';
 
@@ -1069,11 +1066,6 @@ function ensureWindowsBashUtf8InitScript(): string | null {
 }
 
 function applyDomesticPackageMirrorDefaults(env: Record<string, string | undefined>): void {
-  if (!env.PIP_INDEX_URL) {
-    env.PIP_INDEX_URL = PythonPackageIndexUrl.Tsinghua;
-  }
-  applyUvPackageIndexDefaults(env);
-
   const hasNpmRegistry = Boolean(env.npm_config_registry || env.NPM_CONFIG_REGISTRY);
   if (!hasNpmRegistry) {
     env.npm_config_registry = DOMESTIC_NPM_REGISTRY_URL;
@@ -1085,7 +1077,7 @@ function applyDomesticPackageMirrorDefaults(env: Record<string, string | undefin
  * Add application-managed command runtimes to a subprocess environment.
  *
  * This deliberately does not add provider credentials. Callers that need the
- * app's Node/npm shim, managed Python, uv, and Windows Git Bash PATH handling
+ * app's Node/npm shim and Windows Git Bash PATH handling
  * can use it without exposing a session's API configuration globally.
  */
 export function applyApplicationRuntimeEnv(
@@ -1224,8 +1216,6 @@ export function applyApplicationRuntimeEnv(
       env.ZHIYUAN_GIT_BASH_RESOLUTION_ERROR = truncateDiagnostic(diagnostic);
     }
 
-    applyManagedPythonEnv(env);
-
     // Tell git-bash to inherit the PATH from the parent process instead of
     // rebuilding it from scratch. Without this, git-bash's /etc/profile (login
     // shell) defaults to constructing a minimal PATH containing only Windows
@@ -1257,7 +1247,6 @@ export function applyApplicationRuntimeEnv(
   }
 
   if (!app.isPackaged) {
-    if (process.platform !== 'win32') applyManagedPythonEnv(env);
     // In dev mode, prepend project's node_modules/.bin to PATH so bundled
     // npx/npm are found even if the user has no global Node.js installation.
     const devBinDir = join(app.getAppPath(), 'node_modules', '.bin');
@@ -1268,12 +1257,6 @@ export function applyApplicationRuntimeEnv(
         'applyPackagedEnvOverrides',
         `Dev mode: prepended node_modules/.bin to PATH: ${devBinDir}`,
       );
-    }
-
-    const feishuCliBinDirectory = getFeishuCliBinDirectory(app.getPath('userData'));
-    if (existsSync(feishuCliBinDirectory)) {
-      env.PATH = [feishuCliBinDirectory, env.PATH].filter(Boolean).join(delimiter);
-      if (process.platform === 'win32') ensureWindowsOriginalPath(env);
     }
 
     return;
@@ -1385,30 +1368,13 @@ export function applyApplicationRuntimeEnv(
     env.NODE_PATH = appendEnvPath(env.NODE_PATH, nodePaths);
   }
 
-  // Managed Python for ad-hoc scripts: prefer the Skill shared layer (carries
-  // pandas/numpy/...), with the bare base runtime as fallback. Windows already
-  // applied both in the platform block above; re-running would re-prepend the
-  // base runtime ahead of the shared layer.
-  if (process.platform !== 'win32') {
-    applyManagedPythonEnv(env);
-  }
-
-  // Official connector Skills invoke lark-cli by name. Keep its per-user
-  // launcher ahead of system paths so a globally installed, incompatible CLI
-  // cannot shadow the app-bundled version.
-  const feishuCliBinDirectory = getFeishuCliBinDirectory(app.getPath('userData'));
-  if (existsSync(feishuCliBinDirectory)) {
-    env.PATH = [feishuCliBinDirectory, env.PATH].filter(Boolean).join(delimiter);
-    if (process.platform === 'win32') ensureWindowsOriginalPath(env);
-  }
-
   // Verify node/npx/npm resolution in the constructed environment
   verifyNodeEnvironment(env);
 }
 
 /**
  * Verify that node/npx/npm can be resolved from the constructed environment PATH.
- * Logs diagnostic info for debugging MCP server startup issues on macOS.
+ * Logs diagnostic info for debugging subprocess startup issues on macOS.
  */
 function verifyNodeEnvironment(env: Record<string, string | undefined>): void {
   const tag = 'verifyNodeEnv';
@@ -1502,38 +1468,6 @@ function verifyNodeEnvironment(env: Record<string, string | undefined>): void {
 }
 
 /**
- * Get SKILLs directory path (handles both development and production)
- */
-export function getSkillsRoot(): string {
-  if (app.isPackaged) {
-    // In production, SKILLs are copied to userData
-    return join(app.getPath('userData'), 'SKILLs');
-  }
-
-  // In development, __dirname can vary with bundling output (e.g. dist-electron/ or dist-electron/libs/).
-  // Resolve from several stable anchors and pick the first existing SKILLs directory.
-  const envRoots = [process.env.ZHIYUAN_SKILLS_ROOT, process.env.SKILLS_ROOT]
-    .map(value => value?.trim())
-    .filter((value): value is string => Boolean(value));
-  const candidates = [
-    ...envRoots,
-    join(app.getAppPath(), 'SKILLs'),
-    join(process.cwd(), 'SKILLs'),
-    join(__dirname, '..', 'SKILLs'),
-    join(__dirname, '..', '..', 'SKILLs'),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  // Final fallback for first-run dev environments where SKILLs may not exist yet.
-  return join(app.getAppPath(), 'SKILLs');
-}
-
-/**
  * Get enhanced environment variables (including proxy configuration)
  * Async function to fetch system proxy and inject into environment variables
  */
@@ -1546,13 +1480,6 @@ export async function getEnhancedEnv(
 
   applyApplicationRuntimeEnv(env, options);
 
-  // Inject SKILLs directory path for skill scripts.
-  // On Windows, normalise backslashes to forward slashes so the value is usable
-  // in both Node.js (which accepts forward slashes) and bash (which treats
-  // backslashes as escape characters).
-  const skillsRoot = getSkillsRoot().replace(/\\/g, '/');
-  env.SKILLS_ROOT = skillsRoot;
-  env.ZHIYUAN_SKILLS_ROOT = skillsRoot; // Alternative name for clarity
   if (process.platform === 'win32' || env.ZHIYUAN_NODE_SHIM_ACTIVE === '1') {
     env.ZHIYUAN_ELECTRON_PATH = getElectronNodeRuntimePath().replace(/\\/g, '/');
   } else {

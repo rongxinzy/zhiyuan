@@ -60,8 +60,8 @@ $componentManifest = Get-Content -LiteralPath $componentManifestPath -Raw -Encod
 if ($componentManifest.offline -ne $true) {
   throw 'Windows component manifest must declare offline=true'
 }
-if (@($componentManifest.components).Count -ne 7) {
-  throw "Windows component manifest must contain exactly 7 components"
+if (@($componentManifest.components).Count -ne 2) {
+  throw "Windows component manifest must contain exactly 2 components"
 }
 
 $systemTar = Join-Path $env:SystemRoot 'System32\tar.exe'
@@ -103,8 +103,6 @@ try {
   if (-not (Test-Path -LiteralPath $bash)) {
     $bash = Join-Path $resourcesRoot 'mingit\bin\bash.exe'
   }
-  $python = Join-Path $resourcesRoot 'python-win\python.exe'
-  $skillPython = Join-Path $resourcesRoot 'skill-python\layers\shared\Scripts\python.exe'
   $appExecutableName = $env:ZHIYUAN_ELECTRON_EXECUTABLE_NAME
   if (-not $appExecutableName) {
     $builderConfigPath = Join-Path $ProjectRoot 'electron-builder.json'
@@ -121,48 +119,22 @@ try {
   # Exercise the packaged Electron binary instead of relying on the optional
   # node_modules Electron download that bun install --ignore-scripts omits.
   $electron = Join-Path $ProjectRoot ("release\win-unpacked\{0}.exe" -f $appExecutableName)
-  $docxValidator = Join-Path $ProjectRoot 'scripts\ci\validate-docx-smoke.mjs'
-  $skillsRoot = Join-Path $resourcesRoot 'SKILLs'
 
   Assert-Path $bash 'bundled PortableGit Bash'
-  Assert-Path $python 'bundled application Python'
-  Assert-Path $skillPython 'bundled shared Skill Python'
   Assert-Path $electron 'packaged Electron Node runtime'
-  Assert-Path $docxValidator 'DOCX smoke validator'
-  Assert-Path (Join-Path $resourcesRoot 'uv-win\uv.exe') 'bundled uv'
-  Assert-Path (Join-Path $skillsRoot 'xlsx\scripts\xlsx_reader.py') 'XLSX Skill reader'
-  Assert-Path (Join-Path $skillsRoot 'docx\scripts\markdown_to_docx.mjs') 'DOCX Markdown converter'
 
-  # Remove Git, Python, Node, and user-installed tool directories from PATH.
+  # Remove Git, Node, and user-installed tool directories from PATH.
   # The smoke test invokes only explicit package paths below.
   $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-  $env:UV_OFFLINE = '1'
   $env:ELECTRON_RUN_AS_NODE = '1'
-  foreach ($externalCommand in @('git.exe', 'python.exe', 'python3.exe', 'node.exe')) {
+  foreach ($externalCommand in @('git.exe', 'node.exe')) {
     if (Get-Command $externalCommand -ErrorAction SilentlyContinue) {
       throw "External command unexpectedly remains discoverable on the clean PATH: $externalCommand"
     }
   }
 
-  Invoke-Checked $python @('--version') 'bundled application Python version probe'
-  # Windows PowerShell 5.1 strips nested quotes from native process arguments.
-  # Keep these probes quote-free so the Python code is identical on clean CI hosts.
-  Invoke-Checked $skillPython @('-c', 'import pandas, openpyxl; print(1)') 'bundled XLSX dependency probe'
-  Invoke-Checked $skillPython @('-c', 'import reportlab, pypdfium2, PIL; print(1)') 'bundled PDF dependency probe'
   Invoke-Checked $bash @('-lc', 'printf "portable-git-bash-ok\n"') 'bundled Bash probe'
-  $markdown = Join-Path $smokeRoot 'smoke.md'
-  $docx = Join-Path $smokeRoot 'smoke.docx'
-  $converter = Join-Path $skillsRoot 'docx\scripts\markdown_to_docx.mjs'
-  Set-Content -LiteralPath $markdown -Value "# Windows runtime smoke`n`nManaged DOCX conversion works.`n" -Encoding UTF8
-  Invoke-PackagedElectronChecked $electron @($converter, $markdown, $docx) 'DOCX Markdown conversion'
-  Assert-Path $docx 'generated DOCX'
-  Invoke-PackagedElectronChecked $electron @($docxValidator, $docx) 'generated DOCX validation'
-  $fixture = Join-Path $smokeRoot 'smoke.xlsx'
-  $createFixture = "from openpyxl import Workbook; w=Workbook(); s=w.active; s.title='Smoke'; s.append(['Name','Score']); s.append(['Windows',100]); w.save(r'$fixture')"
-  Invoke-Checked $skillPython @('-c', $createFixture) 'XLSX fixture creation'
-  $reader = Join-Path $skillsRoot 'xlsx\scripts\xlsx_reader.py'
-  Invoke-Checked $skillPython @($reader, $fixture, '--json') 'XLSX Skill reader'
-
+  Invoke-PackagedElectronChecked $electron @('--version') 'packaged Electron Node version probe'
   Write-Host "Windows runtime smoke passed on Windows $osVersion"
 } finally {
   $env:PATH = $oldPath

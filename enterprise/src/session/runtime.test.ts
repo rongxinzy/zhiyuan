@@ -105,7 +105,6 @@ function hostContext(
       renderer: null,
       settings: null,
       managedProvider: null,
-      skills: null,
     },
   };
 }

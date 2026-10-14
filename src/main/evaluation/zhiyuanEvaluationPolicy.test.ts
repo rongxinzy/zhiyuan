@@ -22,7 +22,11 @@ const context = (): ZhiyuanEvaluationPolicyContext => ({
 test('loads product resources without outer control tools or completion interception', async () => {
   const policy = await createZhiyuanEvaluationPolicy(context());
   expect(policy.systemPrompt).toContain('ZhiYuan Agent');
-  expect(policy.skillPaths).toEqual(['SKILLs']);
+  expect(policy).not.toHaveProperty('skillPaths');
+  expect(policy.systemPrompt).toContain('`read`、`write`、`edit`、`bash`');
+  expect(policy.systemPrompt).not.toMatch(
+    /run_skill_script|skill_runtime_capabilities|SKILLS_ROOT|预装 pandas/u,
+  );
   expect(policy.customTools).toBeUndefined();
   expect(policy.onAgentEnd).toBeUndefined();
   expect(policy.onEvent).toBeUndefined();

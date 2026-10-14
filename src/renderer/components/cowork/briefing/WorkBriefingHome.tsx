@@ -18,7 +18,6 @@ import { useBriefingData } from './useBriefingData';
 interface WorkBriefingHomeProps {
   header: React.ReactNode;
   prompt: React.ReactNode;
-  quickActions: React.ReactNode;
   onFocusInput: () => void;
   onShowScheduledTasks?: () => void;
 }
@@ -26,7 +25,6 @@ interface WorkBriefingHomeProps {
 export function WorkBriefingHome({
   header,
   prompt,
-  quickActions,
   onFocusInput,
   onShowScheduledTasks,
 }: WorkBriefingHomeProps) {
@@ -238,7 +236,6 @@ export function WorkBriefingHome({
               ))}
             </div>
           )}
-          <div className="flex min-w-0 flex-col gap-4">{quickActions}</div>
         </div>
       </div>
       <div className="shrink-0 px-6 pb-4 pt-2">

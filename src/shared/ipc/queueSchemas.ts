@@ -19,6 +19,7 @@ const CoworkQueueFileAttachmentSchema = z.object({
 });
 
 export const CoworkQueueEnqueueSchema = z.object({
+  requestId: z.string().min(1).max(128).optional(),
   sessionId: CoworkQueueSessionSchema,
   text: z
     .string()

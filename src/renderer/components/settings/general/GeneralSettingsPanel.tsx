@@ -3,9 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { i18nService, type LanguageType } from '../../../services/i18n';
 import { SettingsToggleRow } from '../../common/SettingsToggleRow';
-import { CodemodeToggleRow } from './CodemodeToggleRow';
 import { GeneralLanguageField } from './GeneralLanguageField';
-import { McpNativeBridgeToggleRow } from './McpNativeBridgeToggleRow';
 
 interface GeneralSettingsPanelProps {
   language: LanguageType;
@@ -89,10 +87,6 @@ export default function GeneralSettingsPanel({
         }}
         disabled={isUpdatingAutoLaunch}
       />
-
-      <CodemodeToggleRow />
-
-      <McpNativeBridgeToggleRow />
 
       <SettingsToggleRow
         label={i18nService.t('preventSleep')}

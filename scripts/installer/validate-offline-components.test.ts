@@ -149,7 +149,7 @@ describe.skipIf(process.platform !== 'win32')('offline component cache validator
 
     const victim = fixture.targets[0];
     const victimDir = targetDir(fixture, victim.key);
-    // Mirror the skill-python layout (jedi/playwright payloads) whose full
+    // Exercise deeply nested runtime payloads whose full
     // path under %LOCALAPPDATA% exceeds MAX_PATH and crashed the previous
     // Get-ChildItem based measurement on machines without LongPathsEnabled.
     let deepDirectory = path.join(victimDir, victim.prefix, 'deep');

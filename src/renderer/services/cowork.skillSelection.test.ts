@@ -10,6 +10,6 @@ test("does not reattach a session's completed skills when loading that session",
   const loadSessionEnd = source.indexOf('\n  async ', loadSessionStart + 1);
   const loadSession = source.slice(loadSessionStart, loadSessionEnd);
 
-  expect(loadSession).toContain('store.dispatch(clearActiveSkills());');
+  expect(loadSession).not.toContain('clearActiveSkills');
   expect(loadSession).not.toContain('setActiveSkillIds(result.session.activeSkillIds)');
 });

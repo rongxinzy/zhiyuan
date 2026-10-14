@@ -8,15 +8,10 @@ import type {
   CoworkMessage,
   CoworkMessageMetadata,
 } from '../../../types/cowork';
-import { i18nService } from '../../../services/i18n';
-import { resolveSkillIconUrl } from '../../../services/skillIcon';
-import { PlusMenuSkillsIcon } from '../plusMenuIcons';
-import type { Skill } from '../../../types/skill';
 import { formatMessageDateTime } from '../../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../../utils/userMessageDisplay';
 import ImagePreviewModal, { type ImagePreviewSource } from '../ImagePreviewModal';
 import { CoworkInlineAttachments, type CoworkInlineAttachment } from '../CoworkInlineAttachments';
-import { findChatSkillShortcut } from '../../chat/constants';
 import { CopyButton, ReEditButton } from './CopyButton';
 
 const getMessageModelLabel = (metadata?: CoworkMessageMetadata | null): string | null => {
@@ -74,9 +69,8 @@ const removePromptAttachmentFallbacks = (content: string): string => {
 
 export const UserBubble: React.FC<{
   message: CoworkMessage;
-  skills: Skill[];
   onReEdit?: (message: CoworkMessage) => void;
-}> = React.memo(({ message, skills, onReEdit }) => {
+}> = React.memo(({ message, onReEdit }) => {
   'use memo';
 
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
@@ -85,10 +79,6 @@ export const UserBubble: React.FC<{
     () => parseUserMessageForDisplay(message.content || ''),
     [message.content],
   );
-  const messageSkillIds = (message.metadata as CoworkMessageMetadata)?.skillIds || [];
-  const messageSkills = messageSkillIds
-    .map(id => skills.find(s => s.id === id))
-    .filter((s): s is NonNullable<typeof s> => s !== undefined);
   const imageAttachments = useMemo(
     () =>
       ((message.metadata as CoworkMessageMetadata)?.imageAttachments ??
@@ -147,7 +137,7 @@ export const UserBubble: React.FC<{
     ],
     [fileAttachments, imageAttachments, message.id],
   );
-  const hasTextContent = Boolean(textContent.trim()) || messageSkills.length > 0;
+  const hasTextContent = Boolean(textContent.trim());
 
   return (
     <div className="w-full py-2 focus:outline-none" tabIndex={0}>
@@ -156,11 +146,7 @@ export const UserBubble: React.FC<{
         {hasTextContent && (
           <Message from="user" className="ml-auto items-end">
             <MessageContent className="theme-message-cowork-user">
-              {/* 2026/09/17 lixiang  skill与正文同一文本流，避免左右分栏 */}
               <div className="whitespace-pre-wrap wrap-break-word">
-                {messageSkills.map(skill => (
-                  <MessageSkillSummary key={skill.id} skill={skill} />
-                ))}
                 <span className="cowork-message mx-0.5">{textContent}</span>
               </div>
             </MessageContent>
@@ -191,27 +177,3 @@ export const UserBubble: React.FC<{
     </div>
   );
 });
-
-const MessageSkillSummary: React.FC<{ skill: Skill }> = ({ skill }) => {
-  const shortcut = findChatSkillShortcut(skill.id);
-  const label = shortcut ? i18nService.t(shortcut.labelKey) : skill.displayName || skill.name;
-  const ShortcutIcon = shortcut?.icon;
-
-  return (
-    // 2026/09/17 lixiang  气泡内 skill 以行内 token 样式展示，跟输入框 skill 胶囊一致
-    <span className="theme-surface-skill-token mx-0.5 inline-flex h-6 max-w-40 select-none items-center gap-1 align-baseline px-2 text-sm leading-none">
-      {skill.iconUrl ? (
-        <img
-          src={resolveSkillIconUrl(skill.iconUrl)}
-          alt=""
-          className="size-3.5 shrink-0 object-contain"
-        />
-      ) : ShortcutIcon ? (
-        <ShortcutIcon className="theme-surface-skill-fallback size-3.5 shrink-0" />
-      ) : (
-        <PlusMenuSkillsIcon className="theme-surface-skill-fallback size-3.5 shrink-0" />
-      )}
-      <span className="truncate">{label}</span>
-    </span>
-  );
-};

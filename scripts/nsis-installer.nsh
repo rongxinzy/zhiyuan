@@ -44,7 +44,7 @@ Var /GLOBAL zyDeleteRealAppData
 
 ; electron-builder's CHECK_APP_RUNNING treats any process whose image path
 ; starts with $INSTDIR as "app still running". Sidecars (cc-connect,
-; llama-server, python, git) survive a force-killed main process, so kill by
+; llama-server, git) survive a force-killed main process, so kill by
 ; install-root/runtime-cache path prefix instead of by process name; otherwise
 ; orphaned sidecars keep the "cannot be closed" retry dialog up forever.
 ; The caller itself is excluded: an in-place uninstaller runs from $INSTDIR.
@@ -122,8 +122,8 @@ Var /GLOBAL zyDeleteRealAppData
   FileSeek ${HANDLE} 0 END
 !macroend
 
-; Destructive pre-extraction steps: stop the running application, migrate
-; user-created Skills, detach the previous installation. They must NOT run
+; Destructive pre-extraction steps: stop the running application and detach
+; the previous installation. They must NOT run
 ; from .onInit — the wizard has not been shown yet, and a cancel on any page
 ; would leave the user with a killed app and a renamed install directory.
 ; Interactive installs run this when the options page is left (the user has
@@ -142,7 +142,7 @@ Var /GLOBAL zyDeleteRealAppData
     ; machine and the detach rename would hit a drive root.
     StrLen $R8 $INSTDIR
     ${If} $R8 < 6
-      DetailPrint "[Installer] Install root '$INSTDIR' is too shallow; skipping process stop, Skill migration and detach"
+      DetailPrint "[Installer] Install root '$INSTDIR' is too shallow; skipping process stop and detach"
       !insertmacro OpenTimingLogForAppend $8
       FileWrite $8 "phase=prepare-skipped reason=shallow-root path=$INSTDIR$\r$\n"
       FileClose $8
@@ -155,32 +155,6 @@ Var /GLOBAL zyDeleteRealAppData
     IntOp $5 $6 - $7
     !insertmacro OpenTimingLogForAppend $8
     FileWrite $8 "phase=process-stop-complete elapsed_ms=$5 exit=$0$\r$\n"
-    FileClose $8
-
-    DetailPrint "[Installer] Migrating user-created Skills"
-    System::Call 'kernel32::GetTickCount()i .r7'
-    nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "\
-      $$source = \"$INSTDIR\resources\SKILLs\";\
-      $$destination = \"$APPDATA\ZhiYuanAgent\SKILLs\";\
-      $$config = Join-Path $$source \"skills.config.json\";\
-      if (Test-Path $$source) {\
-        New-Item -ItemType Directory -Path $$destination -Force | Out-Null;\
-        $$bundled = @(try {\
-          if (Test-Path $$config) {\
-            (Get-Content $$config -Raw | ConvertFrom-Json).defaults.PSObject.Properties.Name\
-          }\
-        } catch { });\
-        Get-ChildItem -Path $$source -Directory | Where-Object { $$bundled -notcontains $$_.Name } | ForEach-Object {\
-          $$target = Join-Path $$destination $$_.Name;\
-          if (-not (Test-Path $$target)) { Copy-Item -Path $$_.FullName -Destination $$target -Recurse -Force }\
-        };\
-      }"'
-    Pop $0
-    Pop $1
-    System::Call 'kernel32::GetTickCount()i .r6'
-    IntOp $5 $6 - $7
-    !insertmacro OpenTimingLogForAppend $8
-    FileWrite $8 "phase=skill-migration-complete elapsed_ms=$5 exit=$0 output=$1$\r$\n"
     FileClose $8
 
     ; Rename the old application quickly. Its directory junctions do not copy the
@@ -565,7 +539,7 @@ Var /GLOBAL zyDeleteRealAppData
   File /oname=cleanup-after-install.ps1 "${PROJECT_DIR}\scripts\installer\cleanup-after-install.ps1"
   File /oname=uninstall-cleanup.ps1 "${PROJECT_DIR}\scripts\installer\uninstall-cleanup.ps1"
   ; Embed the routing table as a compile-time asset. Building it incrementally
-  ; with NSIS FileWrite can split the skill-python key on Windows runners.
+  ; with NSIS FileWrite can split hyphenated component keys on Windows runners.
   File /oname=component-targets.json "${PROJECT_DIR}\scripts\nsis-offline-components.json"
   nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "(Get-FileHash -LiteralPath \"$PLUGINSDIR\7za.exe\" -Algorithm SHA256).Hash.ToLowerInvariant()"'
   Pop $0
@@ -588,12 +562,7 @@ Var /GLOBAL zyDeleteRealAppData
   ; Stage the per-component metadata before deciding which archives to queue.
   !insertmacro ZY_ProgressPhase STAGING "$(ZY_PHASE_STAGING)"
   !insertmacro StageOfflineComponentMetadata "channel-runtime"
-  !insertmacro StageOfflineComponentMetadata "skills"
-  !insertmacro StageOfflineComponentMetadata "mcps"
   !insertmacro StageOfflineComponentMetadata "portable-git"
-  !insertmacro StageOfflineComponentMetadata "python"
-  !insertmacro StageOfflineComponentMetadata "skill-python"
-  !insertmacro StageOfflineComponentMetadata "uv"
 
   ; Verify all reusable cache entries in one PowerShell process before deciding
   ; which archives NSIS needs to unpack from the installer.
@@ -606,12 +575,7 @@ Var /GLOBAL zyDeleteRealAppData
   ComponentCacheValidated:
 
   !insertmacro QueueOfflineComponent CHANNEL_RUNTIME "channel-runtime" "频道运行环境"
-  !insertmacro QueueOfflineComponent SKILLS "skills" "内置 Skills"
-  !insertmacro QueueOfflineComponent MCPS "mcps" "内置 MCPs"
   !insertmacro QueueOfflineComponent PORTABLE_GIT "portable-git" "PortableGit"
-  !insertmacro QueueOfflineComponent PYTHON "python" "Python 离线运行环境"
-  !insertmacro QueueOfflineComponent SKILL_PYTHON "skill-python" "Skill Python dependency layer"
-  !insertmacro QueueOfflineComponent UV "uv" "uv 离线运行环境"
 
   ; The changed archives are now present in $PLUGINSDIR. Validate their entries
   ; and sentinels, then extract them in one PowerShell batch. This keeps cache
@@ -644,12 +608,7 @@ Var /GLOBAL zyDeleteRealAppData
   ComponentBatchExpanded:
 
   !insertmacro RecordOfflineComponentReady "channel-runtime"
-  !insertmacro RecordOfflineComponentReady "skills"
-  !insertmacro RecordOfflineComponentReady "mcps"
   !insertmacro RecordOfflineComponentReady "portable-git"
-  !insertmacro RecordOfflineComponentReady "python"
-  !insertmacro RecordOfflineComponentReady "skill-python"
-  !insertmacro RecordOfflineComponentReady "uv"
 
   DetailPrint "[Installer] Activating offline components"
   !insertmacro ZY_ProgressPhase ACTIVATING "$(ZY_PHASE_ACTIVATING)"
@@ -677,8 +636,7 @@ Var /GLOBAL zyDeleteRealAppData
 
   DetailPrint "[Installer] Verifying bundled runtimes"
   !insertmacro ZY_ProgressPhase VERIFYING "$(ZY_PHASE_VERIFYING)"
-  IfFileExists "$INSTDIR\resources\python-win\python.exe" 0 InstalledRuntimeVerificationFailed
-  IfFileExists "$INSTDIR\resources\uv-win\uv.exe" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\usr\bin\bash.exe" 0 InstalledRuntimeVerificationFailed
   IfFileExists "$INSTDIR\resources\channel-runtime\cc-connect-sidecar.exe" 0 InstalledRuntimeVerificationFailed
   Goto OfflineComponentsReady
   InstalledRuntimeVerificationFailed:
@@ -805,7 +763,7 @@ Var /GLOBAL zyDeleteRealAppData
 
 !macro customUnInstall
   ; Remove component junctions and detach application-owned immutable data.
-  ; User-created Skills and models remain under userData. Deleting the
+  ; User data and models remain under userData. Deleting the
   ; expanded runtime tree synchronously can take longer than the uninstaller
   ; itself, so the shared script renames it atomically and reclaims it in the
   ; background. Keep both the uninstaller and spawned cleanup commands outside
@@ -818,7 +776,7 @@ Var /GLOBAL zyDeleteRealAppData
 
   ; electron-builder's DELETE_APP_DATA list only covers $APPDATA\<product
   ; name> variants; the app's real userData directory is %APPDATA%\ZhiYuanAgent
-  ; (APP_DATA_DIR_NAME — sessions, memory projection, migrated SKILLs). The
+  ; (APP_DATA_DIR_NAME — sessions and memory projection). The
   ; WebView2 shell uninstaller removes that same tree, so mirror the exact
   ; delete-app-data decision uninstaller.nsh makes and remove it too. The
   ; decision has to be recomputed here: customUnInstall runs before

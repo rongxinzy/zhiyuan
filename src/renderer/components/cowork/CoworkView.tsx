@@ -12,20 +12,14 @@ import {
 } from '../../../shared/cowork/constants';
 import { CoworkSessionExpertSource } from '../../../shared/cowork/sessionExperts';
 import { agentService } from '../../services/agent';
-import {
-  isChatSkillShortcutSelection,
-  resolveChatSkillShortcutPermissionMode,
-  resolveSkillPlaceholderKey,
-} from '../chat/constants';
 import { coworkService } from '../../services/cowork';
 import { coworkQueueService } from '../../services/coworkQueue';
 import { i18nService } from '../../services/i18n';
 import { normalizeError } from '../../services/errorNormalization';
 import { showAppErrorToast } from '../../services/toastNotification';
-import { quickActionService } from '../../services/quickAction';
 import { RafMessageUpdateBatcher } from '../../services/rafMessageUpdateBatcher';
 import { workspaceService } from '../../services/workspace';
-import { RootState, store } from '../../store';
+import { RootState } from '../../store';
 import {
   selectCoworkConfig,
   selectCurrentSession,
@@ -39,8 +33,6 @@ import {
   clearCurrentSession,
   updateMessageContents,
 } from '../../store/slices/coworkSlice';
-import { clearSelection, selectAction, setActions } from '../../store/slices/quickActionSlice';
-import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
 import { WorkMode } from '../../store/workMode/constants';
 import {
   type CoworkImageAttachment,
@@ -51,7 +43,6 @@ import {
 } from '../../types/cowork';
 import { toAgentModelRef } from '../../utils/agentModelRef';
 import { isScratchWorkspacePath } from '../../utils/path';
-import { PromptPanel, QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../settings/types';
 import PageHeader from '../PageHeader';
 import { LogoLoadingState } from '../LogoLoadingState';
@@ -59,18 +50,12 @@ import { useAgentSelectedModel } from './agentModelSelection';
 import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
 import CoworkSessionViewport from './CoworkSessionViewport';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
-import {
-  quickActionSkillIds,
-  shouldClearQuickActionSelection,
-} from '../quick-actions/quickActionSelection';
 import { useUnmanagedWorkingDirectory } from './useUnmanagedWorkingDirectory';
 import { useTaskResumeContext } from './hooks/useTaskResumeContext';
 import { WorkBriefingHome } from './briefing/WorkBriefingHome';
 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
-  onShowSkills?: () => void;
-  onShowConnectors?: () => void;
   onShowScheduledTasks?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -84,8 +69,6 @@ export interface CoworkViewProps {
 
 const CoworkView: React.FC<CoworkViewProps> = ({
   onRequestAppSettings,
-  onShowSkills,
-  onShowConnectors,
   onShowScheduledTasks,
   isSidebarCollapsed,
   onToggleSidebar,
@@ -119,7 +102,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   const startRequestIdRef = useRef(0);
   // Ref for CoworkPromptInput
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
-  const quickActionActivationRef = useRef<string | null>(null);
 
   const currentSession = useSelector(selectCurrentSession);
   const taskResume = useTaskResumeContext(currentSession?.id);
@@ -144,10 +126,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     ? (config.permissionModeBySession?.[currentSession.id] ?? config.permissionMode)
     : config.permissionMode;
 
-  const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
-  const skills = useSelector((state: RootState) => state.skill.skills);
-  const quickActions = useSelector((state: RootState) => state.quickAction.actions);
-  const selectedActionId = useSelector((state: RootState) => state.quickAction.selectedActionId);
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const currentAgent = agents.find(agent => agent.id === currentAgentId);
@@ -205,14 +183,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     const init = async () => {
       await coworkService.init();
       await agentService.loadAgents();
-      // Load quick actions with localization
-      try {
-        quickActionService.initialize();
-        const actions = await quickActionService.getLocalizedActions();
-        dispatch(setActions(actions));
-      } catch (error) {
-        console.error('Failed to load quick actions:', error);
-      }
       try {
         // Finish configuration repair before main-process availability checks.
         await configService.init();
@@ -230,19 +200,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     };
     init();
 
-    // Subscribe to language changes to reload quick actions
-    const unsubscribe = quickActionService.subscribe(async () => {
-      try {
-        const actions = await quickActionService.getLocalizedActions();
-        dispatch(setActions(actions));
-      } catch (error) {
-        console.error('Failed to reload quick actions:', error);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
 
@@ -256,7 +213,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     imageAttachments?: CoworkImageAttachment[],
     fileAttachments?: CoworkFileAttachment[],
     expertIds: string[] = [],
-    goalMode = false,
   ): Promise<boolean | void> => {
     console.log('[CoworkView] handleStartSession: imageAttachments diagnosis', {
       hasImageAttachments: !!imageAttachments,
@@ -312,9 +268,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       );
       const now = Date.now();
 
-      // Capture active skill IDs before clearing them
-      const sessionSkillIds = [...activeSkillIds];
-
       // Chat sessions stay tagged as chat sessions while every turn executes
       // through the Pi agent runtime.
       const isChatAgentExecution = workMode === WorkMode.Chat;
@@ -331,7 +284,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         systemPrompt: '',
         modelOverride: currentAgentSelectedModel ? toAgentModelRef(currentAgentSelectedModel) : '',
         executionMode: config.executionMode || CoworkExecutionMode.Local,
-        activeSkillIds: sessionSkillIds,
         workspaceId: currentWorkspaceId || '',
         agentId: currentAgentId,
         source: CoworkSessionSource.Manual,
@@ -342,11 +294,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({
             content: prompt,
             timestamp: now,
             metadata:
-              sessionSkillIds.length > 0 ||
               (imageAttachments && imageAttachments.length > 0) ||
               (fileAttachments && fileAttachments.length > 0)
                 ? {
-                    ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
                     ...(imageAttachments && imageAttachments.length > 0
                       ? { imageAttachments }
                       : {}),
@@ -363,27 +313,13 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       // persistent Pi session, so attachments and the initial prompt remain
       // visible if startup takes time or fails.
       dispatch(addSession(tempSession));
-      // Clear quick action selection after starting session
-      dispatch(clearSelection());
-
-      // Engine path: Work and Chat sessions. The engine loads skills natively via
-      // skills.load.extraDirs, so skip the auto-routing prompt to avoid
-      // injecting Claude SDK tool-calling instructions that confuse non-Claude
-      // models (e.g. kimi-k2.5 falls back to text-based tool calls, producing
-      // empty tool names and err=true failures).
       const isExpertAgent =
         currentAgent?.source === CoworkSessionExpertSource.Package ||
         currentAgent?.source === CoworkSessionExpertSource.Member;
       const agentSystemPrompt = isExpertAgent ? undefined : currentAgent?.systemPrompt?.trim();
-      // Chat uses Pi's agent kernel without inheriting the complete Work
-      // system prompt. Explicitly selected skills still travel as the prompt
-      // fragment assembled below.
       const baseSystemPrompt = isChatAgentExecution
         ? ''
         : agentSystemPrompt || config.systemPrompt || '';
-      // Skills are capabilities of the session, not text of the prompt: Pi
-      // renders them into the system prompt from their directories, so nothing
-      // from a skill is merged into the session prompt here.
       const sessionSystemPrompt = baseSystemPrompt;
 
       // Chat hides the folder selector, so the engine relies on
@@ -403,13 +339,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       const sessionModelOverride = currentAgentSelectedModel
         ? toAgentModelRef(currentAgentSelectedModel)
         : '';
-      const shouldAutoAllowChatSkill =
-        workMode === WorkMode.Chat &&
-        isChatAgentExecution &&
-        isChatSkillShortcutSelection(sessionSkillIds);
-      const sessionPermissionMode = shouldAutoAllowChatSkill
-        ? resolveChatSkillShortcutPermissionMode(sessionSkillIds, config.permissionMode)
-        : config.permissionMode;
       console.log('[CoworkView] creating session:', {
         modelId: currentAgentSelectedModel?.id,
         providerKey: currentAgentSelectedModel?.providerKey,
@@ -432,13 +361,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({
           // Chat stays tagged as a chat session so it remains in the Chat
           // sidebar list; Work sessions keep the default work mode.
           mode: isChatAgentExecution ? CoworkSessionMode.Chat : CoworkSessionMode.Work,
-          activeSkillIds: sessionSkillIds,
           workspaceId: currentWorkspaceId || undefined,
           agentId: currentAgentId,
           expertIds,
-          goalMode,
           modelOverride: sessionModelOverride,
-          permissionMode: sessionPermissionMode,
+          permissionMode: config.permissionMode,
           imageAttachments,
           fileAttachments,
         },
@@ -464,14 +391,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       }
 
       if (startedSession) {
-        if (shouldAutoAllowChatSkill) {
-          await coworkService.updateConfig({
-            permissionModeBySession: {
-              ...(store.getState().cowork.config.permissionModeBySession ?? {}),
-              [startedSession.id]: CoworkPermissionMode.AllowAll,
-            },
-          });
-        }
         clearUnmanagedWorkingDirectory();
       }
 
@@ -495,15 +414,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     imageAttachments?: CoworkImageAttachment[],
     fileAttachments?: CoworkFileAttachment[],
     expertIds: string[] = [],
-    goalMode = false,
   ) => {
     if (!currentSession) return;
     if (taskResume.interruption) {
       return taskResume.resume({
         amendment: prompt,
-        skillIds: [...activeSkillIds],
         expertIds,
-        goalMode,
         imageAttachments: imageAttachments
           ?.filter(
             (image): image is CoworkImageAttachment & { base64Data: string } =>
@@ -532,7 +448,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         prompt,
         imageAttachments,
         fileAttachments,
-        [...activeSkillIds],
       );
       if (!result.success) {
         window.dispatchEvent(
@@ -551,7 +466,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     // Pi continuation path for Work and Chat sessions.
     continuingSessionIdsRef.current.add(currentSession.id);
     try {
-      const sessionSkillIds = [...activeSkillIds];
       const isExpertAgent =
         currentAgent?.source === CoworkSessionExpertSource.Package ||
         currentAgent?.source === CoworkSessionExpertSource.Member;
@@ -565,10 +479,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         systemPrompt: isChatMode
           ? baseSystemPrompt || undefined
           : currentSession.systemPrompt || baseSystemPrompt,
-        activeSkillIds: sessionSkillIds,
         expertIds,
         permissionMode: sessionPermissionMode,
-        goalMode,
         imageAttachments,
         fileAttachments,
       });
@@ -586,83 +498,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     await coworkService.stopSession(currentSession.id);
   };
 
-  // Get selected quick action
-  const selectedAction = React.useMemo(() => {
-    const explicitlySelected = quickActions.find(action => action.id === selectedActionId);
-    if (explicitlySelected) return explicitlySelected;
-
-    // Skills can also be activated from the Chat sidebar or the skill badge.
-    // In that path there is no quick-action selection event, so derive the
-    // matching case panel from the active skill mapping.
-    return quickActions.find(action =>
-      quickActionSkillIds(action).every(skillId => activeSkillIds.includes(skillId)),
-    );
-  }, [activeSkillIds, quickActions, selectedActionId]);
-
-  // Handle quick action button click and activate its complete Skill bundle.
-  const handleActionSelect = (actionId: string) => {
-    dispatch(selectAction(actionId));
-    quickActionActivationRef.current = null;
-    const action = quickActions.find(a => a.id === actionId);
-    const skillIds = action ? quickActionSkillIds(action) : [];
-    const skillsAvailable = skillIds.every(skillId =>
-      skills.some(skill => skill.id === skillId && skill.enabled),
-    );
-    if (action && skillsAvailable) {
-      quickActionActivationRef.current = actionId;
-      dispatch(setActiveSkillIds(skillIds));
-    } else {
-      // Do not send a new quick-action prompt with skills left over from a
-      // previous action when the requested bundle is unavailable.
-      dispatch(clearActiveSkills());
-    }
-    window.setTimeout(() => {
-      // 2026/09/16 lixiang  选择快捷操作时保留已输入的 prompt，只聚焦输入框
-      window.dispatchEvent(new CustomEvent('cowork:focus-input', { detail: { clear: false } }));
-    }, 0);
-  };
-
-  // Activate a mapped skill once it becomes available, and clear the quick action when
-  // the user removes that skill from the input area.
-  useEffect(() => {
-    if (!selectedActionId) {
-      quickActionActivationRef.current = null;
-      return;
-    }
-    const action = quickActions.find(a => a.id === selectedActionId);
-    if (!action) return;
-    const skillIds = quickActionSkillIds(action);
-    const skillsAvailable = skillIds.every(skillId =>
-      skills.some(skill => skill.id === skillId && skill.enabled),
-    );
-    if (!skillsAvailable) return;
-
-    if (quickActionActivationRef.current !== selectedActionId) {
-      quickActionActivationRef.current = selectedActionId;
-      if (!skillIds.every(skillId => activeSkillIds.includes(skillId))) {
-        dispatch(setActiveSkillIds(skillIds));
-      }
-      return;
-    }
-
-    if (shouldClearQuickActionSelection(action, skills, activeSkillIds)) {
-      dispatch(clearSelection());
-    }
-  }, [activeSkillIds, dispatch, quickActions, selectedActionId, skills]);
-
-  // Handle prompt selection from QuickAction
-  const handleQuickActionPromptSelect = (prompt: string) => {
-    // Fill the prompt into input
-    promptInputRef.current?.setValue(prompt);
-    promptInputRef.current?.focus();
-  };
-
   useEffect(() => {
     const handleNewSession = () => {
       // Only clear when already on home (no session) — preserve __home__ draft when returning from a session
       const shouldClear = !currentSession;
       dispatch(clearCurrentSession());
-      dispatch(clearSelection());
       window.dispatchEvent(
         new CustomEvent('cowork:focus-input', {
           detail: { clear: shouldClear },
@@ -722,8 +562,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       <div className="flex-1 flex flex-col h-full">
         <CoworkSessionViewport
           sessionId={displayedSessionId}
-          onManageSkills={() => onShowSkills?.()}
-          onManageConnectors={() => onShowConnectors?.()}
           permissionMode={sessionPermissionMode}
           onPermissionModeChange={(mode: CoworkPermissionMode) => {
             if (!currentSession) return;
@@ -763,7 +601,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       disabled={false}
       placeholder={
         workMode === WorkMode.Chat
-          ? i18nService.t(resolveSkillPlaceholderKey(activeSkillIds) ?? 'chatPlaceholder')
+          ? i18nService.t('chatPlaceholder')
           : i18nService.t('coworkPlaceholder')
       }
       size={workMode === WorkMode.Chat ? 'large' : 'normal'}
@@ -788,8 +626,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       showFolderSelector={workMode !== WorkMode.Chat && !currentWorkspace?.isHidden}
       showNoFolderAction={!currentWorkspaceId}
       showModelSelector
-      onManageSkills={() => onShowSkills?.()}
-      onManageConnectors={() => onShowConnectors?.()}
       showPermissionModeSelector={workMode !== WorkMode.Chat}
       permissionMode={config.permissionMode}
       onPermissionModeChange={(mode: CoworkPermissionMode) => {
@@ -797,29 +633,18 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       }}
     />
   );
-  const homeQuickActions = (
-    <div className="flex w-full flex-col gap-4 pb-8">
-      {!selectedAction && (
-        <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />
-      )}
-      {selectedAction && (
-        <PromptPanel action={selectedAction} onPromptSelect={handleQuickActionPromptSelect} />
-      )}
-    </div>
-  );
   if (workMode === WorkMode.Work) {
     return (
       <WorkBriefingHome
         header={homeHeader}
         prompt={homePrompt}
-        quickActions={homeQuickActions}
         onFocusInput={() => promptInputRef.current?.focus()}
         onShowScheduledTasks={onShowScheduledTasks}
       />
     );
   }
 
-  // Chat home retains its existing case gallery and prompt layout.
+  // Chat home retains the shared plain-text composer.
   return (
     <div data-page-canvas className="flex-1 flex flex-col bg-background h-full">
       {/* Header */}
@@ -864,15 +689,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               <div className="min-w-0">{homePrompt}</div>
             </div>
           </div>
-
-          {/* Quick Actions. The category bar is the entry point only: once a category is
-              open the cases own the column, so the bar steps aside instead of sitting on
-              top of the gallery. The gallery shares the column with the input on purpose:
-              that is the box the input's sticky positioning is measured against, so the
-              cases can scroll all the way to the end while the input stays in place.
-              The column keeps the full width: the bar needs it for its labels, and the case
-              panel narrows itself to the composer width (see PromptPanel). */}
-          {homeQuickActions}
         </div>
       </div>
     </div>

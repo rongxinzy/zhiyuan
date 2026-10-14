@@ -21,8 +21,8 @@ function fixture() {
   mkdirSync(bin);
   const tracked: string[] = [];
   for (const [directory, locked] of [
-    ['SKILLs/locked skill', true],
-    ['SKILLs/presets/nested', false],
+    ['tools/locked helper', true],
+    ['tools/nested/unlocked', false],
     ['scripts/release', true],
     ['scripts/helper', false],
   ] as const) {
@@ -47,10 +47,6 @@ const args = process.argv.slice(2);
 const name = JSON.parse(fs.readFileSync('package.json', 'utf8')).name;
 if (!args.includes('--ignore-scripts') || !args.includes('--package-lock-only')) process.exit(90);
 fs.appendFileSync(process.env.AUDIT_CALLS, JSON.stringify({name,args,cwd:process.cwd()})+'\\n');
-if (args[0] === 'install') {
-  if (process.env.FAIL_RESOLUTION === name) process.exit(2);
-  fs.writeFileSync('package-lock.json', '{"lockfileVersion":3,"packages":{}}');
-}
 if (args[0] === 'audit') {
   console.log(JSON.stringify({project:name,vulnerabilities:process.env.FAIL_AUDIT === name}));
   if (process.env.FAIL_AUDIT === name) process.exit(1);
@@ -81,23 +77,22 @@ if (args[0] === 'audit') {
   };
 }
 
-test('audits locked graphs and nested unlocked Skills in isolated snapshots', () => {
+test('audits committed dependency graphs in isolated snapshots', () => {
   const f = fixture();
   try {
     expect(f.run().status).toBe(0);
     const calls = f.calls();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(2);
     expect(calls.every(call => call.cwd.startsWith(realpathSync(f.reports)))).toBe(true);
-    expect(calls.filter(call => call.args[0] === 'install').map(call => call.name)).toEqual([
-      'SKILLs/presets/nested',
-    ]);
+    expect(calls.some(call => call.args[0] === 'install')).toBe(false);
+    expect(calls.some(call => call.name === 'tools/nested/unlocked')).toBe(false);
     expect(calls.some(call => call.name === 'scripts/helper')).toBe(false);
-    expect(existsSync(path.join(f.root, 'SKILLs/presets/nested/package-lock.json'))).toBe(false);
-    expect(readFileSync(path.join(f.root, 'SKILLs/locked skill/package-lock.json'), 'utf8')).toBe(
+    expect(existsSync(path.join(f.root, 'tools/nested/unlocked/package-lock.json'))).toBe(false);
+    expect(readFileSync(path.join(f.root, 'tools/locked helper/package-lock.json'), 'utf8')).toBe(
       '{"lockfileVersion":3,"packages":{}}\n',
     );
     expect(readFileSync(path.join(f.reports, 'summary.tsv'), 'utf8')).toContain(
-      'unlocked-resolution',
+      'tools/locked helper\tlocked\tpassed',
     );
   } finally {
     f.dispose();
@@ -107,25 +102,12 @@ test('audits locked graphs and nested unlocked Skills in isolated snapshots', ()
 test('an audit failure stays nonzero while other projects still get reports', () => {
   const f = fixture();
   try {
-    expect(f.run({ FAIL_AUDIT: 'SKILLs/locked skill' }).status).toBe(1);
-    expect(f.calls().filter(call => call.args[0] === 'audit')).toHaveLength(3);
-    expect(readFileSync(path.join(f.reports, 'summary.tsv'), 'utf8')).toContain(
-      'SKILLs/locked skill\tlocked\tfailed',
-    );
-    expect(existsSync(path.join(f.reports, 'project-1/audit.json'))).toBe(true);
-  } finally {
-    f.dispose();
-  }
-});
-
-test('resolution errors are retained and cannot be mistaken for a clean graph', () => {
-  const f = fixture();
-  try {
-    expect(f.run({ FAIL_RESOLUTION: 'SKILLs/presets/nested' }).status).toBe(1);
+    expect(f.run({ FAIL_AUDIT: 'tools/locked helper' }).status).toBe(1);
     expect(f.calls().filter(call => call.args[0] === 'audit')).toHaveLength(2);
     expect(readFileSync(path.join(f.reports, 'summary.tsv'), 'utf8')).toContain(
-      'resolution-failed',
+      'tools/locked helper\tlocked\tfailed',
     );
+    expect(existsSync(path.join(f.reports, 'project-1/audit.json'))).toBe(true);
   } finally {
     f.dispose();
   }

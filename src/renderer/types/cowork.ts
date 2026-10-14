@@ -125,7 +125,7 @@ export interface CoworkSession {
   systemPrompt: string;
   modelOverride: string;
   executionMode: CoworkExecutionMode;
-  activeSkillIds: string[];
+  activeSkillIds?: string[];
   workspaceId: string;
   agentId: string;
   source: CoworkSessionSource;
@@ -155,8 +155,6 @@ export interface CoworkConfig {
   embeddingVectorWeight: number;
   embeddingRemoteBaseUrl: string;
   embeddingRemoteApiKey: string;
-  codemodeEnabled: boolean;
-  mcpNativeBridge: boolean;
 }
 
 export type CoworkConfigUpdate = Partial<
@@ -173,8 +171,6 @@ export type CoworkConfigUpdate = Partial<
     | 'embeddingVectorWeight'
     | 'embeddingRemoteBaseUrl'
     | 'embeddingRemoteApiKey'
-    | 'codemodeEnabled'
-    | 'mcpNativeBridge'
   >
 >;
 
@@ -238,6 +234,7 @@ export interface CoworkSessionSummary {
 
 // Start session options
 export interface CoworkStartOptions {
+  requestId?: string;
   prompt: string;
   cwd?: string;
   systemPrompt?: string;
@@ -256,6 +253,7 @@ export interface CoworkStartOptions {
 
 // Continue session options
 export interface CoworkContinueOptions {
+  requestId?: string;
   sessionId: string;
   prompt: string;
   systemPrompt?: string;

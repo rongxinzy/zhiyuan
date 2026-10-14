@@ -210,11 +210,13 @@ try {
     const complete = path.join(runtimeRoot, component.key, component.contentId, '.complete');
     if (!fs.existsSync(link) || !fs.existsSync(complete)) treeOk = false;
   }
-  check(treeOk, 'all 7 resources junctions + .complete sentinels present');
+  check(treeOk, 'all resources junctions + .complete sentinels present');
   check(
     fs.existsSync(path.join(installDir, '知远.exe')) &&
-      fs.existsSync(path.join(installDir, 'resources', 'python-win', 'python.exe')),
-    'fake app + python sentinel installed',
+      fs.existsSync(
+        path.join(installDir, 'resources', 'channel-runtime', 'cc-connect-sidecar.exe'),
+      ),
+    'fake app + channel runtime sentinel installed',
   );
 
   // Zero pollution: extraction dir removed, real runtime cache untouched,

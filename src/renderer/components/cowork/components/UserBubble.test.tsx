@@ -4,7 +4,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 
 import type { CoworkMessage } from '../../../types/cowork';
-import type { Skill } from '../../../types/skill';
 import { i18nService } from '../../../services/i18n';
 import { formatMessageDateTime } from '../../../utils/tokenFormat';
 import { UserBubble } from './UserBubble';
@@ -16,23 +15,9 @@ const message: CoworkMessage = {
   timestamp: 1_754_034_400_000,
 };
 
-const displayNamedSkill: Skill = {
-  id: 'minimax-docx',
-  name: 'minimax-docx',
-  displayName: '文档',
-  description: '',
-  enabled: true,
-  pinned: false,
-  isOfficial: false,
-  isBuiltIn: false,
-  updatedAt: 0,
-  prompt: '',
-  skillPath: '',
-};
-
 describe('UserBubble', () => {
   test('places the timestamp before copy and re-edit actions', () => {
-    render(<UserBubble message={message} skills={[]} onReEdit={vi.fn()} />);
+    render(<UserBubble message={message} onReEdit={vi.fn()} />);
 
     const timestamp = screen.getByText(formatMessageDateTime(message.timestamp));
     const copyButton = screen.getByLabelText(i18nService.t('copyToClipboard'));
@@ -49,7 +34,7 @@ describe('UserBubble', () => {
   test('renders copy and re-edit actions for a local user message', () => {
     const onReEdit = vi.fn();
 
-    render(<UserBubble message={message} skills={[]} onReEdit={onReEdit} />);
+    render(<UserBubble message={message} onReEdit={onReEdit} />);
 
     expect(screen.getByLabelText(i18nService.t('copyToClipboard'))).toBeInTheDocument();
 
@@ -59,22 +44,10 @@ describe('UserBubble', () => {
   });
 
   test('does not render re-edit action when the session is remote-managed', () => {
-    render(<UserBubble message={message} skills={[]} />);
+    render(<UserBubble message={message} />);
 
     expect(screen.getByLabelText(i18nService.t('copyToClipboard'))).toBeInTheDocument();
     expect(screen.queryByLabelText(i18nService.t('coworkReEdit'))).not.toBeInTheDocument();
-  });
-
-  test('uses the localized display name for skills in the message summary', () => {
-    render(
-      <UserBubble
-        message={{ ...message, metadata: { skillIds: [displayNamedSkill.id] } }}
-        skills={[displayNamedSkill]}
-      />,
-    );
-
-    expect(screen.getByText('文档')).toBeInTheDocument();
-    expect(screen.queryByText('minimax-docx')).not.toBeInTheDocument();
   });
 
   test('renders sent images as inline attachments and preserves expansion', () => {
@@ -88,7 +61,6 @@ describe('UserBubble', () => {
             ],
           },
         }}
-        skills={[]}
       />,
     );
 
@@ -122,7 +94,6 @@ describe('UserBubble', () => {
             ],
           },
         }}
-        skills={[]}
       />,
     );
 
@@ -140,7 +111,6 @@ describe('UserBubble', () => {
           ...message,
           content: '输入文件：C:\\Users\\whz\\Downloads\\brief.docx\n\n请总结这份文件',
         }}
-        skills={[]}
       />,
     );
 
@@ -158,7 +128,6 @@ describe('UserBubble', () => {
           ...message,
           content: String.raw`Input Files: \\nas\shared\contract.docx`,
         }}
-        skills={[]}
       />,
     );
 
@@ -184,7 +153,6 @@ describe('UserBubble', () => {
             ],
           },
         }}
-        skills={[]}
       />,
     );
 
@@ -210,7 +178,6 @@ describe('UserBubble', () => {
             ],
           },
         }}
-        skills={[]}
       />,
     );
 

@@ -1,6 +1,6 @@
 /**
  * IM Chat Handler
- * Processes IM messages through LLM service with optional skills integration
+ * Processes IM messages through LLM service using the configured model
  */
 
 import axios from 'axios';
@@ -28,7 +28,6 @@ const PRODUCT_IDENTITY_PROMPT = [
 
 export interface IMChatHandlerOptions {
   getLLMConfig: () => Promise<LLMConfig | null>;
-  getSkillsPrompt?: () => Promise<string | null>;
   imSettings: IMSettings;
 }
 
@@ -48,17 +47,10 @@ export class IMChatHandler {
       throw new Error('LLM configuration not found');
     }
 
-    // Build system prompt with optional skills
+    // Build system prompt
     let systemPrompt = [PRODUCT_IDENTITY_PROMPT, this.options.imSettings.systemPrompt || '']
       .filter(Boolean)
       .join('\n\n');
-
-    if (this.options.imSettings.skillsEnabled && this.options.getSkillsPrompt) {
-      const skillsPrompt = await this.options.getSkillsPrompt();
-      if (skillsPrompt) {
-        systemPrompt = systemPrompt ? `${systemPrompt}\n\n${skillsPrompt}` : skillsPrompt;
-      }
-    }
 
     // Append IM media sending instruction
     const mediaInstruction = buildIMMediaInstruction(this.options.imSettings);
@@ -298,13 +290,6 @@ export class IMChatHandler {
     let systemPrompt = [PRODUCT_IDENTITY_PROMPT, this.options.imSettings.systemPrompt || '']
       .filter(Boolean)
       .join('\n\n');
-
-    if (this.options.imSettings.skillsEnabled && this.options.getSkillsPrompt) {
-      const skillsPrompt = await this.options.getSkillsPrompt();
-      if (skillsPrompt) {
-        systemPrompt = systemPrompt ? `${systemPrompt}\n\n${skillsPrompt}` : skillsPrompt;
-      }
-    }
 
     // For now, use non-streaming and yield once
     // TODO: Implement actual streaming for better UX

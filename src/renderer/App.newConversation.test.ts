@@ -18,10 +18,14 @@ const callbackBody = (source: string, name: string, nextName: string) => {
   return source.slice(start, end);
 };
 
-test('resets active skills for every blank conversation entry point', () => {
-  const handleNewChat = callbackBody(appSource, 'handleNewChat', 'handleTryMcp');
+test('starts blank conversations without a removed capability registry', () => {
+  const handleNewChat = callbackBody(
+    appSource,
+    'handleNewChat',
+    'handleLocalInferenceInstallRequestHandled',
+  );
 
-  expect(handleNewChat).toContain('dispatch(clearActiveSkills());');
+  expect(handleNewChat).not.toContain('clearActiveSkills');
   expect(handleNewChat).toContain('openNewConversation({ clearExperts: true });');
   expect(sidebarSource).not.toContain('clearActiveSkills');
   expect(sidebarSource).not.toContain('workMode === WorkMode.Chat) dispatch');
@@ -36,23 +40,9 @@ test('new chat clears the prompt expert chip while expert-page entry does not', 
   expect(handleChatWithExpert).not.toContain('clearExperts');
 });
 
-test('preserves the selected skill when starting from use-this-skill', () => {
-  const handleTrySkill = callbackBody(appSource, 'handleTrySkill', 'dismissToast');
-
-  expect(handleTrySkill).toContain('if (!skill?.enabled)');
-  expect(handleTrySkill).toContain('dispatch(setActiveSkillIds([skillId]));');
-  expect(handleTrySkill).toContain('openNewConversation();');
-  expect(handleTrySkill).not.toContain('handleNewChat();');
-});
-
-test('routes specialized blank conversation entries through the reset boundary', () => {
-  const handleTryMcp = callbackBody(appSource, 'handleTryMcp', 'handleCreateSkillByChat');
-  const handleCreateSkillByChat = callbackBody(
-    appSource,
-    'handleCreateSkillByChat',
-    'handleTrySkill',
-  );
-
-  expect(handleTryMcp).toContain('handleNewChat();');
-  expect(handleCreateSkillByChat).toContain('handleNewChat();');
+test('removes retired capability routes instead of leaving hidden launch callbacks', () => {
+  expect(appSource).not.toContain('handleTrySkill');
+  expect(appSource).not.toContain('handleTryMcp');
+  expect(appSource).not.toContain("mainView === 'skills'");
+  expect(appSource).not.toContain("mainView === 'mcp'");
 });

@@ -28,7 +28,6 @@ import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { RootState } from '../../store';
 import { getLastPathSegment } from '../../utils/path';
-import { TASK_TEMPLATES, type TaskTemplateValues } from './TaskTemplateGallery';
 import {
   formatDuration,
   formatNextRunRelative,
@@ -257,7 +256,6 @@ interface TaskListProps {
   onRequestEdit: (taskId: string) => void;
   onCreateTask?: () => void;
   onCreateByChat?: () => void;
-  onSelectTemplate?: (values: TaskTemplateValues) => void;
 }
 
 const TaskList: React.FC<TaskListProps> = ({
@@ -266,7 +264,6 @@ const TaskList: React.FC<TaskListProps> = ({
   onRequestEdit,
   onCreateTask,
   onCreateByChat,
-  onSelectTemplate,
 }) => {
   const tasks = useSelector((state: RootState) => state.scheduledTask.tasks);
   const loading = useSelector((state: RootState) => state.scheduledTask.loading);
@@ -328,53 +325,6 @@ const TaskList: React.FC<TaskListProps> = ({
             </Button>
           )}
         </div>
-
-        {onSelectTemplate && (
-          <div className="w-full max-w-xl text-left border-t border-border-subtle pt-6">
-            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-              {i18nService.t('taskTemplateSectionTitle')}
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {TASK_TEMPLATES.map(tpl => (
-                <button
-                  type="button"
-                  key={tpl.id}
-                  onClick={() =>
-                    onSelectTemplate({
-                      name: i18nService.t(tpl.nameKey as Parameters<typeof i18nService.t>[0]),
-                      description: i18nService.t(
-                        tpl.descKey as Parameters<typeof i18nService.t>[0],
-                      ),
-                      schedule: tpl.schedule,
-                      promptText: i18nService.t(
-                        tpl.promptTextKey as Parameters<typeof i18nService.t>[0],
-                      ),
-                    })
-                  }
-                  className="group flex flex-col justify-between p-3 rounded-lg border border-border bg-card hover:bg-surface-raised cursor-pointer text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <div className="flex items-start gap-2.5 mb-2">
-                    <div className="size-7 rounded-md bg-surface-raised flex items-center justify-center text-muted-foreground shrink-0 group-hover:text-foreground">
-                      <tpl.icon className="size-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-foreground truncate">
-                        {i18nService.t(tpl.nameKey as Parameters<typeof i18nService.t>[0])}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground line-clamp-1">
-                        {i18nService.t(tpl.descKey as Parameters<typeof i18nService.t>[0])}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80">
-                    <CalendarClock className="size-3" />
-                    {i18nService.t(tpl.scheduleLabelKey as Parameters<typeof i18nService.t>[0])}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     );
   }

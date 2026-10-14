@@ -1,8 +1,0 @@
-{
-    "mcpServers": {
-        "github": {
-            "timeout": 600,
-            "url": "https://api.githubcopilot.com/mcp/"
-        }
-    }
-}

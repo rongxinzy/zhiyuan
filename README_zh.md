@@ -35,14 +35,13 @@
 
 | 场景 | 工作方式 |
 | --- | --- |
-| 资料研究 | 检索网页、阅读本地资料，整理带来源的研究结果 |
-| 文档与表格 | 制作演示文稿，处理 Word、PDF、Excel，分析数据并生成文件 |
+| 本地资料 | 阅读文件，整理项目中的信息 |
+| 文本与数据 | 使用本机已有工具创建和编辑文件 |
 | 代码工作 | 选择项目目录，阅读仓库、修改代码、运行命令并检查产物 |
 | 日常任务 | 用待办记录工作，通过定时任务安排简报、报告和其他重复流程 |
-| 浏览器操作 | 让智能体在浏览器中查找信息、操作页面，并展示执行进度 |
-| 消息协作 | 配置微信、企业微信、钉钉、飞书/Lark、QQ 或邮箱，在已接入的渠道中使用智能体 |
+| 消息协作 | 配置微信、企业微信、钉钉、飞书/Lark 或 QQ，在已接入的渠道中使用智能体 |
 
-专家提供面向具体工作的预设；技能封装可复用的方法和工具；MCP 用于连接外部服务。你可以使用内置内容，也可以扩展自己的工作流。
+原有内置技能、MCP 集成及托管工具环境已移除，准备整体重新设计；对应设置页面和任务模板不再提供。既有会话、模型服务配置和本地模型管理保留。
 
 ## 开始使用
 
@@ -57,7 +56,7 @@
 
 在「本地推理」中浏览模型市场，选择适合设备的 GGUF 模型及量化版本，安装后启动服务。工作台提供上下文长度、GPU 分配、线程等设置，可将运行中的本地模型用于智能体任务。
 
-本地运行模型可以减少对云端推理的依赖。联网搜索、模型下载、远程 MCP 和消息渠道仍需要对应网络服务。
+本地运行模型可以减少对云端推理的依赖。模型下载和消息渠道仍需要对应网络服务。
 
 ### 数据与权限
 
@@ -120,7 +119,6 @@ bun run llamacpp:runtime:download
 | [`src/main`](src/main) | 桌面生命周期、任务执行、存储与系统服务 |
 | [`src/main/preload.ts`](src/main/preload.ts) | 通过 `contextBridge` 暴露受控 IPC |
 | [`src/renderer/theme`](src/renderer/theme) | 主题契约、组件外观、背景与生成器 |
-| [`SKILLs`](SKILLs) / [`MCPs`](MCPs) | 内置技能与工具集成 |
 | [`.github/workflows`](.github/workflows) | 测试、安装验收和发布流程 |
 
 技术栈包括 Electron、React、TypeScript、Vite、Tailwind CSS、Redux Toolkit 和 SQLite，具体版本以 [`package.json`](package.json) 与 [`bun.lock`](bun.lock) 为准。
@@ -132,7 +130,7 @@ bun run llamacpp:runtime:download
   <img src="public/readme/zhiyuan_agent_architecture_zh.svg" alt="知远桌面架构与模块关系" width="760">
 </p>
 
-渲染进程负责界面，Preload 提供通信边界，主进程负责会话、执行、数据与服务生命周期。任务消息、工具状态和授权请求通过事件回到界面；本地推理、技能、MCP 和消息渠道由对应服务管理。
+渲染进程负责界面，Preload 提供通信边界，主进程负责会话、执行、数据与服务生命周期。任务消息、工具状态和授权请求通过事件回到界面；本地推理和消息渠道由对应服务管理。
 
 </details>
 
@@ -145,7 +143,5 @@ bun run llamacpp:runtime:download
 欢迎通过 Star 关注项目，也欢迎分享你用知远完成的工作流。
 
 ## 致谢与许可证
-
-感谢 [AnySearch](https://github.com/anysearch-ai) 对内置联网搜索能力的支持，相关实现见 [`SKILLs/web-search`](SKILLs/web-search)。
 
 本项目采用 [GNU Affero General Public License v3.0](LICENSE)。

@@ -6,7 +6,6 @@ import { PiThinkingLevel } from '../../libs/agentEngine/piRuntimeTypes';
 import {
   BuiltinCodingConfigId,
   BuiltinCodingDriver,
-  BuiltinCodingPlanMode,
   type BuiltinCodingRuntime,
 } from './builtinCodingDriver';
 
@@ -87,21 +86,19 @@ test('advertises config option support', async () => {
   await expect(driver.getCapabilities()).resolves.toMatchObject({ supportsConfigOptions: true });
 });
 
-test('advertises installed skills, experts and MCP servers on every projection', async () => {
+test('advertises installed experts on every projection', async () => {
   const runtime = createRuntime({
     listCommandChoices: () => ({
-      skills: [{ id: 'pdf', name: 'PDF toolkit', description: 'Fill PDF forms.' }],
       experts: [{ id: 'expert-1', name: 'Staff engineer', description: 'Reviews designs.' }],
-      mcpServers: [{ id: 'github', name: 'github', description: 'GitHub tools.' }],
     }),
   });
   const driver = new BuiltinCodingDriver(runtime);
 
   const session = await driver.createSession({ workspaceRoot: '/workspace' });
   const names = session.availableCommands.map(command => command.name);
-  expect(names).toContain('skill');
+  expect(names).not.toContain('skill');
   expect(names).toContain('expert');
-  expect(names).toContain('mcp');
+  expect(names).not.toContain('mcp');
   expect(driver.getSessionAvailableCommands(session.id).map(command => command.name)).toEqual(
     names,
   );
@@ -109,9 +106,7 @@ test('advertises installed skills, experts and MCP servers on every projection',
 
 test('reads the installed choices when a session is created, not per projection', async () => {
   const listCommandChoices = vi.fn(() => ({
-    skills: [{ id: 'pdf', name: 'PDF toolkit', description: '' }],
     experts: [],
-    mcpServers: [],
   }));
   const driver = new BuiltinCodingDriver(createRuntime({ listCommandChoices }));
   const session = await driver.createSession({ workspaceRoot: '/workspace' });
@@ -124,21 +119,19 @@ test('reads the installed choices when a session is created, not per projection'
 test('re-reads the installed choices once the runtime bumps the catalog generation', async () => {
   let generation = 0;
   const listCommandChoices = vi.fn(() => ({
-    skills: generation === 0 ? [] : [{ id: 'slides', name: 'Slide builder', description: '' }],
-    experts: [],
-    mcpServers: [],
+    experts: generation === 0 ? [] : [{ id: 'reviewer', name: 'Reviewer', description: '' }],
   }));
   const driver = new BuiltinCodingDriver(
     createRuntime({ listCommandChoices, commandCatalogGeneration: () => generation }),
   );
   const session = await driver.createSession({ workspaceRoot: '/workspace' });
   expect(driver.getSessionAvailableCommands(session.id).map(command => command.name)).not.toContain(
-    'skill',
+    'expert',
   );
 
   generation += 1;
   expect(driver.getSessionAvailableCommands(session.id).map(command => command.name)).toContain(
-    'skill',
+    'expert',
   );
   expect(listCommandChoices).toHaveBeenCalledTimes(2);
 });
@@ -147,75 +140,15 @@ test('projects the default commands before any session exists', () => {
   const driver = new BuiltinCodingDriver(
     createRuntime({
       listCommandChoices: () => ({
-        skills: [{ id: 'pdf', name: 'PDF toolkit', description: '' }],
         experts: [],
-        mcpServers: [],
       }),
     }),
   );
 
   const names = driver.getDefaultAvailableCommands().map(command => command.name);
-  expect(names).toEqual(
-    expect.arrayContaining(['plan', 'goal', 'skill', 'compact', 'status', 'mcp']),
-  );
+  expect(names).toEqual(['compact', 'status']);
   // No expert is installed, so that command stays out of the menu.
   expect(names).not.toContain('expert');
-});
-
-test('carries the selected skill and expert into the runtime options', async () => {
-  const runtime = createRuntime({
-    listCommandChoices: () => ({
-      skills: [{ id: 'pdf', name: 'PDF toolkit', description: '' }],
-      experts: [{ id: 'expert-1', name: 'Staff engineer', description: '' }],
-      mcpServers: [],
-    }),
-  });
-  const driver = new BuiltinCodingDriver(runtime);
-  const session = await driver.createSession({ workspaceRoot: '/workspace' });
-
-  for await (const _event of driver.prompt({
-    sessionId: session.id,
-    workspaceRoot: '/workspace',
-    prompt: '/skill pdf fill the form',
-  })) {
-    // Draining starts the runtime.
-  }
-  for await (const _event of driver.prompt({
-    sessionId: session.id,
-    workspaceRoot: '/workspace',
-    prompt: '/expert expert-1 review it',
-  })) {
-    // Draining starts the runtime.
-  }
-  for await (const _event of driver.prompt({
-    sessionId: session.id,
-    workspaceRoot: '/workspace',
-    prompt: '/skill off plain turns again',
-  })) {
-    // Draining starts the runtime.
-  }
-
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    1,
-    session.id,
-    '/workspace',
-    'fill the form',
-    expect.objectContaining({ skillIds: ['pdf'] }),
-  );
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    2,
-    session.id,
-    '/workspace',
-    'review it',
-    expect.objectContaining({ expertIds: ['expert-1'] }),
-  );
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    3,
-    session.id,
-    '/workspace',
-    'plain turns again',
-    expect.objectContaining({ skillIds: [] }),
-  );
 });
 
 test('createSession exposes the thinking-level option with a medium default', async () => {
@@ -379,8 +312,6 @@ test('prompt forwards the selected thinking level to the runtime', async () => {
   expect(runtime.start).toHaveBeenCalledWith('s1', '/ws', 'hi', {
     thinkingLevel: 'high',
     permissionMode: WorkbenchApprovalMode.Ask,
-    goalMode: false,
-    planMode: false,
   });
 });
 
@@ -395,10 +326,6 @@ test('getDefaultConfigOptions builds options without binding them to a session',
     expect.objectContaining({
       id: BuiltinCodingConfigId.PermissionMode,
       currentValue: WorkbenchApprovalMode.Ask,
-    }),
-    expect.objectContaining({
-      id: BuiltinCodingConfigId.PlanMode,
-      currentValue: BuiltinCodingPlanMode.Execute,
     }),
   ]);
   // Defaults are not bound to any session yet.
@@ -417,170 +344,62 @@ test('createSession advertises the built-in prompt and control commands', async 
   const driver = new BuiltinCodingDriver(createRuntime());
   const session = await driver.createSession({ workspaceRoot: '/ws', localSessionId: 's1' });
 
-  expect(session.availableCommands.map(command => command.name)).toEqual([
-    'plan',
-    'goal',
-    'compact',
-    'status',
-    'mcp',
-  ]);
+  expect(session.availableCommands.map(command => command.name)).toEqual(['compact', 'status']);
   for (const command of session.availableCommands) {
     expect(command).toEqual(expect.objectContaining({ description: expect.any(String) }));
   }
-  // Only commands that take a body carry a hint; /mcp is the one control
-  // command with an argument, the rest run locally on the bare name.
+  // Local control commands have no arguments.
   expect(
     session.availableCommands.filter(command => command.input?.hint).map(command => command.name),
-  ).toEqual(['plan', 'goal', 'mcp']);
+  ).toEqual([]);
   expect(driver.getSessionAvailableCommands('s1')).toEqual(session.availableCommands);
 });
 
-test('prompt strips the goal command and requests the long-horizon goal loop', async () => {
+test('passes retired commands literally without capability options', async () => {
   const runtime = createRuntime();
   const driver = new BuiltinCodingDriver(runtime);
-  await driver.createSession({ workspaceRoot: '/ws', localSessionId: 's1' });
-
-  for await (const _event of driver.prompt({
-    sessionId: 's1',
-    workspaceRoot: '/ws',
-    prompt: '/goal ship the migration end to end',
-  })) {
-    // The built-in driver never yields events; draining starts the runtime.
+  const session = await driver.createSession({ workspaceRoot: '/workspace' });
+  for (const prompt of ['/skill pdf fill it', '/mcp github', '/goal ship it', '/plan review it']) {
+    for await (const _event of driver.prompt({
+      sessionId: session.id,
+      workspaceRoot: '/workspace',
+      prompt,
+    })) {
+      // Draining starts the runtime.
+    }
+    expect(runtime.start).toHaveBeenLastCalledWith(session.id, '/workspace', prompt, {
+      thinkingLevel: PiThinkingLevel.Medium,
+      permissionMode: WorkbenchApprovalMode.Ask,
+    });
   }
-
-  expect(runtime.start).toHaveBeenCalledWith(
-    's1',
-    '/ws',
-    'ship the migration end to end',
-    expect.objectContaining({ goalMode: true, planMode: false }),
-  );
+  expect((await driver.getCapabilities()).supportsPlans).toBe(false);
+  expect((await driver.getCapabilities()).supportsElicitation).toBe(false);
+  await expect(driver.setConfigOption(session.id, 'plan-mode', 'plan')).rejects.toThrow();
 });
 
-test('prompt strips the plan command and requests a read-only planning turn', async () => {
-  const runtime = createRuntime();
-  const driver = new BuiltinCodingDriver(runtime);
-  await driver.createSession({ workspaceRoot: '/ws', localSessionId: 's1' });
-
-  for await (const _event of driver.prompt({
-    sessionId: 's1',
-    workspaceRoot: '/ws',
-    prompt: '/plan migrate the auth flow',
-  })) {
-    // The built-in driver never yields events; draining starts the runtime.
-  }
-
-  expect(runtime.start).toHaveBeenCalledWith(
-    's1',
-    '/ws',
-    'migrate the auth flow',
-    expect.objectContaining({ planMode: true, goalMode: false }),
-  );
-});
-
-test('restores the persisted plan session mode and rejects invalid values', async () => {
-  const driver = new BuiltinCodingDriver(createRuntime());
-  const restored = await driver.createSession({
-    workspaceRoot: '/ws',
-    localSessionId: 's1',
-    existingConfigOptions: [
-      {
-        id: BuiltinCodingConfigId.PlanMode,
-        name: 'Plan mode',
-        type: 'select',
-        currentValue: BuiltinCodingPlanMode.Plan,
-      },
-    ],
+test('passes and clears an expert selection without legacy skill options', async () => {
+  const runtime = createRuntime({
+    listCommandChoices: () => ({
+      experts: [{ id: 'reviewer', name: 'Reviewer', description: '' }],
+    }),
   });
-  expect(findOption(restored.configOptions, BuiltinCodingConfigId.PlanMode)?.currentValue).toBe(
-    BuiltinCodingPlanMode.Plan,
-  );
-
-  const invalid = await driver.createSession({
-    workspaceRoot: '/ws',
-    localSessionId: 's2',
-    existingConfigOptions: [
-      {
-        id: BuiltinCodingConfigId.PlanMode,
-        name: 'Plan mode',
-        type: 'select',
-        currentValue: 'read-only-ish',
-      },
-    ],
-  });
-  expect(findOption(invalid.configOptions, BuiltinCodingConfigId.PlanMode)?.currentValue).toBe(
-    BuiltinCodingPlanMode.Execute,
-  );
-});
-
-test('applies the plan session mode to plain prompts and lets goal mode override it', async () => {
-  const runtime = createRuntime();
   const driver = new BuiltinCodingDriver(runtime);
-  await driver.createSession({ workspaceRoot: '/ws', localSessionId: 's1' });
-  await driver.setConfigOption('s1', BuiltinCodingConfigId.PlanMode, BuiltinCodingPlanMode.Plan);
-
-  for await (const _event of driver.prompt({
-    sessionId: 's1',
-    workspaceRoot: '/ws',
-    prompt: 'refactor the parser',
-  })) {
-    // Draining starts the runtime.
+  const session = await driver.createSession({ workspaceRoot: '/workspace' });
+  for (const [prompt, expertIds] of [
+    ['/expert reviewer review it', ['reviewer']],
+    ['/expert off review it', []],
+  ] as const) {
+    for await (const _event of driver.prompt({
+      sessionId: session.id,
+      workspaceRoot: '/workspace',
+      prompt,
+    })) {
+      // Draining starts the runtime.
+    }
+    expect(runtime.start).toHaveBeenLastCalledWith(session.id, '/workspace', 'review it', {
+      expertIds,
+      thinkingLevel: PiThinkingLevel.Medium,
+      permissionMode: WorkbenchApprovalMode.Ask,
+    });
   }
-  for await (const _event of driver.prompt({
-    sessionId: 's1',
-    workspaceRoot: '/ws',
-    prompt: '/goal finish the migration',
-  })) {
-    // Draining starts the runtime.
-  }
-
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    1,
-    's1',
-    '/ws',
-    'refactor the parser',
-    expect.objectContaining({ planMode: true, goalMode: false }),
-  );
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    2,
-    's1',
-    '/ws',
-    'finish the migration',
-    expect.objectContaining({ planMode: false, goalMode: true }),
-  );
-});
-
-test('prompt keeps a bare or non-command prompt untouched', async () => {
-  const runtime = createRuntime();
-  const driver = new BuiltinCodingDriver(runtime);
-  await driver.createSession({ workspaceRoot: '/ws', localSessionId: 's1' });
-
-  for await (const _event of driver.prompt({
-    sessionId: 's1',
-    workspaceRoot: '/ws',
-    prompt: '/goal',
-  })) {
-    // Draining starts the runtime.
-  }
-  for await (const _event of driver.prompt({
-    sessionId: 's1',
-    workspaceRoot: '/ws',
-    prompt: 'refactor the parser',
-  })) {
-    // Draining starts the runtime.
-  }
-
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    1,
-    's1',
-    '/ws',
-    '/goal',
-    expect.objectContaining({ goalMode: false }),
-  );
-  expect(runtime.start).toHaveBeenNthCalledWith(
-    2,
-    's1',
-    '/ws',
-    'refactor the parser',
-    expect.objectContaining({ goalMode: false }),
-  );
 });

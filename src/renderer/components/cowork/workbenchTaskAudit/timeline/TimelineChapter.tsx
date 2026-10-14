@@ -224,14 +224,6 @@ function RunSummary({ run }: { run: WorkbenchRun }) {
             value={run.context.reasoningProfile}
           />
           <RunContextItem
-            label={i18nService.t('workbenchTaskSkills')}
-            value={
-              run.context.skillIds.length > 0
-                ? run.context.skillIds.join(', ')
-                : i18nService.t('workbenchTaskNoSkills')
-            }
-          />
-          <RunContextItem
             className="sm:col-span-2"
             label={i18nService.t('workbenchTaskWorkspace')}
             value={run.context.workspaceRoot}

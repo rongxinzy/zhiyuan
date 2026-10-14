@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { prerelease } from 'semver';
@@ -15,45 +14,24 @@ function resourceSources(config: { extraResources?: Array<{ from?: string }> }):
   );
 }
 
-test('each desktop target keeps the private document and Python toolchain resources', () => {
+test('desktop packages exclude removed managed tool resources', () => {
   const config = JSON.parse(readFileSync(path.join(root, 'electron-builder.json'), 'utf8')) as {
     mac: { extraResources?: Array<{ from?: string }> };
     linux: { extraResources?: Array<{ from?: string }> };
     win: { extraResources?: Array<{ from?: string }> };
   };
-  const mac = resourceSources(config.mac);
-  const linux = resourceSources(config.linux);
-
-  assert.deepEqual(
-    ['resources/uv-mac', 'resources/python-mac', 'resources/skill-python'].every(source =>
-      mac.includes(source),
-    ),
-    true,
-  );
-  assert.deepEqual(
-    ['resources/uv-linux', 'resources/python-linux', 'resources/skill-python'].every(source =>
-      linux.includes(source),
-    ),
-    true,
-  );
-
+  for (const target of [config.mac, config.linux, config.win]) {
+    for (const source of resourceSources(target)) {
+      assert.doesNotMatch(source, /(?:SKILLs|MCPs|resources\/(?:python|skill-python|uv)(?:-|$))/);
+    }
+  }
   for (const target of [config.mac, config.linux]) {
-    const mcpResource = target.extraResources?.find(resource => resource.from === 'MCPs');
-    assert.ok(mcpResource);
-    assert.deepEqual(
-      (mcpResource as { filter?: string[] }).filter?.includes('!feishu/runtime/**'),
-      true,
-    );
+    assert.ok(resourceSources(target).includes('vendor/channel-runtime/current'));
   }
-
-  // Windows puts large resources in independently reusable component archives.
-  const windowsResourcePack = readFileSync(
-    path.join(root, 'scripts', 'windows-resource-pack.cjs'),
-    'utf8',
-  );
-  for (const resource of ['mingit', 'python-win', 'skill-python', 'uv-win']) {
-    assert.match(windowsResourcePack, new RegExp(`prefix: ["']${resource}["']`));
-  }
+  const hooks = readFileSync(path.join(root, 'scripts', 'electron-builder-hooks.cjs'), 'utf8');
+  assert.doesNotMatch(hooks, /setup-(?:python|mac-python|uv|mac-uv|skill-python)-runtime/);
+  assert.doesNotMatch(hooks, /installSkillDependencies/);
+  assert.match(hooks, /ensurePortableGit/);
 });
 
 test('unpacks AnyDoc native bindings from the application archive', () => {
@@ -178,7 +156,7 @@ test('release supply-chain gates track every checked-in npm lockfile', () => {
     'utf8',
   );
   const policyLockfiles = Array.from(
-    policy.matchAll(/^\s+'([^']+package-lock\.json)',?$/gm),
+    policy.matchAll(/'([^']+package-lock\.json)'/g),
     match => match[1],
   ).sort();
   const signatureStep = workflow.slice(
@@ -215,36 +193,16 @@ test('unsigned macOS release builds do not receive empty signing credentials', (
   assert.match(signedStep, /CSC_LINK:[\s\S]*APPLE_TEAM_ID:/);
 });
 
-test('release workflows explicitly provision the private POSIX toolchain', () => {
-  for (const workflow of ['build-platforms.yml', 'online-update-release.yml']) {
-    const content = readFileSync(path.join(root, '.github', 'workflows', workflow), 'utf8');
-    assert.match(content, /bun run setup:posix-uv-runtime/);
-    assert.match(content, /bun run setup:posix-python-runtime/);
-    assert.doesNotMatch(content, /setup:pandoc-runtime/);
-  }
-});
-
-test('Windows release workflow runs the clean-path bundled runtime gate', () => {
-  for (const workflowName of ['build-platforms.yml', 'online-update-release.yml']) {
-    const workflow = readFileSync(path.join(root, '.github', 'workflows', workflowName), 'utf8');
-    assert.match(workflow, /windows-runtime-smoke\.ps1/);
-  }
+test('Windows packaging runs the clean-path host runtime gate', () => {
   const smoke = readFileSync(path.join(root, 'scripts', 'ci', 'windows-runtime-smoke.ps1'), 'utf8');
-  assert.match(smoke, /skill-python\\layers\\shared\\Scripts\\python\.exe/);
-  assert.doesNotMatch(smoke, /skill-python\\(?:xlsx|pdf)\\Scripts\\python\.exe/);
-  assert.match(smoke, /bundled XLSX dependency probe/);
-  assert.match(smoke, /bundled PDF dependency probe/);
-  assert.match(smoke, /markdown_to_docx\.mjs/);
-  assert.match(smoke, /docx\\scripts\\markdown_to_docx\.mjs/);
+  assert.doesNotMatch(smoke, /skill-python|python-win|uv-win|SKILLs/);
+  assert.match(smoke, /packaged Electron Node version probe/);
   assert.match(smoke, /electron-builder\.json/);
   assert.match(smoke, /release\\win-unpacked/);
   assert.match(smoke, /packaged Electron Node runtime/);
   assert.doesNotMatch(smoke, /node_modules\\electron\\dist\\electron\.exe/);
   assert.match(smoke, /ELECTRON_RUN_AS_NODE/);
   assert.match(smoke, /Start-Process[\s\S]*-Wait[\s\S]*-PassThru/);
-  assert.match(smoke, /DOCX Markdown conversion/);
-  assert.match(smoke, /validate-docx-smoke\.mjs/);
-  assert.match(smoke, /generated DOCX validation/);
   assert.doesNotMatch(smoke, /Invoke-Checked \$electron/);
   assert.match(smoke, /External command unexpectedly remains discoverable/);
   assert.match(smoke, /mingit\\usr\\bin\\bash\.exe/);
@@ -426,29 +384,4 @@ test('manual candidate promotion verifies exact artifacts before protected publi
   );
   assert.match(tagRelease, /tags:/);
   assert.match(tagRelease, /publish-update-manifest\.mjs/);
-});
-
-test('DOCX smoke validator accepts the bundled Markdown converter output', () => {
-  const workspace = mkdtempSync(path.join(tmpdir(), 'zhiyuan-docx-smoke-'));
-  const markdown = path.join(workspace, 'smoke.md');
-  const docx = path.join(workspace, 'smoke.docx');
-  try {
-    writeFileSync(markdown, '# Runtime smoke\n\nPackaged Electron conversion works.\n');
-    execFileSync(
-      process.execPath,
-      [path.join(root, 'SKILLs', 'docx', 'scripts', 'markdown_to_docx.mjs'), markdown, docx],
-      { stdio: 'pipe' },
-    );
-    execFileSync(
-      process.execPath,
-      [path.join(root, 'scripts', 'ci', 'validate-docx-smoke.mjs'), docx],
-      {
-        stdio: 'pipe',
-      },
-    );
-    assert.equal(existsSync(docx), true);
-    assert.ok(statSync(docx).size > 0);
-  } finally {
-    rmSync(workspace, { recursive: true, force: true });
-  }
 });

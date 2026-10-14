@@ -611,7 +611,6 @@ export class IMStore {
   private normalizeIMSettings(settings?: Partial<IMSettings>): IMSettings {
     return {
       systemPrompt: settings?.systemPrompt ?? DEFAULT_IM_SETTINGS.systemPrompt,
-      skillsEnabled: settings?.skillsEnabled ?? DEFAULT_IM_SETTINGS.skillsEnabled,
     };
   }
 

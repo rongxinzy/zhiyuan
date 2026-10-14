@@ -73,7 +73,6 @@ export interface IMCoworkHandlerOptions {
   coworkRuntime: PiRuntime;
   coworkStore: CoworkStore;
   imStore: IMStore;
-  getSkillsPrompt?: () => Promise<string | null>;
   detectScheduledTaskRequest?: IMScheduledTaskRequestDetector;
   createScheduledTask?: (params: {
     sessionId: string;
@@ -88,7 +87,6 @@ export class IMCoworkHandler extends EventEmitter {
   private coworkRuntime: PiRuntime;
   private coworkStore: CoworkStore;
   private imStore: IMStore;
-  private getSkillsPrompt?: () => Promise<string | null>;
   private detectScheduledTaskRequest?: IMScheduledTaskRequestDetector;
   private createScheduledTask?: (params: {
     sessionId: string;
@@ -122,7 +120,6 @@ export class IMCoworkHandler extends EventEmitter {
     this.coworkRuntime = options.coworkRuntime;
     this.coworkStore = options.coworkStore;
     this.imStore = options.imStore;
-    this.getSkillsPrompt = options.getSkillsPrompt;
     this.detectScheduledTaskRequest = options.detectScheduledTaskRequest;
     this.createScheduledTask = options.createScheduledTask;
     this.sendAsyncReply = options.sendAsyncReply;
@@ -307,9 +304,8 @@ export class IMCoworkHandler extends EventEmitter {
           throw new Error(`Cowork session not found: ${coworkSessionId}`);
         }
         const isActive = this.coworkRuntime.isSessionActive(coworkSessionId);
-        const systemPrompt = await this.buildSystemPromptWithSkills();
+        const systemPrompt = await this.buildSystemPrompt();
         if (signal?.aborted) throw new Error('Channel request was cancelled');
-        const hasAvailableSkills = systemPrompt.includes('<available_skills>');
         if (session && session.systemPrompt !== systemPrompt) {
           this.coworkStore.updateSession(coworkSessionId, {
             systemPrompt,
@@ -318,13 +314,10 @@ export class IMCoworkHandler extends EventEmitter {
             `[IMCoworkHandler] Updated system prompt for channel session ${serializeForLog(coworkSessionId)} platform=${serializeForLog(message.platform)}`,
           );
         }
-        if (!hasAvailableSkills) {
-          console.warn('[IMCoworkHandler] Skills auto-routing prompt missing for current IM turn');
-        }
 
         // 打印完整的输入消息日志
         console.log(
-          `[IMCoworkHandler] 处理消息: platform=${serializeForLog(message.platform)} conversationId=${serializeForLog(message.conversationId)} coworkSessionId=${serializeForLog(coworkSessionId)} isActive=${isActive} hasAvailableSkills=${hasAvailableSkills}`,
+          `[IMCoworkHandler] 处理消息: platform=${serializeForLog(message.platform)} conversationId=${serializeForLog(message.conversationId)} coworkSessionId=${serializeForLog(coworkSessionId)} isActive=${isActive}`,
         );
 
         if (isActive) {
@@ -332,7 +325,6 @@ export class IMCoworkHandler extends EventEmitter {
             .continueSession(coworkSessionId, formattedContent, {
               ...piAttachments,
               systemPrompt,
-              skillIds: session.activeSkillIds,
               workspaceRoot: session.cwd,
               sessionMode: session.mode,
               modelOverride: session.modelOverride || undefined,
@@ -343,7 +335,6 @@ export class IMCoworkHandler extends EventEmitter {
             .startSession(coworkSessionId, formattedContent, {
               ...piAttachments,
               systemPrompt,
-              skillIds: session.activeSkillIds,
               workspaceRoot: session.cwd,
               sessionMode: session.mode,
               modelOverride: session.modelOverride || undefined,
@@ -418,7 +409,7 @@ export class IMCoworkHandler extends EventEmitter {
     // Create new Cowork session
     const config = this.coworkStore.getConfig();
     const title = this.buildSessionTitle(platform);
-    const systemPrompt = await this.buildSystemPromptWithSkills();
+    const systemPrompt = await this.buildSystemPrompt();
     const workspace = workspaceId ? this.coworkStore.getWorkspace(workspaceId) : null;
     if (!workspace) throw new Error('Channel account workspace is not configured');
 
@@ -450,7 +441,7 @@ export class IMCoworkHandler extends EventEmitter {
     return t('channelConversationFallback', { channel: platformName });
   }
 
-  private async buildSystemPromptWithSkills(): Promise<string> {
+  private async buildSystemPrompt(): Promise<string> {
     const config = this.coworkStore.getConfig();
     const imSettings = this.imStore.getIMSettings();
     const systemPrompt = config.systemPrompt || '';
@@ -472,13 +463,6 @@ export class IMCoworkHandler extends EventEmitter {
     ];
     if (systemPrompt) {
       sections.push(systemPrompt);
-    }
-
-    if (imSettings.skillsEnabled && this.getSkillsPrompt) {
-      const skillsPrompt = await this.getSkillsPrompt();
-      if (skillsPrompt) {
-        sections.push(skillsPrompt);
-      }
     }
 
     if (scheduledTaskPrompt) {

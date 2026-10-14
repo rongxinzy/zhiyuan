@@ -21,7 +21,6 @@ import {
   buildBuiltinCodingCommandList,
   EMPTY_BUILTIN_CODING_COMMAND_CHOICES,
   parseBuiltinCodingPrompt,
-  resolveBuiltinCodingTurnMode,
   type BuiltinCodingCommandChoices,
   type ParsedBuiltinCodingSelection,
 } from './builtinCodingCommands';
@@ -29,29 +28,14 @@ import {
 export const BuiltinCodingConfigId = {
   ThinkingLevel: 'thinking-level',
   PermissionMode: 'permission-mode',
-  PlanMode: 'plan-mode',
 } as const;
 export type BuiltinCodingConfigId =
   (typeof BuiltinCodingConfigId)[keyof typeof BuiltinCodingConfigId];
-
-/** Session mode: execute directly, or plan read-only until the user approves. */
-export const BuiltinCodingPlanMode = {
-  Execute: 'execute',
-  Plan: 'plan',
-} as const;
-export type BuiltinCodingPlanMode =
-  (typeof BuiltinCodingPlanMode)[keyof typeof BuiltinCodingPlanMode];
 
 export interface BuiltinCodingSessionStartOptions {
   modelOverride?: string | null;
   thinkingLevel?: string;
   permissionMode?: WorkbenchApprovalMode;
-  /** Start (or keep) the long-horizon goal loop for this turn. */
-  goalMode?: boolean;
-  /** Run this turn as a read-only planning turn. */
-  planMode?: boolean;
-  /** Skills the lane runs with; an empty list clears the current selection. */
-  skillIds?: string[];
   /** Experts the lane runs with; an empty list clears the current selection. */
   expertIds?: string[];
 }
@@ -64,7 +48,7 @@ export interface BuiltinCodingRuntime {
     options?: BuiltinCodingSessionStartOptions,
   ): Promise<void>;
   cancel(sessionId: string): Promise<void>;
-  /** Installed skills and experts advertised with the command snapshot. */
+  /** Installed experts advertised with the command snapshot. */
   listCommandChoices?(): BuiltinCodingCommandChoices;
   /** Bumped when those installed choices change; a newer value re-reads them. */
   commandCatalogGeneration?(): number;
@@ -82,13 +66,13 @@ const BUILTIN_CAPABILITIES: CodingAgentCapabilities = {
   // session id after a restart, so it never claims load-session support.
   supportsLoadSession: false,
   supportsResumeSession: true,
-  supportsPlans: true,
+  supportsPlans: false,
   supportsPermissions: true,
   supportsFilesystem: true,
   supportsTerminal: true,
   supportsConfigOptions: true,
   supportsUsage: true,
-  supportsElicitation: true,
+  supportsElicitation: false,
 };
 
 const THINKING_LEVEL_OPTIONS = Object.values(PiThinkingLevel).map(level => ({
@@ -102,11 +86,8 @@ const isValidThinkingLevel = (value: string): value is PiThinkingLevel =>
 const isValidApprovalMode = (value: string): value is WorkbenchApprovalMode =>
   (Object.values(WorkbenchApprovalMode) as string[]).includes(value);
 
-const isValidPlanMode = (value: string): value is BuiltinCodingPlanMode =>
-  (Object.values(BuiltinCodingPlanMode) as string[]).includes(value);
-
 /**
- * `/skill` and `/expert` carry the selected id into the runtime options. An
+ * `/expert` carries the selected id into the runtime options. An
  * explicit empty list clears the selection; an absent field keeps it.
  */
 const selectionOptions = (
@@ -114,19 +95,12 @@ const selectionOptions = (
 ): Partial<BuiltinCodingSessionStartOptions> => {
   if (!selection) return {};
   const ids = selection.id ? [selection.id] : [];
-  return selection.kind === 'skill' ? { skillIds: ids } : { expertIds: ids };
+  return { expertIds: ids };
 };
 
 export class BuiltinCodingDriver implements CodingAgentDriver {
   private readonly sessionConfigOptions = new Map<string, CodingAgentConfigOption[]>();
-  /**
-   * The room re-projects the command snapshot before every turn and installed
-   * skills are read from disk, so the choices are cached instead of read per
-   * projection. The runtime bumps a generation whenever the catalog changes
-   * (skill installed, expert imported, MCP server added), and a newer
-   * generation re-reads them, so an open lane picks the change up on its next
-   * turn instead of keeping the snapshot it was opened with.
-   */
+  /** Cache expert choices until the runtime announces a catalog change. */
   private commandChoices: BuiltinCodingCommandChoices | null = null;
   private commandChoicesGeneration = -1;
 
@@ -176,14 +150,11 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
   }): AsyncIterable<Omit<CodingEvent, 'id' | 'laneId' | 'sequence' | 'createdAt'>> {
     const thinkingLevel = this.currentThinkingLevel(input.sessionId);
     const parsed = parseBuiltinCodingPrompt(input.prompt, this.cachedCommandChoices());
-    const turnMode = resolveBuiltinCodingTurnMode(parsed, this.currentPlanMode(input.sessionId));
     await this.runtime.start(input.sessionId, input.workspaceRoot, parsed.prompt, {
       ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
       ...(thinkingLevel ? { thinkingLevel } : {}),
       ...selectionOptions(parsed.selection),
       permissionMode: this.currentPermissionMode(input.sessionId),
-      goalMode: turnMode.goalMode,
-      planMode: turnMode.planMode,
     });
     // The in-process runtime emits streaming events after start() returns. The
     // CodingRoomService subscribes to that runtime directly, which avoids
@@ -269,9 +240,6 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
     const persistedPermissionMode = existing?.find(
       candidate => candidate.id === BuiltinCodingConfigId.PermissionMode,
     )?.currentValue;
-    const persistedPlanMode = existing?.find(
-      candidate => candidate.id === BuiltinCodingConfigId.PlanMode,
-    )?.currentValue;
     return [
       {
         id: BuiltinCodingConfigId.ThinkingLevel,
@@ -298,19 +266,6 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
           { value: WorkbenchApprovalMode.AllowAll, name: t('codingAgentPermissionModeAllowAll') },
         ],
       },
-      {
-        id: BuiltinCodingConfigId.PlanMode,
-        name: t('codingAgentConfigPlanMode'),
-        type: 'select',
-        currentValue:
-          typeof persistedPlanMode === 'string' && isValidPlanMode(persistedPlanMode)
-            ? persistedPlanMode
-            : BuiltinCodingPlanMode.Execute,
-        options: [
-          { value: BuiltinCodingPlanMode.Execute, name: t('codingAgentPlanModeExecute') },
-          { value: BuiltinCodingPlanMode.Plan, name: t('codingAgentPlanModePlan') },
-        ],
-      },
     ];
   }
 
@@ -330,12 +285,5 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
     return typeof option?.currentValue === 'string' && isValidApprovalMode(option.currentValue)
       ? option.currentValue
       : WorkbenchApprovalMode.Ask;
-  }
-
-  private currentPlanMode(sessionId: string): boolean {
-    const option = this.sessionConfigOptions
-      .get(sessionId)
-      ?.find(candidate => candidate.id === BuiltinCodingConfigId.PlanMode);
-    return option?.currentValue === BuiltinCodingPlanMode.Plan;
   }
 }

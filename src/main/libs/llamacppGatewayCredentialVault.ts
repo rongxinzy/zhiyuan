@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { McpCredentialVault, type McpCredentialKeyValueStore } from './mcpCredentialVault';
+import { CredentialVault, type CredentialKeyValueStore } from './credentialVault';
 
 const LLAMACPP_GATEWAY_CREDENTIAL_KEY = 'llamacpp.gateway.credentials';
 const LLAMACPP_GATEWAY_TOKEN_BYTES = 32;
@@ -13,10 +13,10 @@ type LlamaCppGatewayCredentials = {
 
 /** Stores the LAN gateway secret in OS-backed encrypted storage. */
 export class LlamaCppGatewayCredentialVault {
-  private readonly vault: McpCredentialVault;
+  private readonly vault: CredentialVault;
 
-  constructor(store: McpCredentialKeyValueStore) {
-    this.vault = new McpCredentialVault(store);
+  constructor(store: CredentialKeyValueStore) {
+    this.vault = new CredentialVault(store);
   }
 
   getLanToken(): string | null {

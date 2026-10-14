@@ -8,7 +8,6 @@ import coworkReducer, {
   setRemoteManaged,
   updateSessionStatus,
 } from '../store/slices/coworkSlice';
-import skillReducer, { setActiveSkillIds } from '../store/slices/skillSlice';
 import {
   CoworkSessionMode,
   CoworkSessionSource,
@@ -39,7 +38,6 @@ const makeStore = () =>
   configureStore({
     reducer: {
       cowork: coworkReducer,
-      skill: skillReducer,
       workspace: () => ({ currentWorkspaceId: 'workspace-A' }),
       agent: () => ({ currentAgentId: 'agent-A' }),
     },
@@ -117,7 +115,6 @@ test('lost completion is recovered and background resync preserves all user sele
   await coworkService.init();
   state.dispatch(addSession(session('A')));
   state.dispatch(setDraftPrompt({ sessionId: 'A', draft: 'unsent' }));
-  state.dispatch(setActiveSkillIds(['selected-skill']));
   state.dispatch(setRemoteManaged(true));
   publish(sequencer.next({ type: PiUiEventType.Started, sessionId: 'B' }));
   publish(sequencer.next({ type: PiUiEventType.Completed, sessionId: 'B' }), true);
@@ -129,7 +126,6 @@ test('lost completion is recovered and background resync preserves all user sele
   expect(state.getState().cowork.remoteManaged).toBe(true);
   expect(state.getState().workspace.currentWorkspaceId).toBe('workspace-A');
   expect(state.getState().agent.currentAgentId).toBe('agent-A');
-  expect(state.getState().skill.activeSkillIds).toEqual(['selected-skill']);
   expect(workspaceService.selectWorkspace).not.toHaveBeenCalled();
 });
 

@@ -12,10 +12,8 @@ import { SidebarNavigationView, type SidebarNavigationEntry } from './shell/Side
 export type SidebarActiveView =
   | 'cowork'
   | 'settings'
-  | 'skills'
   | 'scheduledTasks'
   | 'activity'
-  | 'mcp'
   | 'localInference'
   | 'expert'
   | 'coding'
@@ -52,7 +50,6 @@ export const SidebarNavigationControls = ({
   onPrefetchView,
 }: SidebarNavigationControlsProps) => {
   const hasActiveActivityRun = useSelector((state: RootState) => selectHasActiveActivityRun(state));
-  const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const isChat = workMode === WorkMode.Chat;
   const handleNewConversation = () => {
     if (workMode === WorkMode.Work) void workspaceService.clearWorkspaceSelection();
@@ -109,7 +106,7 @@ export const SidebarNavigationControls = ({
         id: 'conversation',
         icon: 'conversation',
         label: i18nService.t(isChat ? 'newChat' : 'newTask'),
-        active: activeView === 'cowork' && (!isChat || activeSkillIds.length === 0),
+        active: activeView === 'cowork',
         onClick: handleNewConversation,
         testId: 'sidebar-new-conversation',
       }}

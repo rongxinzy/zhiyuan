@@ -46,8 +46,28 @@ function credentialSignature(credentials: PiCatalogCredential[]): string {
 }
 
 async function createOfflinePiCatalogRuntime(): Promise<PiCatalogRuntime> {
-  const { ModelRuntime } = await import('@earendil-works/pi-coding-agent');
-  return ModelRuntime.create({ allowModelNetwork: false });
+  const [{ createModels, InMemoryCredentialStore }, catalog, native] = await Promise.all([
+    import('@earendil-works/pi-ai'),
+    import('@earendil-works/pi-ai/providers/all'),
+    import('./durable/modelCatalog.js'),
+  ]);
+  const credentials = new InMemoryCredentialStore();
+  const models = createModels({ credentials, modelsStore: await native.getNativeCatalogStore() });
+  for (const provider of catalog.builtinProviders()) {
+    models.setProvider(
+      native.withNativeRemoteCatalog(provider, {
+        generatedAt: catalog.getBuiltinModelDataGeneratedAt(),
+      }),
+    );
+  }
+  const configured = new Set<string>();
+  return {
+    setRuntimeApiKey: async (providerId, apiKey) => {
+      await credentials.modify(providerId, async () => ({ type: 'api_key', key: apiKey }));
+      configured.add(providerId);
+    },
+    refresh: options => models.refresh({ ...options, providers: [...configured] }),
+  };
 }
 
 export class PiModelCatalogRefreshCoordinator {

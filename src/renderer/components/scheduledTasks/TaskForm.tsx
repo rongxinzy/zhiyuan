@@ -42,7 +42,7 @@ import {
   resolveAgentModelSupportMessageKey,
 } from '../../utils/agentModelSupport';
 import CronBuilder, { cronBuilderToExpr, type CronPreview } from './CronBuilder';
-import type { TaskTemplateValues } from './TaskTemplateGallery';
+import type { TaskCreationValues } from './TaskCreationValues';
 import TaskFormBody from './TaskFormBody';
 import TaskTimePicker from './TaskTimePicker';
 import { channelOptionValue, findChannelOption } from './channelOptionValue';
@@ -65,7 +65,7 @@ import { formatScheduleLabel, type PlanType } from './utils';
 interface TaskFormProps {
   mode: 'create' | 'edit';
   task?: ScheduledTask;
-  prefill?: TaskTemplateValues;
+  prefill?: TaskCreationValues;
   /** Folder the new task belongs to; falls back to the current folder. */
   initialWorkspaceId?: string;
   onCancel: () => void;

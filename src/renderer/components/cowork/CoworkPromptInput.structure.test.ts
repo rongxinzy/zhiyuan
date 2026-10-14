@@ -1,19 +1,3 @@
-/**
- * Source-structure guard for CoworkPromptInput's inline skill editor.
- *
- * Why not render the component? CoworkPromptInput's import chain pulls in
- * window.electron IPC services (cowork/agent/config), ai-elements, and
- * module-level / render-time browser globals (`navigator.platform`,
- * `configService.getConfig()` inside a useState initializer). Rendering it
- * under this repo's node-environment Vitest setup (no jsdom) would require
- * mocking most of the renderer service layer, so this guard pins the two
- * facts PR #184 broke instead:
- *
- *   1. Skills and text share one editable surface, so tokens can be inserted
- *      at the current caret instead of being fixed before the textarea.
- *   2. The editor owns its DOM selection, avoiding resize/dynamic-padding
- *      token implementations that break input focus.
- */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -24,11 +8,11 @@ const source = readFileSync(
   'utf8',
 );
 
-test('mounts the inline skill editor inside the prompt body', () => {
-  expect(source).toContain('<InlineSkillPromptEditor');
+test('mounts the shared plain-text editor inside the prompt body', () => {
+  expect(source).toContain('<PromptInputTextarea');
 
   const bodyOpen = source.indexOf('<PromptInputBody');
-  const editor = source.indexOf('<InlineSkillPromptEditor');
+  const editor = source.indexOf('<PromptInputTextarea');
   const bodyClose = source.indexOf('</PromptInputBody>');
   expect(bodyOpen).toBeGreaterThanOrEqual(0);
   expect(bodyClose).toBeGreaterThan(bodyOpen);
@@ -37,20 +21,12 @@ test('mounts the inline skill editor inside the prompt body', () => {
   expect(source).not.toContain('overflow-x-auto');
 });
 
-test('clears active skills after a successful submit', () => {
-  expect(source).toContain('dispatch(clearActiveSkills());');
-  expect(source).toContain('dispatch(clearSelection());');
-});
-
-test('delegates deletion-key handling to the inline editor', () => {
-  expect(source).toContain('onKeyDown={handleKeyDown}');
-  expect(source).not.toContain('event.currentTarget.value.length');
-});
-
-test('does not reintroduce the PR #184 measurement implementation', () => {
-  expect(source).not.toContain('skillTokensRef');
-  expect(source).not.toContain('skillTokenWidth');
-  expect(source).toContain('InlineSkillPromptEditor');
+test('does not depend on removed capability state or render its input controls', () => {
+  expect(source).not.toContain('state.skill');
+  expect(source).not.toContain('skillService');
+  expect(source).not.toContain('ActiveMcpBadge');
+  expect(source).not.toContain('onManageSkills');
+  expect(source).not.toContain('onManageConnectors');
 });
 
 test('keeps the session permission selector available during an active run', () => {
@@ -77,18 +53,12 @@ test('keeps model and permission controls reachable in compact toolbars', () => 
   expect(compactControls).toContain('showModelSelector');
 });
 
-test('places the active expert identity between permissions and MCP controls', () => {
+test('keeps the active expert identity beside permissions without legacy connectors', () => {
   const permissionMenu = source.indexOf('<PermissionModeMenu');
   const expertBadge = source.lastIndexOf('<ActiveExpertBadge');
-  const mcpBadge = source.lastIndexOf('<ActiveMcpBadge');
-
-  expect(permissionMenu).toBeGreaterThanOrEqual(0);
   expect(expertBadge).toBeGreaterThan(permissionMenu);
-  expect(mcpBadge).toBeGreaterThan(expertBadge);
-  expect(source.slice(expertBadge, mcpBadge)).toContain('expertId={selectedExpertIds[0]}');
-  expect(source.slice(expertBadge, mcpBadge)).toContain(
-    'onRemove={() => setSelectedExpertIds([])}',
-  );
+  expect(source.slice(expertBadge)).toContain('expertId={selectedExpertIds[0]}');
+  expect(source.slice(expertBadge)).toContain('onRemove={() => setSelectedExpertIds([])}');
 });
 
 test('seeds the prompt expert chip when opening a new conversation from an expert agent', () => {

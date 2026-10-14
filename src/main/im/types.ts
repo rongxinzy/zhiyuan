@@ -378,7 +378,6 @@ export interface IMGatewayConfig {
 
 export interface IMSettings {
   systemPrompt?: string;
-  skillsEnabled: boolean;
 }
 
 export interface IMGatewayStatus {
@@ -636,7 +635,6 @@ export const DEFAULT_WEIXIN_CONFIG: WeixinChannelConfig = {
 
 export const DEFAULT_IM_SETTINGS: IMSettings = {
   systemPrompt: '',
-  skillsEnabled: true,
 };
 
 export const DEFAULT_IM_CONFIG: IMGatewayConfig = {

@@ -77,10 +77,6 @@ import {
   type ParsedBuiltinCodingControlCommand,
 } from './drivers/builtinCodingCommands';
 import { CodingDriverFactory } from './drivers/driverFactory';
-import {
-  buildBuiltinCodingMcpReport,
-  type BuiltinCodingMcpSnapshot,
-} from './builtinCodingMcpReport';
 import type { CoworkSessionInterruption } from '../../shared/cowork/interruption';
 import { WorkbenchApprovalMode } from '../../shared/workbenchTask';
 import { inspectWorkspaceContentAsync } from '../workbenchTask/artifactWorkerPool';
@@ -105,18 +101,12 @@ export interface CodingRoomRuntime {
     modelOverride?: string | null;
     thinkingLevel?: string;
     permissionMode?: WorkbenchApprovalMode;
-    /** Whether the turn must run inside the long-horizon goal loop. */
-    goalMode?: boolean;
-    /** Whether the turn must run as a read-only planning turn. */
-    planMode?: boolean;
-    /** Skills the lane runs with; an empty list clears the selection. */
-    skillIds?: string[];
     /** Experts the lane runs with; an empty list clears the selection. */
     expertIds?: string[];
   }): Promise<void>;
-  /** Installed skills and experts advertised with the built-in command list. */
+  /** Installed experts advertised with the built-in command list. */
   listCommandChoices?(): BuiltinCodingCommandChoices;
-  /** Bumped when the advertised skills, experts or MCP servers change. */
+  /** Bumped when the advertised experts change. */
   commandCatalogGeneration?(): number;
   /** Applies approval-mode changes to a live built-in session. */
   setBuiltinApprovalMode?(sessionId: string, mode: WorkbenchApprovalMode): void;
@@ -125,7 +115,10 @@ export interface CodingRoomRuntime {
   respondBuiltinElicitation?(requestId: string, answer: string): boolean;
   /** Cancels a question the live built-in session asked. */
   cancelBuiltinElicitation?(requestId: string, reason: string): boolean;
-  enqueueBuiltinMessage?(sessionId: string, prompt: string): { success: boolean; error?: string };
+  enqueueBuiltinMessage?(
+    sessionId: string,
+    prompt: string,
+  ): Promise<{ success: boolean; error?: string }>;
   steerBuiltinMessage?(
     sessionId: string,
     prompt: string,
@@ -137,8 +130,6 @@ export interface CodingRoomRuntime {
   ): Promise<void>;
   /** Compacts a live built-in session's context without sending a model turn. */
   compactBuiltinSession?(sessionId: string): Promise<{ cancelled: boolean }>;
-  /** MCP servers and tools the built-in agent can reach right now. */
-  describeBuiltinMcp?(target?: string): BuiltinCodingMcpSnapshot | null;
   /** Runs an application-owned action once queued built-in prompts settle. */
   enqueueBuiltinControlAction?(
     sessionId: string,
@@ -225,9 +216,6 @@ export class CodingRoomService extends EventEmitter {
             ...(options?.modelOverride ? { modelOverride: options.modelOverride } : {}),
             ...(options?.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
             ...(options?.permissionMode ? { permissionMode: options.permissionMode } : {}),
-            ...(options?.goalMode ? { goalMode: true } : {}),
-            ...(options?.planMode ? { planMode: true } : {}),
-            ...(options?.skillIds ? { skillIds: options.skillIds } : {}),
             ...(options?.expertIds ? { expertIds: options.expertIds } : {}),
           }),
         cancel: sessionId => this.runtime.cancelBuiltinSession(sessionId),
@@ -755,7 +743,7 @@ export class CodingRoomService extends EventEmitter {
           if (result?.success) return this.publish(workspaceRoot);
           throw new Error(result?.error ?? CodingErrorMessage.SteerFailed);
         }
-        const result = this.runtime.enqueueBuiltinMessage?.(session.id, prompt);
+        const result = await this.runtime.enqueueBuiltinMessage?.(session.id, prompt);
         if (result?.success) return this.publish(workspaceRoot);
         throw new Error(result?.error ?? CodingErrorMessage.QueuePromptFailed);
       }
@@ -1821,7 +1809,7 @@ export class CodingRoomService extends EventEmitter {
     lane: CodingAgentLane,
     invocation: ParsedBuiltinCodingControlCommand,
   ): Promise<void> {
-    const { command, target } = invocation;
+    const { command } = invocation;
     try {
       if (command === BuiltinCodingControlCommand.Compact) {
         // `=== false` keeps runtimes that do not report liveness on the normal
@@ -1838,14 +1826,6 @@ export class CodingRoomService extends EventEmitter {
               : t('codingAgentCommandCompactSuccess'),
           );
         }
-      } else if (command === BuiltinCodingControlCommand.Mcp) {
-        const snapshot = this.runtime.describeBuiltinMcp?.(target ?? undefined) ?? null;
-        this.appendBuiltinControlMessage(
-          lane,
-          snapshot
-            ? buildBuiltinCodingMcpReport(snapshot)
-            : t('codingAgentCommandMcpGatewayUnavailable'),
-        );
       } else {
         this.appendBuiltinControlMessage(
           lane,

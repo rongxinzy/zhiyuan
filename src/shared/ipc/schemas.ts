@@ -267,6 +267,7 @@ const FileAttachmentSchema = z.object({
 export const CoworkSessionStartSchema = {
   input: z
     .object({
+      requestId: z.string().min(1).max(128).optional(),
       prompt: z.string(),
       cwd: z.string().optional(),
       systemPrompt: z.string().optional(),
@@ -301,6 +302,7 @@ export const CoworkSessionContinueSchema = {
   input: z
     .object({
       sessionId: z.string().min(1),
+      requestId: z.string().min(1).max(128).optional(),
       prompt: z.string(),
       systemPrompt: z.string().optional(),
       activeSkillIds: z.array(z.string()).optional(),
@@ -446,8 +448,6 @@ export const CoworkConfigSetSchema = {
     embeddingVectorWeight: z.number().optional(),
     embeddingRemoteBaseUrl: z.string().optional(),
     embeddingRemoteApiKey: z.string().optional(),
-    codemodeEnabled: z.boolean().optional(),
-    mcpNativeBridge: z.boolean().optional(),
   }),
   output: IpcResult({}),
 };

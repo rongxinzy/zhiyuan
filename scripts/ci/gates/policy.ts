@@ -5,7 +5,7 @@ export type GatePlan = Record<(typeof HeavyJob)[keyof typeof HeavyJob], boolean>
 // Packaging inputs and main-process changes require real platform verification.
 // Keep unknown paths on the baseline checks; never skip lint, types or unit tests.
 const packaging =
-  /^(?:package\.json$|bun\.lock$|electron-builder[^/]*$|(?:electron-)?tsconfig[^/]*$|vite\.config\.|\.github\/|patches\/|build\/|resources\/|vendor\/|scripts\/|SKILLs\/|MCPs\/|skills\.config\.json$|src\/main\/|src\/shared\/(?:llamacpp|channelRuntime)\/)/;
+  /^(?:package\.json$|bun\.lock$|electron-builder[^/]*$|(?:electron-)?tsconfig[^/]*$|vite\.config\.|\.github\/|patches\/|build\/|resources\/|vendor\/|scripts\/|src\/main\/|src\/shared\/(?:llamacpp|channelRuntime)\/)/;
 const memory =
   /^(?:src\/main\/|src\/renderer\/(?:App\.tsx$|main\.tsx$|hooks\/|store\/|services\/|components\/cowork\/)|src\/shared\/components\/ai-elements\/)/;
 

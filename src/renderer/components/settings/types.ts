@@ -9,7 +9,6 @@ export type TabType =
   | 'coworkMemory'
   | 'shortcuts'
   | 'im'
-  | 'email'
   | 'about';
 export type EnterpriseTabType = `extension:${string}`;
 export type SettingsTabType = TabType | EnterpriseTabType;

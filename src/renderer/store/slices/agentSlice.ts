@@ -14,7 +14,6 @@ interface AgentSummary {
   source: 'custom' | 'preset' | 'expert-package' | 'expert-package-member';
   presetId: string;
   systemPrompt: string;
-  skillIds: string[];
 }
 
 interface AgentState {

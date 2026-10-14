@@ -387,19 +387,19 @@ const I18N = {
     done: '完成',
     launch: '启动知远智能体',
     uninstallTitle: '确定要卸载知远智能体吗？',
-    uninstallDesc: '将删除应用程序、本地离线运行环境以及你的个人数据（包括会话、记忆与个人 Skills）。此操作无法撤销。',
+    uninstallDesc: '将删除应用程序、本地离线运行环境以及你的个人数据（包括会话与记忆）。此操作无法撤销。',
     uninstall: '卸载',
     uninstallingTitle: '正在卸载知远智能体',
     uninstalledTitle: '已卸载知远智能体',
     uninstalledSub: '应用程序、离线运行环境及个人数据已从你的设备移除',
     phases: [
-      '正在校验离线组件', '正在展开频道运行环境', '正在展开内置 Skills 与 MCPs',
-      '正在展开 Python 运行环境', '正在展开 Skill 依赖层', '正在激活离线组件',
+      '正在校验离线组件', '正在展开频道运行环境', '正在展开命令运行环境',
+      '正在激活离线组件',
       '正在连接本地运行环境', '正在安装 VC++ 运行时', '正在清理旧版本'
     ],
     tips: [
       '提示：知远可以在完全离线的环境下运行日常任务',
-      '提示：Skills 让知远学会新能力，安装后可在设置中继续添加',
+      '提示：可以在设置中选择适合你的模型',
       '提示：本地推理组件可按需启用，不占用安装时间',
       '提示：微信、飞书、钉钉消息渠道可在安装后随时接入'
     ]
@@ -425,19 +425,19 @@ const I18N = {
     done: 'Finish',
     launch: 'Launch ZhiYuan Agent',
     uninstallTitle: 'Uninstall ZhiYuan Agent?',
-    uninstallDesc: 'This removes the app, its local offline runtime, and your personal data (including sessions, memories and personal Skills). This cannot be undone.',
+    uninstallDesc: 'This removes the app, its local offline runtime, and your personal data (including sessions and memories). This cannot be undone.',
     uninstall: 'Uninstall',
     uninstallingTitle: 'Uninstalling ZhiYuan Agent',
     uninstalledTitle: 'ZhiYuan Agent uninstalled',
     uninstalledSub: 'The app, offline runtime and personal data have been removed from this device',
     phases: [
-      'Validating offline components', 'Expanding channel runtime', 'Expanding bundled Skills and MCPs',
-      'Expanding Python runtime', 'Expanding Skill dependency layer', 'Activating offline components',
+      'Validating offline components', 'Expanding channel runtime', 'Expanding command runtime',
+      'Activating offline components',
       'Linking local runtimes', 'Installing VC++ runtime', 'Cleaning up previous version'
     ],
     tips: [
       'Tip: ZhiYuan runs everyday tasks fully offline',
-      'Tip: Skills teach ZhiYuan new abilities — add more in Settings',
+      'Tip: Choose the model that fits your needs in Settings',
       'Tip: Local inference is optional and installs on demand',
       'Tip: Connect WeChat, Feishu or DingTalk anytime after install'
     ]

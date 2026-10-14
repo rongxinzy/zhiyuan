@@ -50,7 +50,6 @@ export interface ZhiyuanEvaluationPolicy {
   version: string;
   systemPrompt?: string;
   promptPrefix?: string;
-  skillPaths?: string[];
   customTools?: ZhiyuanEvaluationTool[];
   onEvent?(event: Record<string, unknown>): void;
   onAgentEnd?(

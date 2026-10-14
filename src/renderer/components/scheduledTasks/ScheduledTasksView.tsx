@@ -25,7 +25,7 @@ import DeleteConfirmModal from './DeleteConfirmModal';
 import { subscribeScheduledTaskCreateRequest } from './createRequest';
 import TaskForm from './TaskForm';
 import TaskList from './TaskList';
-import TaskTemplateGallery, { type TaskTemplateValues } from './TaskTemplateGallery';
+import type { TaskCreationValues } from './TaskCreationValues';
 
 interface ScheduledTasksViewProps {
   isSidebarCollapsed?: boolean;
@@ -71,7 +71,7 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
 
   // Create-task modal (template-prefilled or blank custom)
   const [createOpen, setCreateOpen] = useState(false);
-  const [createPrefill, setCreatePrefill] = useState<TaskTemplateValues | undefined>();
+  const [createPrefill, setCreatePrefill] = useState<TaskCreationValues | undefined>();
   const [createWorkspaceId, setCreateWorkspaceId] = useState<string | undefined>();
   const [createFormKey, setCreateFormKey] = useState(0);
 
@@ -118,7 +118,7 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
     };
   }, []);
 
-  const openCreateModal = useCallback((prefill?: TaskTemplateValues, workspaceId?: string) => {
+  const openCreateModal = useCallback((prefill?: TaskCreationValues, workspaceId?: string) => {
     setCreatePrefill(prefill);
     setCreateWorkspaceId(workspaceId);
     setCreateFormKey(k => k + 1);
@@ -230,10 +230,9 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
             )}
           >
             {activeTab === AUTO_TAB.Create && (
-              <TaskTemplateGallery
-                onSelectTemplate={values => openCreateModal(values)}
-                onCustom={() => openCreateModal(undefined)}
-              />
+              <Button onClick={() => openCreateModal()}>
+                {i18nService.t('scheduledTasksNewTask')}
+              </Button>
             )}
 
             {activeTab === AUTO_TAB.Tasks && (
@@ -243,7 +242,6 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
                 onRequestEdit={handleRequestEdit}
                 onCreateTask={() => openCreateModal(undefined)}
                 onCreateByChat={handleCreateByChat}
-                onSelectTemplate={values => openCreateModal(values)}
               />
             )}
 

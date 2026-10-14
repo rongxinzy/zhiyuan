@@ -37,13 +37,12 @@ export async function createZhiyuanEvaluationPolicy(
     policyVersion: ZhiyuanEvaluationPolicyVersion,
     modelProfile: context.modelProfile,
     toolNames: context.tools.map(tool => tool.name),
-    resources: ['resources/SYSTEM_PROMPT.md', 'SKILLs'],
+    resources: ['resources/SYSTEM_PROMPT.md'],
     orchestration: [],
   });
   return {
     ...identity,
     systemPrompt,
     promptPrefix: 'All file and command effects must use the benchmark tools provided by Inspect.',
-    skillPaths: ['SKILLs'],
   };
 }

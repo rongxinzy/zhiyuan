@@ -5,7 +5,6 @@ import path from 'node:path';
 import type { AepProtectedStorage } from '@aep/sdk-node';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { ZhiyuanAgentControlBackendOptions } from './agent-control/factory.js';
 import { createZhiyuanExtensionRuntime } from './extension-runtime.js';
 import type { ZhiyuanEnterpriseHostContext } from './host-contract.js';
 import { createZhiyuanAepClient, type ZhiyuanPasswordSessionOptions } from './session/factory.js';
@@ -19,29 +18,13 @@ afterEach(() => {
 });
 
 describe('Zhiyuan extension runtime', () => {
-  test('shares the session client with Agent control and releases the managed root', async () => {
+  test('initializes the enterprise session without provisioning managed skill roots', async () => {
     const root = createTemporaryDirectory();
-    const managedRoot = path.join(root, 'managed-skills');
     writeConfig(root);
-    const unregister = vi.fn();
-    const notifyChanged = vi.fn();
-    const context = hostContext(root, {
-      apiVersion: 1,
-      registerManagedRoot: vi.fn(() => ({
-        directory: managedRoot,
-        notifyChanged,
-        unregister,
-      })),
-    });
+    const context = hostContext(root);
     const clientFactory = vi.fn((options: ZhiyuanPasswordSessionOptions) =>
       createZhiyuanAepClient(options),
     );
-    const backend = {
-      start: vi.fn(),
-      stop: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
-    };
-    const createBackend = vi.fn((_options: ZhiyuanAgentControlBackendOptions) => backend);
     const protectedStorage: AepProtectedStorage = {
       read: vi.fn(async () => null),
       write: vi.fn(async () => undefined),
@@ -52,33 +35,21 @@ describe('Zhiyuan extension runtime', () => {
       loadSafeStorage: vi.fn(async () => safeStorageFixture()),
       createProtectedStorage: vi.fn(() => protectedStorage),
       createClient: clientFactory,
-      createAgentControlBackend: createBackend,
     });
 
-    expect(createBackend).toHaveBeenCalledOnce();
-    const client = clientFactory.mock.results[0]?.value;
-    const backendOptions = createBackend.mock.calls[0]?.[0];
-    expect(backendOptions?.client).toBe(client);
-    expect(backendOptions?.skillRoot).toBe(managedRoot);
-    expect(backendOptions?.databasePath).toBe(
-      path.join(context.paths.userData, 'zhiyuan-enterprise', 'agent-control.sqlite'),
-    );
-    backendOptions?.onSkillsChanged?.();
-    expect(notifyChanged).toHaveBeenCalledOnce();
-
     await expect(runtime.session.initialize()).resolves.toEqual({ status: 'signed-out' });
-    expect(backend.stop).toHaveBeenCalledOnce();
     await runtime.dispose();
     await runtime.dispose();
-    expect(backend.close).toHaveBeenCalledOnce();
-    expect(unregister).toHaveBeenCalledOnce();
+    expect(
+      fs.existsSync(
+        path.join(context.paths.userData, 'zhiyuan-enterprise', 'agent-control.sqlite'),
+      ),
+    ).toBe(false);
+    expect(fs.existsSync(path.join(context.paths.userData, 'managed-skills'))).toBe(false);
   });
 });
 
-function hostContext(
-  root: string,
-  skills: ZhiyuanEnterpriseHostContext['capabilities']['skills'],
-): ZhiyuanEnterpriseHostContext {
+function hostContext(root: string): ZhiyuanEnterpriseHostContext {
   return {
     apiVersion: 1,
     appVersion: '2026.8.0',
@@ -93,7 +64,6 @@ function hostContext(
       renderer: null,
       settings: null,
       managedProvider: null,
-      skills,
     },
   };
 }

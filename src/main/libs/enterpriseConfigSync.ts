@@ -12,9 +12,7 @@ export type EnterpriseManifest = {
   ui?: Record<string, EnterpriseUIAction>;
   disableUpdate?: boolean;
   sync: {
-    skills: boolean | 'merge' | 'overwrite';
     agents: boolean | 'force';
-    mcp: boolean | 'merge' | 'overwrite';
     plugins?: boolean | 'merge' | 'overwrite';
   };
   autoAcceptPrivacy?: boolean;
@@ -38,15 +36,6 @@ export function resolveEnterpriseConfigPath(): string | null {
 export function syncEnterpriseConfig(
   configPath: string,
   store: SqliteStore,
-  mcpUpsertByName: (server: {
-    name: string;
-    description: string;
-    transportType: string;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-  }) => void,
-  mcpClearAll: () => void,
   getWorkingDirectory: () => string | undefined,
 ): EnterpriseManifest | null {
   let manifest: EnterpriseManifest;
@@ -68,13 +57,9 @@ export function syncEnterpriseConfig(
 
   const agentsForce = manifest.sync.agents === 'force';
   if (versionChanged) {
-    const skillsMode = resolveMergeMode(manifest.sync.skills);
-    if (skillsMode) syncSkills(configPath, store, skillsMode);
     if (manifest.sync.agents) syncAgents(configPath, getWorkingDirectory(), agentsForce);
     const pluginsMode = resolveMergeMode(manifest.sync.plugins);
     if (pluginsMode) syncPlugins(configPath, pluginsMode);
-    const mcpMode = resolveMergeMode(manifest.sync.mcp);
-    if (mcpMode) syncMcpServers(configPath, mcpUpsertByName, mcpClearAll, mcpMode);
   } else {
     if (manifest.sync.agents) syncAgents(configPath, getWorkingDirectory(), agentsForce);
     const pluginsMode = resolveMergeMode(manifest.sync.plugins);
@@ -84,46 +69,6 @@ export function syncEnterpriseConfig(
 
   console.log('[Enterprise] config sync completed');
   return manifest;
-}
-
-function syncSkills(configPath: string, store: SqliteStore, mode: 'merge' | 'overwrite'): void {
-  const sourceDir = path.join(configPath, 'skills');
-  if (!fs.existsSync(sourceDir)) {
-    console.log('[Enterprise] no skills directory found, skipping skills sync');
-    return;
-  }
-
-  const targetDir = path.join(app.getPath('userData'), 'SKILLs');
-  fs.mkdirSync(targetDir, { recursive: true });
-  if (mode === 'overwrite') {
-    for (const entry of fs.readdirSync(targetDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      try {
-        fs.rmSync(path.join(targetDir, entry.name), { recursive: true, force: true });
-      } catch (error) {
-        console.warn(`[Enterprise] failed to remove existing skill "${entry.name}":`, error);
-      }
-    }
-  }
-
-  const skillNames: string[] = [];
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    try {
-      copyDirRecursive(path.join(sourceDir, entry.name), path.join(targetDir, entry.name));
-      skillNames.push(entry.name);
-    } catch (error) {
-      console.warn(`[Enterprise] failed to copy skill "${entry.name}":`, error);
-    }
-  }
-
-  const state =
-    mode === 'overwrite'
-      ? ({} as Record<string, { enabled: boolean }>)
-      : (store.get<Record<string, { enabled: boolean }>>('skills_state') ?? {});
-  for (const name of skillNames) state[name] = { enabled: true };
-  store.set('skills_state', state);
-  console.log(`[Enterprise] synced ${skillNames.length} skills in ${mode} mode`);
 }
 
 function copyDirRecursive(source: string, target: string): void {
@@ -168,58 +113,6 @@ function syncAgents(configPath: string, workspaceDir: string | undefined, force:
     }
   }
   console.log(`[Enterprise] synced ${copiedCount} agent files to ${workspaceDir}`);
-}
-
-function syncMcpServers(
-  configPath: string,
-  upsertByName: (server: {
-    name: string;
-    description: string;
-    transportType: string;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-  }) => void,
-  clearAll: () => void,
-  mode: 'merge' | 'overwrite',
-): void {
-  const serversPath = path.join(configPath, 'mcp', 'servers.json');
-  if (!fs.existsSync(serversPath)) {
-    console.log('[Enterprise] no MCP server file found, skipping MCP sync');
-    return;
-  }
-
-  try {
-    const servers = JSON.parse(fs.readFileSync(serversPath, 'utf-8')) as Array<{
-      name: string;
-      description?: string;
-      transportType?: string;
-      command?: string;
-      args?: string[];
-      env?: Record<string, string>;
-    }>;
-    if (!Array.isArray(servers)) {
-      console.warn('[Enterprise] MCP server file is not an array, skipping');
-      return;
-    }
-    if (mode === 'overwrite') clearAll();
-    let syncedCount = 0;
-    for (const server of servers) {
-      if (!server.name) continue;
-      upsertByName({
-        name: server.name,
-        description: server.description ?? '',
-        transportType: server.transportType ?? 'stdio',
-        command: server.command,
-        args: server.args,
-        env: server.env,
-      });
-      syncedCount += 1;
-    }
-    console.log(`[Enterprise] synced ${syncedCount} MCP servers in ${mode} mode`);
-  } catch (error) {
-    console.error('[Enterprise] failed to sync MCP servers:', error);
-  }
 }
 
 function syncPlugins(configPath: string, mode: 'merge' | 'overwrite'): void {

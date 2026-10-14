@@ -1,4 +1,4 @@
-import { expectRunStart } from '../store/slices/coworkRunSlice';
+import { clearExpectedRunStart, expectRunStart } from '../store/slices/coworkRunSlice';
 import {
   type CoworkError,
   CoworkErrorKind,
@@ -41,7 +41,6 @@ import {
   updateSessionStatus,
   updateSessionTitle,
 } from '../store/slices/coworkSlice';
-import { clearActiveSkills } from '../store/slices/skillSlice';
 import type {
   CoworkApiConfig,
   CoworkConfigUpdate,
@@ -436,6 +435,7 @@ class CoworkService {
       return { session: null, error: 'Cowork API not available' };
     }
 
+    options.requestId ??= crypto.randomUUID();
     const result = await cowork.startSession({
       ...options,
       workspaceId: workspaceService.isWorkspaceApiAvailable()
@@ -471,12 +471,12 @@ class CoworkService {
 
     store.dispatch(expectRunStart({ sessionId: options.sessionId, startedAt: Date.now() }));
 
+    options.requestId ??= crypto.randomUUID();
     const result = await cowork.continueSession({
+      requestId: options.requestId,
       sessionId: options.sessionId,
       prompt: options.prompt,
       systemPrompt: options.systemPrompt,
-      activeSkillIds: options.activeSkillIds,
-      goalMode: options.goalMode,
       expertIds: options.expertIds,
       permissionMode: options.permissionMode,
       imageAttachments: options.imageAttachments,
@@ -509,6 +509,10 @@ class CoworkService {
       return false;
     }
 
+    if (result.session && result.session.id !== options.sessionId) {
+      store.dispatch(clearExpectedRunStart(options.sessionId));
+      store.dispatch(addSession(result.session));
+    }
     if (result.session?.workspaceId) {
       workspaceService.promoteWorkspace(result.session.workspaceId);
     }
@@ -712,7 +716,6 @@ class CoworkService {
       if (result.session.agentId) {
         store.dispatch(setCurrentAgentId(result.session.agentId));
       }
-      const wasCurrentSession = store.getState().cowork.currentSessionId === sessionId;
       store.dispatch(setCurrentSession(result.session));
       this.runSync?.requestRecovery(sessionId);
       // Only restore streaming for running sessions — never clear it here.
@@ -720,12 +723,6 @@ class CoworkService {
       // loadSession can be called reactively (onSessionsChanged) while a task
       // is still executing; the backend may report a transitional 'idle' status
       // that would prematurely hide the stop button.
-      // Session skills describe already-sent messages. Never reattach them to
-      // the next prompt when reactive session loading runs during a stream.
-      // Re-edit explicitly restores a message's skills in CoworkSessionDetail.
-      if (!wasCurrentSession) {
-        store.dispatch(clearActiveSkills());
-      }
 
       const imResult = await cowork.remoteManaged(sessionId);
       if (requestId === this.latestLoadSessionRequestId) {

@@ -122,7 +122,6 @@ export const CONFIG_KEYS = {
   AUTH: 'auth_state',
   CONVERSATIONS: 'conversations',
   PROVIDERS_EXPORT_KEY: 'providers_export_key',
-  SKILLS: 'skills',
 };
 
 // 模型提供商分类

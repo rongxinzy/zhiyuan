@@ -3,7 +3,6 @@ import {
   Brain,
   CircleHelp,
   Keyboard,
-  MailCheck,
   MessageCircleMore,
   Route,
   SlidersHorizontal,
@@ -26,7 +25,6 @@ export const SETTINGS_TAB_METAS: Record<TabType, SettingsTabMeta> = {
   triage: { labelKey: 'modelTriageTitle', icon: Route },
   coworkMemory: { labelKey: 'coworkMemoryTitle', icon: Brain },
   im: { labelKey: 'imBot', icon: MessageCircleMore },
-  email: { labelKey: 'emailTab', icon: MailCheck },
   about: { labelKey: 'about', icon: CircleHelp },
 };
 
@@ -44,7 +42,7 @@ export interface SettingsNavGroupDef {
 export const SETTINGS_NAV_GROUPS: SettingsNavGroupDef[] = [
   { titleKey: 'settingsGroupGeneral', tabs: ['general', 'appearance', 'shortcuts'] },
   { titleKey: 'settingsGroupModel', tabs: ['model', 'triage', 'coworkMemory'] },
-  { titleKey: 'settingsGroupChannels', tabs: ['im', 'email'] },
+  { titleKey: 'settingsGroupChannels', tabs: ['im'] },
   { titleKey: null, tabs: ['about'] },
 ];
 

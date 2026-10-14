@@ -84,8 +84,6 @@ const initialState: CoworkState = {
     embeddingVectorWeight: 0.7,
     embeddingRemoteBaseUrl: '',
     embeddingRemoteApiKey: '',
-    codemodeEnabled: false,
-    mcpNativeBridge: false,
   },
 };
 

@@ -9,7 +9,7 @@ export interface Agent {
   model: string;
   workingDirectory: string;
   icon: string;
-  skillIds: string[];
+  skillIds?: string[];
   enabled: boolean;
   pinned: boolean;
   pinOrder?: number | null;

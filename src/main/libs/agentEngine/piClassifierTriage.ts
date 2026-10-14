@@ -1,5 +1,5 @@
 /**
- * Message-tier classification through pi 1.0's classifier models.
+ * Message-tier classification through native pi-ai classifier models.
  *
  * llama.cpp chat models answer classifications from next-token label
  * probabilities (pi's `llama-cpp-classify` API), so a router-grade question
@@ -9,40 +9,17 @@
  */
 import type { TriageTier } from '../../../shared/triage';
 
-/** pi modules injected by the caller (ESM dynamic import; test-mockable). */
+import type { ClassifierModel, ProviderClassifier } from '@earendil-works/pi-ai';
+import type { createModels, createProvider, Models } from '@earendil-works/pi-ai/models';
+
+/** Native ESM factories injected at app startup; no coding-agent runtime is required. */
 export interface PiClassifierDeps {
-  ModelRuntime: {
-    create(options?: { allowModelNetwork?: boolean }): Promise<PiClassifierRuntime>;
-  };
-  llamaCppClassifyApi: () => unknown;
+  createModels: typeof createModels;
+  createProvider: typeof createProvider;
+  llamaCppClassifyApi: () => ProviderClassifier;
 }
 
-/** Minimal structural type of pi's ModelRuntime for classifier calls. */
-export interface PiClassifierRuntime {
-  registerProvider(
-    providerId: string,
-    config: {
-      name?: string;
-      baseUrl: string;
-      classifiers?: Record<string, unknown>;
-      models: Array<Record<string, unknown>>;
-    },
-  ): void;
-  setRuntimeApiKey?(providerId: string, apiKey: string): Promise<void>;
-  getModel(providerId: string, modelId: string): unknown;
-  classify(
-    model: unknown,
-    context: {
-      state: Record<string, unknown>;
-      questions: Record<string, unknown>;
-    },
-    options?: { temperature?: number },
-  ): Promise<{
-    stopReason: string;
-    errorMessage?: string;
-    answers?: Record<string, { type: string; choice?: string; confidence?: number }>;
-  }>;
-}
+export type PiClassifierRuntime = Models;
 
 export interface PiClassifierTriageOptions {
   /** llama.cpp server root, e.g. http://172.18.5.123:8000 (no /v1 suffix). */
@@ -67,7 +44,10 @@ const TRIAGE_QUESTION = {
   },
 } as const;
 
-const runtimeCache = new Map<string, { runtime: PiClassifierRuntime; model: unknown }>();
+const runtimeCache = new Map<
+  string,
+  { runtime: PiClassifierRuntime; model: ClassifierModel<'llama-cpp-classify'> }
+>();
 
 let triageDeps: PiClassifierDeps | null = null;
 
@@ -85,27 +65,31 @@ async function getClassifier(deps: PiClassifierDeps, options: PiClassifierTriage
   const cached = runtimeCache.get(cacheKey);
   if (cached) return cached;
 
-  const runtime = await deps.ModelRuntime.create({ allowModelNetwork: false });
-  runtime.registerProvider(PROVIDER_ID, {
-    name: PROVIDER_ID,
-    baseUrl: root,
-    classifiers: { 'llama-cpp-classify': deps.llamaCppClassifyApi() },
-    models: [
-      {
-        type: 'classifier',
-        id: options.modelName,
-        name: options.modelName,
-        api: 'llama-cpp-classify',
-        provider: PROVIDER_ID,
-        baseUrl: `${root}/v1`,
-        input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 8_192,
-      },
-    ],
-  });
-  const model = runtime.getModel(PROVIDER_ID, options.modelName);
-  if (!model) {
+  const runtime = deps.createModels();
+  const model: ClassifierModel<'llama-cpp-classify'> = {
+    type: 'classifier',
+    id: options.modelName,
+    name: options.modelName,
+    api: 'llama-cpp-classify',
+    provider: PROVIDER_ID,
+    baseUrl: `${root}/v1`,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 8_192,
+  };
+  runtime.setProvider(
+    deps.createProvider({
+      id: PROVIDER_ID,
+      name: PROVIDER_ID,
+      baseUrl: root,
+      // Local llama.cpp is keyless. Supplying a native auth resolver keeps the
+      // provider configured without reading or writing any credential store.
+      auth: { apiKey: { name: 'Local classifier', resolve: async () => ({ auth: {} }) } },
+      classifiers: { 'llama-cpp-classify': deps.llamaCppClassifyApi() },
+      models: [model],
+    }),
+  );
+  if (!runtime.getModelOfType('classifier', PROVIDER_ID, options.modelName)) {
     throw new Error(`classifier model ${options.modelName} did not register`);
   }
   const entry = { runtime, model };
@@ -117,9 +101,9 @@ async function getClassifier(deps: PiClassifierDeps, options: PiClassifierTriage
 export async function classifyTierWithPi(
   prompt: string,
   options: PiClassifierTriageOptions,
-  deps: PiClassifierDeps,
+  deps: PiClassifierDeps | null = triageDeps,
 ): Promise<{ tier: TriageTier; confidence: number } | null> {
-  if (!options.baseUrl || !options.modelName) return null;
+  if (!deps || !options.baseUrl || !options.modelName) return null;
   try {
     const { runtime, model } = await getClassifier(deps, options);
     const result = await runtime.classify(
@@ -132,8 +116,10 @@ export async function classifyTierWithPi(
     );
     if (result.stopReason !== 'stop' || result.errorMessage) return null;
     const answer = result.answers?.tier;
-    const choice = answer?.choice;
-    const confidence = answer?.confidence ?? 0;
+    if (answer?.type !== 'choice') return null;
+    const choice = answer.choice;
+    const confidence = answer.confidence;
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return null;
     if (choice !== 'light' && choice !== 'standard' && choice !== 'heavy') return null;
     if (confidence < (options.minConfidence ?? DEFAULT_MIN_CONFIDENCE)) return null;
     return { tier: choice, confidence };

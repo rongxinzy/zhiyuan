@@ -7,7 +7,6 @@ import {
   ZHIYUAN_ENTERPRISE_RENDERER_CAPABILITY_API_VERSION,
   ZHIYUAN_ENTERPRISE_SESSION_CAPABILITY_API_VERSION,
   ZHIYUAN_ENTERPRISE_SETTINGS_CAPABILITY_API_VERSION,
-  ZHIYUAN_ENTERPRISE_SKILL_CAPABILITY_API_VERSION,
   ZHIYUAN_MANAGED_PROVIDER_CAPABILITY_API_VERSION,
   type ZhiyuanEnterpriseExtension,
   type ZhiyuanEnterpriseHostContext,
@@ -79,7 +78,6 @@ export class ZhiyuanAaaSExtension implements ZhiyuanEnterpriseExtension {
     const rendererCapability = context.capabilities.renderer;
     const settingsCapability = context.capabilities.settings;
     const managedProviderCapability = context.capabilities.managedProvider;
-    const skillCapability = context.capabilities.skills;
     if (
       sessionCapability &&
       sessionCapability.apiVersion !== ZHIYUAN_ENTERPRISE_SESSION_CAPABILITY_API_VERSION
@@ -104,13 +102,7 @@ export class ZhiyuanAaaSExtension implements ZhiyuanEnterpriseExtension {
     ) {
       throw new Error('Zhiyuan managed provider capability API version is not supported.');
     }
-    if (
-      skillCapability &&
-      skillCapability.apiVersion !== ZHIYUAN_ENTERPRISE_SKILL_CAPABILITY_API_VERSION
-    ) {
-      throw new Error('Zhiyuan enterprise Skill capability API version is not supported.');
-    }
-    if (sessionCapability || managedProviderCapability || skillCapability) {
+    if (sessionCapability || managedProviderCapability) {
       const runtime = await this.#createRuntime(context);
       this.#runtime = runtime;
       const session = runtime.session;
@@ -193,14 +185,8 @@ export function createZhiyuanEnterpriseExtension(): ZhiyuanEnterpriseExtension {
 }
 
 export {
-  createZhiyuanAgentControlBackend,
-  ZhiyuanAgentControlBackend,
-  type ZhiyuanAgentControlBackendOptions,
-} from './agent-control/factory.js';
-export {
   createZhiyuanExtensionRuntime,
   type ZhiyuanExtensionRuntime,
-  type ZhiyuanExtensionRuntimeDependencies,
 } from './extension-runtime.js';
 export { ZhiyuanLicenseActivation } from './license/activation.js';
 export { canonicalize, sha256Digest } from './license/canonical.js';

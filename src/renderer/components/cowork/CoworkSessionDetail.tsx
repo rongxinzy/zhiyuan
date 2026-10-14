@@ -50,7 +50,6 @@ import {
   selectSessionArtifacts,
   togglePanel,
 } from '../../store/slices/artifactSlice';
-import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import { resolveArtifactPanelMaxWidth } from '../artifacts/artifactPanelResize';
 import { PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type {
@@ -109,6 +108,7 @@ import {
 } from './hooks/useCoworkComposerInset';
 import AskUserQuestionCard from './AskUserQuestionCard';
 import { WorkbenchTaskAcceptanceCard } from './WorkbenchTaskAcceptanceCard';
+import { DurableRecoveryCard } from './durable/DurableRecoveryCard';
 import CoworkPermissionModal from './CoworkPermissionModal';
 import { CoworkRunStatus } from './components/CoworkRunStatus';
 
@@ -121,8 +121,6 @@ const ArtifactPanelFrame = React.lazy(() =>
 interface CoworkSessionDetailProps {
   displayedSessionId?: string;
   isSessionSwitching?: boolean;
-  onManageSkills?: () => void;
-  onManageConnectors?: () => void;
   permissionMode?: CoworkPermissionMode;
   onPermissionModeChange?: (mode: CoworkPermissionMode) => void;
   onContinue: (
@@ -130,7 +128,6 @@ interface CoworkSessionDetailProps {
     imageAttachments?: CoworkImageAttachment[],
     fileAttachments?: CoworkFileAttachment[],
     expertIds?: string[],
-    goalMode?: boolean,
   ) => boolean | void | Promise<boolean | void>;
   onStop: () => void;
   isSidebarCollapsed?: boolean;
@@ -193,8 +190,6 @@ class ArtifactPanelErrorBoundary extends React.Component<
 const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   displayedSessionId,
   isSessionSwitching = false,
-  onManageSkills,
-  onManageConnectors,
   permissionMode,
   onPermissionModeChange,
   onContinue,
@@ -219,7 +214,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const toolActivities = useSelector(selectCurrentToolActivities);
   const remoteManaged = useSelector(selectRemoteManaged);
   const messagesLength = useSelector(selectCurrentMessagesLength);
-  const skills = useSelector((state: RootState) => state.skill.skills);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
@@ -982,28 +976,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     return value;
   }, []);
 
-  const handleReEdit = useCallback(
-    (message: CoworkMessage) => {
-      const ref = promptInputRef.current;
-      if (!ref) return;
-      // Set text content
-      if (message.content?.trim()) {
-        ref.setValue(message.content);
-      }
-      // Restore image attachments (always call to clear previous attachments)
-      const imageAttachments = ((message.metadata as CoworkMessageMetadata)?.imageAttachments ??
-        []) as CoworkImageAttachment[];
-      ref.setImageAttachments(imageAttachments);
-      // Restore active skills
-      const skillIds = (message.metadata as CoworkMessageMetadata)?.skillIds;
-      if (skillIds && skillIds.length > 0) {
-        dispatch(setActiveSkillIds(skillIds));
-      }
-      // Focus the input
-      ref.focus();
-    },
-    [dispatch],
-  );
+  const handleReEdit = useCallback((message: CoworkMessage) => {
+    const ref = promptInputRef.current;
+    if (!ref) return;
+    // Set text content
+    if (message.content?.trim()) {
+      ref.setValue(message.content);
+    }
+    // Restore image attachments (always call to clear previous attachments)
+    const imageAttachments = ((message.metadata as CoworkMessageMetadata)?.imageAttachments ??
+      []) as CoworkImageAttachment[];
+    ref.setImageAttachments(imageAttachments);
+    // Focus the input
+    ref.focus();
+  }, []);
 
   const messages = currentSession?.messages;
   const isAwaitingInlineQuestion = Boolean(inlineQuestionPermission && onRespondToInlineQuestion);
@@ -1126,7 +1112,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             >
               <UserBubble
                 message={turn.userMessage}
-                skills={skills}
                 onReEdit={remoteManaged ? undefined : handleReEdit}
               />
             </div>
@@ -1295,6 +1280,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 >
                   <div ref={scrollContainerRef}>
                     {renderConversationTurns()}
+                    {sessionId && workMode === CoworkSessionMode.Work && !remoteManaged && (
+                      <div className="mx-auto w-full max-w-6xl px-4">
+                        <DurableRecoveryCard
+                          sessionId={sessionId}
+                          disabled={resumeDisabled || isStreaming}
+                        />
+                      </div>
+                    )}
                     {inlineQuestionPermission && onRespondToInlineQuestion && (
                       <div className="px-3 pt-3">
                         <div className="mx-auto w-full max-w-6xl min-w-[320px] pl-4">
@@ -1605,10 +1598,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   sessionContextPending={isSessionSwitching}
                   size="large"
                   remoteManaged={!isSessionSwitching && remoteManaged}
-                  onManageSkills={!isSessionSwitching && remoteManaged ? undefined : onManageSkills}
-                  onManageConnectors={
-                    !isSessionSwitching && remoteManaged ? undefined : onManageConnectors
-                  }
                   showPermissionModeSelector={workMode === 'work'}
                   permissionMode={permissionMode}
                   onPermissionModeChange={onPermissionModeChange}

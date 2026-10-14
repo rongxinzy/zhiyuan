@@ -18,6 +18,7 @@ const toastMessages = (dispatch: Dispatcher): string[] =>
 
 const fixture = vi.hoisted(() => ({
   dispatch: vi.fn(),
+  sendShortcut: 'Enter',
   state: {
     cowork: {
       draftPrompts: { __home__: '' },
@@ -30,8 +31,6 @@ const fixture = vi.hoisted(() => ({
       defaultSelectedModel: { id: 'test-model', name: 'Test Model', providerKey: 'test' },
       selectedModelByAgent: {},
     },
-    skill: { activeSkillIds: [], skills: [] },
-    quickAction: { actions: [], selectedActionId: null },
     workMode: { mode: '' as WorkMode },
   },
 }));
@@ -42,14 +41,10 @@ vi.mock('react-redux', () => ({
     selector(fixture.state as unknown as RootState),
 }));
 vi.mock('../../services/config', () => ({
-  configService: { getConfig: () => ({ shortcuts: { sendMessage: 'Enter' } }) },
-}));
-vi.mock('../../services/skill', () => ({
-  skillService: { loadSkills: async () => [], onSkillsChanged: () => () => {} },
+  configService: { getConfig: () => ({ shortcuts: { sendMessage: fixture.sendShortcut } }) },
 }));
 vi.mock('../../services/agent', () => ({ agentService: { updateAgent: async () => {} } }));
 vi.mock('../../services/cowork', () => ({ coworkService: { updateSessionModel: async () => {} } }));
-vi.mock('../mcp/ActiveMcpBadge', () => ({ default: () => null }));
 vi.mock('./ActiveExpertBadge', () => ({ default: () => null }));
 vi.mock('./CoworkInlineAttachments', () => ({ CoworkInlineAttachments: () => null }));
 vi.mock('./ContextUsageIndicator', () => ({ ContextUsageIndicator: () => null }));
@@ -62,6 +57,7 @@ vi.mock('./ResumeTaskContextBadge', () => ({ ResumeTaskContextBadge: () => null 
 
 beforeEach(() => {
   fixture.dispatch.mockClear();
+  fixture.sendShortcut = 'Enter';
   fixture.state.cowork.draftPrompts.__home__ = '';
   fixture.state.cowork.draftAttachments = {};
   fixture.state.workMode.mode = WorkMode.Chat;
@@ -106,14 +102,13 @@ test('holds the lock through asynchronous submission and permits a retry after r
   );
   const view = render(<CoworkPromptInput onSubmit={onSubmit} />);
   const form = view.container.querySelector('form')!;
-  const editor = view.container.querySelector<HTMLElement>('[contenteditable="true"]')!;
-  editor.textContent = 'retry me';
-  fireEvent.input(editor);
+  const editor = view.getByRole('textbox');
+  fireEvent.change(editor, { target: { value: 'retry me' } });
   await submit(form);
   await submit(form);
   expect(onSubmit).toHaveBeenCalledOnce();
   await act(async () => finish(false));
-  expect(view.container.querySelector('[contenteditable="true"]')?.textContent).toBe('retry me');
+  expect(view.getByRole('textbox')).toHaveValue('retry me');
   await submit(form);
   expect(onSubmit).toHaveBeenCalledTimes(2);
   await act(async () => finish(true));
@@ -151,7 +146,6 @@ test('allows a valid image without text', async () => {
     [{ name: 'example.png', mimeType: 'image/png', base64Data: 'aW1hZ2U=' }],
     undefined,
     [],
-    false,
   );
 });
 
@@ -252,4 +246,38 @@ test('keeps the explicit task-resume action available without an amendment', asy
   await submit(view.container.querySelector('form')!, 2);
   expect(onSubmit).toHaveBeenCalledOnce();
   expect(onSubmit.mock.calls[0]?.[0]).toBe('');
+});
+
+test('keeps ordinary slash text as text without activating removed capabilities', async () => {
+  fixture.state.cowork.draftPrompts.__home__ = '/skill pdf summarize this';
+  const onSubmit = vi.fn();
+  const view = render(<CoworkPromptInput onSubmit={onSubmit} />);
+  await submit(view.container.querySelector('form')!);
+  expect(onSubmit.mock.calls[0]?.[0]).toBe('/skill pdf summarize this');
+  expect(fixture.dispatch.mock.calls.every(([action]) => !action.type.startsWith('skill/'))).toBe(
+    true,
+  );
+});
+
+test('preserves configured newline behavior and selection in the plain-text composer', () => {
+  fixture.sendShortcut = 'Shift+Enter';
+  fixture.state.cowork.draftPrompts.__home__ = 'hello world';
+  const onSubmit = vi.fn();
+  const view = render(<CoworkPromptInput onSubmit={onSubmit} />);
+  const editor = view.getByRole('textbox') as HTMLTextAreaElement;
+  editor.setSelectionRange(5, 6);
+  fireEvent.keyDown(editor, { key: 'Enter' });
+  expect(editor).toHaveValue('hello\nworld');
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+test('does not submit during IME composition or its legacy commit key', () => {
+  fixture.state.cowork.draftPrompts.__home__ = '中文';
+  const onSubmit = vi.fn();
+  const view = render(<CoworkPromptInput onSubmit={onSubmit} />);
+  const editor = view.getByRole('textbox');
+  fireEvent.keyDown(editor, { key: 'Enter', isComposing: true });
+  fireEvent.keyDown(editor, { key: 'Enter', keyCode: 229 });
+  expect(onSubmit).not.toHaveBeenCalled();
+  expect(editor).toHaveValue('中文');
 });

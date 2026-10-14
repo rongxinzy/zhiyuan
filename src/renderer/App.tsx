@@ -14,9 +14,7 @@ import {
   hasAskUserQuestions,
   isAskUserQuestionPermission,
 } from './components/cowork/askUserQuestion';
-import type { ExpertTab } from './components/expert/ExpertView';
 import type { CodingSidebarSelection } from './components/coding/CodingWorkspaceSidebar';
-import type { McpRegistryId } from './components/mcp/constants';
 import type { SettingsOpenOptions } from './components/settings/types';
 import { prefetchFeatureView } from './components/featureViewPrefetch';
 import { ParticleBootScreen } from './components/boot/ParticleBootScreen';
@@ -53,14 +51,11 @@ import {
   selectCurrentSessionId,
   selectPendingPermissionForSession,
 } from './store/selectors/coworkSelectors';
-import { setDraftPrompt } from './store/slices/coworkSlice';
 import {
   pruneUnconfiguredSelectedModels,
   setAvailableModels,
   setDefaultSelectedModel,
 } from './store/slices/modelSlice';
-import { clearSelection } from './store/slices/quickActionSlice';
-import { clearActiveSkills, setActiveSkillIds } from './store/slices/skillSlice';
 import { WorkMode } from './store/workMode/constants';
 import { setWorkMode } from './store/workMode/workModeSlice';
 import type { CoworkPermissionResult } from './types/cowork';
@@ -77,17 +72,11 @@ const loadCoworkView = () =>
 const coworkViewPromise = loadCoworkView();
 const CoworkView = React.lazy(() => coworkViewPromise);
 const SettingsPage = React.lazy(() => import('./components/settings/SettingsPage'));
-const SkillsView = React.lazy(() =>
-  import('./components/skills').then(module => ({ default: module.SkillsView })),
-);
 const ScheduledTasksView = React.lazy(() =>
   import('./components/scheduledTasks').then(module => ({ default: module.ScheduledTasksView })),
 );
 const ActivityView = React.lazy(() =>
   import('./components/activity').then(module => ({ default: module.ActivityView })),
-);
-const McpView = React.lazy(() =>
-  import('./components/mcp').then(module => ({ default: module.McpView })),
 );
 const LocalInferenceView = React.lazy(() =>
   import('./components/localInference').then(module => ({ default: module.LocalInferenceView })),
@@ -120,18 +109,13 @@ const App: React.FC = () => {
   const [mainView, setMainView] = useState<
     | 'cowork'
     | 'settings'
-    | 'skills'
     | 'scheduledTasks'
     | 'activity'
-    | 'mcp'
     | 'localInference'
     | 'expert'
     | 'coding'
     | 'todo'
   >('cowork');
-  const [expertInitialTab, setExpertInitialTab] = useState<ExpertTab | undefined>(undefined);
-  const [mcpOpenRegistryId, setMcpOpenRegistryId] = useState<McpRegistryId | undefined>();
-  const [mcpOpenMarketplace, setMcpOpenMarketplace] = useState(false);
   const [hasMountedLocalInference, setHasMountedLocalInference] = useState(false);
   const [isLocalInferenceDormant, setIsLocalInferenceDormant] = useState(false);
   // 2026/09/21 lixiang  keep-alive 视图隐藏超过该时长后真正卸载以释放内存，
@@ -536,10 +520,6 @@ const App: React.FC = () => {
     }
   }, [handleShowSettings]);
 
-  const handleShowSkills = useCallback(() => {
-    setMainView('skills');
-  }, []);
-
   const handleShowCowork = useCallback(() => {
     setMainView('cowork');
   }, []);
@@ -552,18 +532,6 @@ const App: React.FC = () => {
     setMainView('activity');
   }, []);
 
-  const handleShowMcp = useCallback((registryId?: McpRegistryId) => {
-    setMcpOpenRegistryId(registryId);
-    setMcpOpenMarketplace(false);
-    setMainView('mcp');
-  }, []);
-
-  const handleShowMcpMarketplace = useCallback(() => {
-    setMcpOpenRegistryId(undefined);
-    setMcpOpenMarketplace(true);
-    setMainView('mcp');
-  }, []);
-
   const handleShowLocalInference = useCallback(() => {
     if (managedModelsOnly) return;
     setLocalInferenceRefreshRequestId(current => current + 1);
@@ -571,7 +539,6 @@ const App: React.FC = () => {
   }, [managedModelsOnly]);
 
   const handleShowExpert = useCallback(() => {
-    setExpertInitialTab(undefined);
     setMainView('expert');
   }, []);
 
@@ -593,7 +560,6 @@ const App: React.FC = () => {
       const shouldClearInput = mainView === 'cowork' && !currentSessionId;
       if (currentWorkspaceIsHidden) void workspaceService.clearWorkspaceSelection();
       coworkService.clearSession();
-      dispatch(clearSelection());
       setMainView('cowork');
       window.setTimeout(() => {
         window.dispatchEvent(
@@ -607,45 +573,12 @@ const App: React.FC = () => {
         );
       }, 0);
     },
-    [currentSessionId, currentWorkspaceIsHidden, dispatch, mainView],
+    [currentSessionId, currentWorkspaceIsHidden, mainView],
   );
 
   const handleNewChat = useCallback(() => {
-    dispatch(clearActiveSkills());
     openNewConversation({ clearExperts: true });
-  }, [dispatch, openNewConversation]);
-
-  const handleTryMcp = useCallback(
-    (prompt?: string) => {
-      if (prompt?.trim()) {
-        dispatch(setDraftPrompt({ sessionId: '__home__', draft: prompt }));
-      }
-      dispatch(setWorkMode(WorkMode.Work));
-      handleNewChat();
-    },
-    [dispatch, handleNewChat],
-  );
-
-  const handleCreateSkillByChat = useCallback(() => {
-    dispatch(setDraftPrompt({ sessionId: '__home__', draft: i18nService.t('skillCreatorPrompt') }));
-    handleNewChat();
-  }, [dispatch, handleNewChat]);
-
-  const handleTrySkill = useCallback(
-    (skillId: string) => {
-      const skill = store.getState().skill.skills.find(candidate => candidate.id === skillId);
-      if (!skill?.enabled) {
-        window.dispatchEvent(
-          new CustomEvent('app:showToast', { detail: i18nService.t('chatSkillUnavailable') }),
-        );
-        return;
-      }
-      dispatch(setActiveSkillIds([skillId]));
-      dispatch(setWorkMode(WorkMode.Work));
-      openNewConversation();
-    },
-    [dispatch, openNewConversation],
-  );
+  }, [openNewConversation]);
 
   const handleLocalInferenceInstallRequestHandled = useCallback((requestId: string) => {
     setLocalInferenceInstallRequestId(current => (current === requestId ? undefined : current));
@@ -963,11 +896,9 @@ const App: React.FC = () => {
           <Sidebar
             onShowSettings={handleShowSettings}
             activeView={mainView}
-            onShowSkills={handleShowSkills}
             onShowCowork={handleShowCowork}
             onShowScheduledTasks={handleShowScheduledTasks}
             onShowActivity={handleShowActivity}
-            onShowMcp={handleShowMcp}
             onShowLocalInference={handleShowLocalInference}
             onShowExpert={handleShowExpert}
             onShowCoding={handleShowCoding}
@@ -1028,16 +959,6 @@ const App: React.FC = () => {
                       onToggleSidebar={handleToggleSidebar}
                       onNewChat={handleNewChat}
                     />
-                  ) : mainView === 'skills' ? (
-                    <SkillsView
-                      isSidebarCollapsed={isSidebarCollapsed}
-                      onToggleSidebar={handleToggleSidebar}
-                      onNewChat={handleNewChat}
-                      onCreateSkillByChat={handleCreateSkillByChat}
-                      onTrySkill={handleTrySkill}
-                      updateBadge={null}
-                      readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
-                    />
                   ) : mainView === 'scheduledTasks' ? (
                     <ScheduledTasksView
                       isSidebarCollapsed={isSidebarCollapsed}
@@ -1053,28 +974,13 @@ const App: React.FC = () => {
                       updateBadge={null}
                       onShowScheduledTasks={handleShowScheduledTasks}
                     />
-                  ) : mainView === 'mcp' ? (
-                    <McpView
-                      isSidebarCollapsed={isSidebarCollapsed}
-                      onToggleSidebar={handleToggleSidebar}
-                      onNewChat={handleNewChat}
-                      onUseMcp={handleTryMcp}
-                      updateBadge={null}
-                      openRegistryId={mcpOpenRegistryId}
-                      openMarketplace={mcpOpenMarketplace}
-                    />
                   ) : mainView === 'expert' ? (
                     <ExpertView
                       isSidebarCollapsed={isSidebarCollapsed}
                       onToggleSidebar={handleToggleSidebar}
                       onNewChat={handleNewChat}
                       updateBadge={null}
-                      readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
-                      onCreateSkillByChat={handleCreateSkillByChat}
-                      onTrySkill={handleTrySkill}
                       onChatWithExpert={handleChatWithExpert}
-                      onUseMcp={handleTryMcp}
-                      initialTab={expertInitialTab}
                     />
                   ) : mainView === 'coding' ? (
                     <CodingWorkbenchView
@@ -1101,8 +1007,6 @@ const App: React.FC = () => {
                   ) : mainView === 'localInference' ? null : (
                     <CoworkView
                       onRequestAppSettings={handleShowSettings}
-                      onShowSkills={handleShowSkills}
-                      onShowConnectors={handleShowMcpMarketplace}
                       onShowScheduledTasks={handleShowScheduledTasks}
                       isSidebarCollapsed={isSidebarCollapsed}
                       onToggleSidebar={handleToggleSidebar}

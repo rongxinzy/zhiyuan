@@ -133,7 +133,9 @@ try {
   }
   check(
     fs.existsSync(path.join(installDir, '知远.exe')) &&
-      fs.existsSync(path.join(installDir, 'resources', 'uv-win', 'uv.exe')),
+      fs.existsSync(
+        path.join(installDir, 'resources', 'channel-runtime', 'cc-connect-sidecar.exe'),
+      ),
     'fake app + sentinels installed',
   );
   const marker = path.join(appDataRoot, 'pending-local-inference-install');

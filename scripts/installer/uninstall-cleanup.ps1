@@ -13,15 +13,12 @@ param(
 # The original inline spans ran with PowerShell defaults (no Stop/StrictMode)
 # and the NSIS caller ignored their exit codes; keep that forgiving shape.
 
-# Remove known component junctions under the application resources before any
-# recursive deletion, so cleanup can never walk into an immutable shared pack.
-$names = @('channel-runtime', 'SKILLs', 'MCPs', 'mingit', 'python-win', 'skill-python', 'uv-win')
+# Detach resource junctions before recursive cleanup so deletion never follows
+# a link into an external runtime cache.
 $resources = Join-Path $InstallDir 'resources'
-foreach ($name in $names) {
-  $link = Join-Path $resources $name
-  if (Test-Path -LiteralPath $link) {
-    $item = Get-Item -LiteralPath $link -Force
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [IO.Directory]::Delete($link) }
+Get-ChildItem -LiteralPath $resources -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+  if (($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    [IO.Directory]::Delete($_.FullName)
   }
 }
 

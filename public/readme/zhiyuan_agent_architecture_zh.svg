@@ -43,9 +43,9 @@
   <text x="490" y="247" class="t4">模型市场</text>
 
   <rect x="765" y="165" width="270" height="95" class="box"/>
-  <text x="785" y="201" class="t3">技能 / MCP 管理</text>
-  <text x="785" y="227" class="t4">内置技能、技能市场、</text>
-  <text x="785" y="247" class="t4">外部工具</text>
+  <text x="785" y="201" class="t3">工具权限</text>
+  <text x="785" y="227" class="t4">文件与命令工具、</text>
+  <text x="785" y="247" class="t4">用户明确授权</text>
 
   <rect x="95" y="290" width="350" height="95" class="box"/>
   <text x="115" y="326" class="t3">SQLite 本地存储</text>

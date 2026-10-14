@@ -17,50 +17,6 @@ export const StoreIpc = {
 } as const;
 export type StoreIpc = (typeof StoreIpc)[keyof typeof StoreIpc];
 
-// ─── Skills ─────────────────────────────────────────────────────────────────
-export const SkillsIpc = {
-  List: 'skills:list',
-  SetEnabled: 'skills:setEnabled',
-  SetEnabledBatch: 'skills:setEnabledBatch',
-  SetPinned: 'skills:setPinned',
-  Delete: 'skills:delete',
-  Download: 'skills:download',
-  ConfirmInstall: 'skills:confirmInstall',
-  GetRoot: 'skills:getRoot',
-  GetContent: 'skills:getContent',
-  AutoRoutingPrompt: 'skills:autoRoutingPrompt',
-  GetConfig: 'skills:getConfig',
-  SetConfig: 'skills:setConfig',
-  TestEmailConnectivity: 'skills:testEmailConnectivity',
-  FetchMarketplace: 'skills:fetchMarketplace',
-  FetchMarketplaceContent: 'skills:fetchMarketplaceContent',
-  Changed: 'skills:changed',
-} as const;
-export type SkillsIpc = (typeof SkillsIpc)[keyof typeof SkillsIpc];
-
-// ─── MCP ────────────────────────────────────────────────────────────────────
-export const McpIpc = {
-  List: 'mcp:list',
-  Create: 'mcp:create',
-  Update: 'mcp:update',
-  Delete: 'mcp:delete',
-  SetEnabled: 'mcp:setEnabled',
-  TestConnection: 'mcp:testConnection',
-  FetchMarketplace: 'mcp:fetchMarketplace',
-  RefreshBridge: 'mcp:refreshBridge',
-  Authorize: 'mcp:authorize',
-  CancelAuthorize: 'mcp:cancelAuthorize',
-  GetFeishuCliStatus: 'mcp:feishuCliStatus',
-  PrepareFeishuCli: 'mcp:prepareFeishuCli',
-  LoadIcon: 'mcp:loadIcon',
-  ExportConfig: 'mcp:exportConfig',
-  ImportConfig: 'mcp:importConfig',
-  BridgeSyncStart: 'mcp:bridge:syncStart',
-  BridgeSyncDone: 'mcp:bridge:syncDone',
-} as const;
-export type McpIpc = (typeof McpIpc)[keyof typeof McpIpc];
-
-// ─── Hardware ───────────────────────────────────────────────────────────────
 export const HardwareIpc = {
   NvidiaSmi: 'hardware:nvidia-smi',
   SystemMemory: 'hardware:system-memory',

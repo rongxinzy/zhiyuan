@@ -47,10 +47,6 @@ vi.mock('./TaskList', () => ({
     }),
 }));
 vi.mock('./AllRunsHistory', () => ({ default: () => null }));
-vi.mock('./TaskTemplateGallery', () => ({
-  default: ({ onCustom }: { onCustom: () => void }) =>
-    createElement('button', { onClick: onCustom }, 'custom'),
-}));
 
 beforeEach(() => {
   mocks.dispatch.mockClear();
@@ -105,7 +101,7 @@ test('an already mounted view consumes new requests and does not leak the folder
   await user.click(screen.getByRole('button', { name: 'cancel' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   await user.click(screen.getByRole('tab', { name: 'scheduledTasksNewTab' }));
-  await user.click(screen.getByRole('button', { name: 'custom' }));
+  await user.click(screen.getAllByRole('button', { name: 'scheduledTasksNewTask' }).at(-1)!);
   await waitFor(() =>
     expect(screen.getByRole('combobox', { name: /scheduledTasksFormWorkspace/ })).toHaveTextContent(
       'current',

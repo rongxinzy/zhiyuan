@@ -41,7 +41,6 @@ import { WorkMode } from '../store/workMode/constants';
 import { setWorkMode } from '../store/workMode/workModeSlice';
 import type { CoworkSessionSummary } from '../types/cowork';
 import AgentTaskRow from './agentSidebar/AgentTaskRow';
-import ChatSkillShortcuts from './chat/ChatSkillShortcuts';
 import {
   CodingWorkspaceSidebar,
   type CodingSidebarSelection,
@@ -61,11 +60,9 @@ import { SidebarNavigationControls, type SidebarActiveView } from './SidebarNavi
 interface SidebarProps {
   onShowSettings: () => void;
   activeView: SidebarActiveView;
-  onShowSkills: () => void;
   onShowCowork: () => void;
   onShowScheduledTasks: () => void;
   onShowActivity: () => void;
-  onShowMcp: () => void;
   onShowLocalInference: () => void;
   onShowExpert: () => void;
   onShowCoding: () => void;
@@ -480,9 +477,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
               {workMode === WorkMode.Chat && (
                 <>
-                  <div>
-                    <ChatSkillShortcuts />
-                  </div>
                   {renderSearchControl(true)}
                   <div className="theme-sidebar-section sticky top-0 z-30 flex items-center min-w-0">
                     <h2 className="min-w-0 truncate">{i18nService.t('chatRecentTitle')}</h2>

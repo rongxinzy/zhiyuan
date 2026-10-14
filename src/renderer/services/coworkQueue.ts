@@ -40,14 +40,13 @@ class CoworkQueueService {
     text: string,
     imageAttachments?: CoworkImageAttachment[],
     fileAttachments?: CoworkFileAttachment[],
-    skillIds?: string[],
   ) {
     return window.electron.cowork.enqueuePendingMessage({
+      requestId: crypto.randomUUID(),
       sessionId,
       text,
       imageAttachments,
       fileAttachments,
-      skillIds,
     });
   }
 

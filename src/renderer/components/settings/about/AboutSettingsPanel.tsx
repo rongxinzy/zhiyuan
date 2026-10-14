@@ -299,7 +299,7 @@ export default function AboutSettingsPanel({
                 rel="noopener noreferrer"
                 className="theme-surface-settings-link"
               >
-                {i18nService.t('mcpViewOnGithub')}
+                {i18nService.t('aboutViewOnGithub')}
               </a>
             </div>
           </>

@@ -28,6 +28,9 @@ const slice = createSlice({
     expectRunStart(state, action: PayloadAction<{ sessionId: string; startedAt: number }>) {
       state.awaitingSince[action.payload.sessionId] = action.payload.startedAt;
     },
+    clearExpectedRunStart(state, action: PayloadAction<string>) {
+      delete state.awaitingSince[action.payload];
+    },
     receiveRunSnapshot(state, action: PayloadAction<CoworkRunSnapshot>) {
       const next = action.payload;
       if (next.startedAt < (state.awaitingSince[next.sessionId] ?? 0)) return;
@@ -50,5 +53,5 @@ const slice = createSlice({
     });
   },
 });
-export const { receiveRunSnapshot, expectRunStart } = slice.actions;
+export const { receiveRunSnapshot, expectRunStart, clearExpectedRunStart } = slice.actions;
 export default slice.reducer;
