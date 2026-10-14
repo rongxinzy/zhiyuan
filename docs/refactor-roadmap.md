@@ -157,11 +157,15 @@
 - 此 CI 机器系统 5.1 的四次独立 profile / 交叉对照启动约 25.4–27.0 秒，和 Electron 环境标志无相关差异。因此仅系统 5.1 验收普通命令预算调整为 60 秒；生产工具超时及 pwsh 预算不变，取消后的子进程退出仍须 10 秒内验证。该机器性能不代表所有用户机器。
 - 安装包无签名，可能显示系统信誉 / 未验证发布者提示。没有真实账户登录、付费模型调用或用户桌面操作；签名 / 发行认证、用户实机手工验收、完整视觉矩阵与真实 GPU 工作负载仍未完成。
 
-## 16. 安装包原生残留清理与防回归 — 实施中
+## 16. 安装包原生残留清理与防回归 — 已发布，缩减后的安装包全链验收通过
 
 - 用户批准清理实际安装包中确认无运行用途的 P0 残留：原生编译中间文件 / 调试数据库 / 静态库与工程文件、SQLite 测试扩展，以及不属于目标 OS / 架构的预编译文件。开发依赖与原始源码安装不改，目标运行库 / loader / 许可证和完整 Git 运行发行保留。
 - 按依赖包精确设置打包过滤，禁止全局删除 build 或 src；最终 app.asar 与 unpacked 的实际清单必须通过独立门禁，同时验证目标 SQLite / PTY / 平台运行库仍存在。脏 fixture 必须证明门禁拒绝，不能仅检查配置字符串。
-- 旧合格包 c71f42c2 的 exe 为 222,502,610 字节；新包以重新生成的真实 exe / 展开清单比较，不把展开字节当压缩节省。旧合格 artifact 保留；新包仍须完整安装、UI、Magpie、Python、两轮 PowerShell 验收后才交付。
+- [包代码 87debca8](https://github.com/rongxinzy/zhiyuan/commit/87debca850334cd8d9682cee4b00fe9a9921347f) 的[源码 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38598564026)及[Windows 全链 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38598564154)均成功。实际下载的 exe 为 211,794,861 字节，相比旧合格包 c71f42c2 的 222,502,610 字节减少 10,707,749 字节（10.71 MB，约 4.81%）；这是实际压缩后安装器比较。
+- 最终 app.asar 为 95,658,312 字节，unpacked 为 24,262,866 字节，合计 119,921,178 字节；旧包相应合计 176,209,448 字节，实际减少 56,288,270 字节。许可证保留导致部分 ASAR 字节增加，不能把过滤候选的理论体积直接当最终节省。实际清单检查 8838 项，禁止残留为 0，必需目标原生运行模块均存在。
+- 同时修复 electron-builder 平台仅负向 files 规则被归一化为额外默认 matcher、自动补 **/* 导致根目录误入包的问题：平台规则显式保留正向入口；真实归一化 / FileMatcher 回归证明旧配置会纳入源码，新配置拒绝源码、测试缓存和工具链。最终 ASAR / unpacked 另有根目录白名单，Windows x64 两者各 128 MiB 预算；真实脏包、缺件、错误架构、物理游离文件、同路径重打包缓存及超预算反例均有门禁测试。
+- 新包实际 NSIS 安装 exit 0（约 49.1 秒）；安装后 UI、Magpie、Python 执行 42、PowerShell 7.6 / 5.1 的全部专项检查均通过，报告 passed 为 true、errors 为空；SQLite / Durable / PTY / Photon 包内运行检查通过。与第 15 项相同，仍为无签名测试包，首次 Python 使用需要联网；未扩大为所有平台 / 视觉 / 真实账号验收。
+- [缩减后的验收 artifact](https://github.com/rongxinzy/zhiyuan/actions/runs/38598564154/artifacts/11913438818) 为 ZIP，包含同名 exe、构建 manifest、SHA 清单和 evidence；保留至 2026-10-28 16:47:48 UTC。exe SHA-256 实测为 `7a998e6445df97cfd063a94ec408397a40559e73d3eba78ef223b99c2d6a7a33`，与 manifest 一致。包固定对应 87debca8，后续文档提交不改变包来源；旧合格 artifact 保留。
 
 ## 六阶段基线验证与剩余验收
 
