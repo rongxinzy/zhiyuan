@@ -10,7 +10,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { CodingLaneStatus } from '../../../shared/codingAgent';
 import type { CodingConversationTurn } from './codingEventProjection';
 import { CodingConversationTurnStatus } from './constants';
-import { selectCodingTaskOverview } from './codingTaskOverview';
+import { selectCodingTaskOverview } from './selectCodingTaskOverview';
 import { i18nService } from '../../services/i18n';
 
 const statusKeys: Record<CodingLaneStatus, string> = {

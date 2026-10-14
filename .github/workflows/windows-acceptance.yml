@@ -42,7 +42,7 @@ jobs:
         run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts --maxWorkers=1
       - name: Download official Electron for packaging
         run: node node_modules/electron/install.js
-      - name: Clean total source build and runtime gate
+      - name: Clean cross-platform source build and runtime gate
         run: bun run build
       - name: Resolve generated runtime against isolated production dependencies
         shell: pwsh

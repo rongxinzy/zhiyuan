@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { CodingEventKind, CodingLaneStatus, type CodingEvent } from '../../../shared/codingAgent';
 import { CodingTaskOverview } from './CodingTaskOverview';
 import { projectCodingEvents } from './codingEventProjection';
-import { selectCodingTaskOverview } from './codingTaskOverview';
+import { selectCodingTaskOverview } from './selectCodingTaskOverview';
 
 vi.mock('../../services/i18n', () => ({ i18nService: { t: (key: string) => key } }));
 afterEach(cleanup);
