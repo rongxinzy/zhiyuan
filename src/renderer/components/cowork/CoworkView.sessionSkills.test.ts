@@ -16,7 +16,7 @@ test('does not load or forward retired capabilities in start, continuation or re
   }
   expect(source).toContain('coworkService.startSession(');
   expect(source).toContain('coworkService.continueSession(');
-  expect(source).toContain('taskResume.resume(');
+  expect(source).not.toContain('taskResume.resume(');
   expect(source).toContain('permissionMode: config.permissionMode');
   expect(source).toContain('permissionMode: sessionPermissionMode');
 });
