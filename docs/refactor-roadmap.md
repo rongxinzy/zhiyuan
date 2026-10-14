@@ -19,7 +19,7 @@
 - 宿主仅计算触发时间；每次计划执行映射独立原生工作，稳定 requestId 复用同次提交。
 - 保留用户开关、下次执行、单次运行结果；重启不无限补跑；停止执行调用原生 abort。
 - 验证要求：时间触发/时区/停机恢复、同次幂等、取消释放等待、无人值守不自动批准写操作、UI 与打包无旧入口。
-- 当前：IM 前后端与打包已在本地整合；原生计划执行与取消 11 项测试通过；调度与原生共 161 项通过，重启投影 5 项通过，完整双类型检查通过。[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/ff6e9dd370f5293c42122c8ac9278ae2dba8d30e)。
+- 当前：IM 前后端与打包已移除并发布；原生计划执行与取消 11 项测试通过；调度与原生共 161 项通过，重启投影 5 项通过，完整双类型检查通过。[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/ff6e9dd370f5293c42122c8ac9278ae2dba8d30e)。
 
 ## 3. Engram 替换为单项工作 Document — 已发布并通过 CI
 
@@ -47,7 +47,7 @@
 - 已固定上游 f074996d93b87b17ea682c4b5951d52794bb28cb，Go 1.26.8 原样交叉编译六个平台；MIT、源码归档与产物哈希随构建留存。默认不启动，启用须用户明确确认本机 CLI 配置同步。
 - 验证：Linux 真实二进制发现临时 Codex 配置、官方 API 更改模型、停止进程通过；Main/Preload/哈希 Worker 构建及 Worker 实际校验通过；18 项打包测试通过、1 项 Windows 专属测试跳过。其余平台只有交叉编译结果，未冒充实机运行。[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/145102b1fffa9e5aa649a14f2b2a9a34f37ab685)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38518213887)。
 
-## 6. 新 Python Runtime — 已发布，平台验证中
+## 6. 新 Python Runtime — 已发布，Linux / Windows CI 通过
 
 依赖：1、2；不恢复旧 managedPython / Skill 环境。
 
@@ -56,10 +56,20 @@
 - 提供 python.execute / python.install，运行时版本化及环境重建。
 - 实际工作入口已注册 Python 工具，复用原生审批；通过 Main 的惰性服务启动独立 Runner。模型协议使用 python_execute / python_install，避免工具名中的点被 provider 拒绝。
 - Linux 已验证固定 3.12.15、uv 安装 packaging 与 NumPy 原生 wheel、工作区隔离、失败保留原环境、冻结依赖重建、取消和超时清理进程树；实际会话入口回归证明批准前不执行。双类型检查和 lint 通过。
-- Windows Job Object 源码与真实父/孙进程 CI 已加入；Windows ARM64 无当前固定版本资产，明确不支持。macOS 资产已固定，尚未实机验证。Windows Job Object 已在 CI 实际编译，父/孙进程终止与 Unicode 参数 2 项通过；完整 Windows Python / uv / NumPy 集成正在补跑。Linux 独立监督进程修复已通过 Runner 强杀回归，实际桌面构建 Runner 的 5 项集成全部通过。
-- 发布：[原生工具与 Runner](https://github.com/rongxinzy/zhiyuan/commit/c81695767fd50e6d2fe2d80c0970214a9b632663)、[Windows 完整运行测试](https://github.com/rongxinzy/zhiyuan/commit/5d1d03c6675aaf8b83a472565c8a046d67ccee23)。[首轮专项 CI 已通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38519039161)。
+- Windows x64：实际 MSVC 编译 Job Object helper，父/孙进程终止与 Unicode 参数 2 项通过；固定 PBS Python / uv / packaging / NumPy、工作区隔离、回滚重建、超时取消 4 项通过。Windows 跳过 1 项 POSIX 专属强杀测试，该边界由真实 Job Object 父进程死亡测试覆盖。
+- Linux x64：独立监督进程修复后，实际 Runner 的执行、安装、NumPy、超时取消、强杀 Runner 共 5 项集成通过。Windows ARM64 无当前固定 3.12 资产，明确不支持；macOS 与 Linux ARM64 资产已固定，尚未执行运行矩阵。
+- 发布：[原生工具与 Runner](https://github.com/rongxinzy/zhiyuan/commit/c81695767fd50e6d2fe2d80c0970214a9b632663)、[强杀清理修复](https://github.com/rongxinzy/zhiyuan/commit/f3b88fa8249a039a73efacec497f53699bc957e7)、[Windows 路径别名精确验证](https://github.com/rongxinzy/zhiyuan/commit/9abb41682d1949b9296e0daffc1f8d2a5183ddc2)。
 
 第二批远端验证：[IM / Cron / Document / 单主题 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38517317459)。
+
+## 最终代码验证与剩余验收
+
+六阶段代码均已发布。最终代码版本：[9abb416](https://github.com/rongxinzy/zhiyuan/commit/9abb41682d1949b9296e0daffc1f8d2a5183ddc2)。本清单后续更新只记录验收结果，不改变该代码版本的验证证据。
+
+- [全库轻量 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38520513595)：双类型检查、renderer/shared 1831 项、原生执行与档案 53 项、侧车与打包契约 23 项、renderer 构建。侧车 2 项 opt-in / 平台测试跳过；Linux 原样 Go 进程纵切已另行实际执行。
+- [Python Linux / Windows 专项 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38520513522)：使用真实下载校验后的运行时和真实系统进程，不以 mock 代替安装或进程清理。
+- 尚未做：Electron 桌面视觉与完整重启手工验收；最终安装包、签名、公证与发行；macOS / ARM64 Python 运行矩阵；真实 GPU 工作负载；全链路离线验收。
+- 能力边界：进程与依赖隔离不是文件系统 / 网络沙箱；外部工具副作用不保证 exactly-once；不承诺跨工作长期记忆；Magpie 非 Linux 平台目前只有原样交叉编译与哈希校验。
 
 ## 发布与验收规则
 
