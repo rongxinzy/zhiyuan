@@ -68,7 +68,7 @@
 - 保留原生 Durable 执行、工作档案、普通会话产物、Coding 自身事件 / diff / 文件内容。通用工具审批分类和有界内容 Worker 迁为独立模块。
 - 旧用户审计数据原地保留；新增数据库不再创建旧表。本地完整 renderer/shared 1803 项、原生与保留工具等 76 项、Coding 206 项通过；双类型检查、lint、格式和 Main / Preload / 内容 Worker 构建通过。[已发布](https://github.com/rongxinzy/zhiyuan/commit/54e7fbe6255f5185fbe904e8bf4cd49d046cb0fd)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38524922618)。
 
-## 8. Magpie 统一模型设置 — 已完成接线，发布验证中
+## 8. Magpie 统一模型设置 — 已发布并通过 CI
 
 - 用户已确认：Magpie 统一管理 provider、凭据、模型目录与路由；Pi 负责执行、恢复与 Document。
 - 知远只提供企业托管模型与本地 GPU 的薄适配，本地 GPU 模型也注册到同一目录；不修改上游 Go 代码。
@@ -76,7 +76,8 @@
 - 旧 provider 编辑器、独立 OAuth / token 刷新 / 兼容代理 / 目录发现链已移除。普通设置 IPC 白名单不再返回历史凭据；原有磁盘配置不主动清除，也不自动迁移密钥。
 - 首次启用须明确操作，启用偏好持久化，之后实际任务 / Cron 可惰性启动；关闭应用不清除偏好，用户停用才关闭。订阅账户发现独立默认关闭，确认后才允许官方流程读取本机登录；关闭不删除登录文件。真实浏览器账户登录尚未验收。
 - 旧可选 AI 轻重歧义分类退出，保留规则分级。该可选功能此前默认关闭，本次不声称其与规则完全等价，也不增加聊天分类请求。
-- 本地双类型、lint、格式、Main / Preload / catalogWorker 构建通过；真实固定 Go 网关与 Pi Harness 的完整生成、精确模型与重复提交幂等验证通过，未使用真实账号或付费模型。
+- [已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/566a687f6751c56fdcc55fdab4f1887df3b7172e)，[统一模型 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38530377018)。本地 renderer/shared 1397 项、原生执行与模型 101 项通过，后者含 4 项真实固定 Go 二进制纵切；双类型、lint、格式、Main / Preload / catalogWorker 与 renderer 构建通过。
+- 真实 Pi Harness → Magpie → loopback SSE 验证精确模型、生成输出与重复提交仅一次请求；未使用真实账号或付费模型。正常退出先关闭原生工作、保存检查点，再关闭模型网关与企业代理；保留既有 15 秒应用退出上限，10 项关闭 / 重开及接线回归通过。
 
 ## 9. 原生历史与统一检索存储 — 已发布并通过 CI
 

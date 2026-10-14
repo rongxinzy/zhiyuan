@@ -4833,13 +4833,7 @@ if (!gotTheLock) {
     historyService = undefined;
     historyIndexDb?.close();
     historyIndexDb = undefined;
-    await disposeMagpie?.();
-    disposeMagpie = undefined;
     destroyTray();
-
-    await disposeZhiyuanEnterpriseExtension().catch(error => {
-      console.error('[EnterpriseExtension] Failed to dispose enterprise extension:', error);
-    });
 
     // Stop the cron job polling
     try {
@@ -4852,6 +4846,13 @@ if (!gotTheLock) {
     console.log('[Main] Stopping cowork sessions...');
     if (piRuntimeAdapter) await piRuntimeAdapter.close();
     await shutdownPythonRuntime();
+    // Persist native checkpoints before closing the gateway used by active requests.
+    await disposeMagpie?.();
+    disposeMagpie = undefined;
+
+    await disposeZhiyuanEnterpriseExtension().catch(error => {
+      console.error('[EnterpriseExtension] Failed to dispose enterprise extension:', error);
+    });
 
     disposeMagpieModels?.();
     disposeMagpieModels = undefined;

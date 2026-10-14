@@ -64,3 +64,16 @@ it('only restarts the model service after persistent explicit consent and keeps 
     startup.indexOf('getCronJobService().startPolling()'),
   );
 });
+
+it('closes native work before stopping its model gateway during normal shutdown', () => {
+  const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+  expect(source.indexOf('await piRuntimeAdapter.close()')).toBeLessThan(
+    source.indexOf('await disposeMagpie?.()'),
+  );
+  expect(source.indexOf('await piRuntimeAdapter.close()')).toBeLessThan(
+    source.indexOf('await disposeZhiyuanEnterpriseExtension()'),
+  );
+  expect(source.indexOf('await disposeMagpie?.()')).toBeLessThan(
+    source.indexOf('disposeMagpieModels?.()'),
+  );
+});
