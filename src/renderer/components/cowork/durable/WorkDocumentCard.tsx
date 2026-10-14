@@ -18,7 +18,15 @@ const lines = (value: string) =>
     .map(line => line.trim())
     .filter(Boolean);
 
-export function WorkDocumentCard({ sessionId }: { sessionId: string }) {
+export function WorkDocumentCard({
+  sessionId,
+  expanded = false,
+  onSnapshot,
+}: {
+  sessionId: string;
+  expanded?: boolean;
+  onSnapshot?: (document: WorkDocument | null) => void;
+}) {
   const [document, setDocument] = useState<WorkDocument | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editing, setEditing] = useState(false);
@@ -81,6 +89,10 @@ export function WorkDocumentCard({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId, refresh, accept]);
 
+  useEffect(() => {
+    onSnapshot?.(document);
+  }, [document, onSnapshot]);
+
   const save = async () => {
     if (locked.current || !document || !draft || changed) return;
     locked.current = true;
@@ -115,7 +127,11 @@ export function WorkDocumentCard({ sessionId }: { sessionId: string }) {
   };
 
   return (
-    <details className="mt-3 border-t border-border-subtle py-3" key={sessionId}>
+    <details
+      open={expanded || undefined}
+      className="mt-3 border-t border-border-subtle py-3"
+      key={sessionId}
+    >
       <summary className="cursor-pointer text-sm font-medium">
         {i18nService.t('workDocumentTitle')}
       </summary>

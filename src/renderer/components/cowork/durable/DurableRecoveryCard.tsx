@@ -10,10 +10,15 @@ import { useDurableWorkSnapshot } from './useDurableWorkSnapshot';
 interface DurableRecoveryCardProps {
   sessionId: string;
   disabled?: boolean;
+  compact?: boolean;
 }
 
 /** A native continuation is a user action, distinct from accepting a finished result. */
-export function DurableRecoveryCard({ sessionId, disabled = false }: DurableRecoveryCardProps) {
+export function DurableRecoveryCard({
+  sessionId,
+  disabled = false,
+  compact = false,
+}: DurableRecoveryCardProps) {
   const { snapshot, loading, loadFailed, resumeFailed, resuming, refresh, resume } =
     useDurableWorkSnapshot(sessionId);
   const [, setLanguage] = useState(i18nService.getLanguage());
@@ -93,12 +98,14 @@ export function DurableRecoveryCard({ sessionId, disabled = false }: DurableReco
               .t('durableRecoveryPending')
               .replace('{count}', String(snapshot.pendingSubmissionCount))}
           </p>
-          <div className="flex min-w-0 flex-col gap-2">
-            <p className="theme-card-title">{i18nService.t('durableRecoveryLastRecord')}</p>
+          <details open={compact ? undefined : true} className="flex min-w-0 flex-col gap-2">
+            <summary className="theme-card-title cursor-pointer">
+              {i18nService.t('durableRecoveryLastRecord')}
+            </summary>
             <p className="theme-home-caption whitespace-pre-wrap break-words">
               {snapshot.lastCommittedEntry?.text || i18nService.t('durableRecoveryNoRecord')}
             </p>
-          </div>
+          </details>
           <p className="theme-home-caption">{i18nService.t('durableRecoveryEffectsUnknown')}</p>
           {!snapshot.canResume && <p className="theme-home-caption">{i18nService.t(blockedKey)}</p>}
         </>

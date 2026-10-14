@@ -14,7 +14,7 @@ import {
 import { SessionTarget, WakeMode } from '../../../../scheduledTask/constants';
 import type { ScheduledTask } from '../../../../scheduledTask/types';
 import type { CoworkSessionSummary } from '../../../types/cowork';
-import { buildWorkBriefing, type BriefingInput } from './projection';
+import { buildWorkBriefing, pageBriefingItems, type BriefingInput } from './projection';
 import { BriefingTarget } from './constants';
 
 const now = new Date(2026, 9, 13, 12).getTime();
@@ -164,9 +164,13 @@ test('uses local today and prefers background output without counting the sessio
       },
     ],
   });
-  expect(result.progressedCount).toBe(2);
-  expect(result.progressed.map(item => item.id)).toEqual(['activity:run', 'session:manual']);
-  expect(result.progressed[0].description).toBe('Actual output');
+  expect(result.progressedCount).toBe(3);
+  expect(result.progressed.map(item => item.id)).toEqual([
+    'session:running',
+    'activity:run',
+    'session:manual',
+  ]);
+  expect(result.progressed[1].description).toBe('Actual output');
 });
 
 test('suggests inspecting failed work, never treats idle or completed history as resumable', () => {
@@ -181,7 +185,7 @@ test('suggests inspecting failed work, never treats idle or completed history as
   expect(result.next[0]).toMatchObject({ sessionId: 'failed', reasonKey: 'briefingInspectWork' });
 });
 
-test('shows only valid enabled future schedules, nearest first, with bounded lists', () => {
+test('shows valid future schedules and retains all loaded records for bounded paging', () => {
   const result = project({
     schedules: [
       schedule('later', now + 100),
@@ -198,6 +202,46 @@ test('shows only valid enabled future schedules, nearest first, with bounded lis
   });
   expect(result.next.map(item => item.taskId)).toEqual(['next', 'later']);
   const bounded = project({ sessions: Array.from({ length: 8 }, (_, i) => session(String(i))) });
-  expect(bounded.progressed).toHaveLength(5);
+  expect(bounded.progressed).toHaveLength(8);
   expect(bounded.progressedCount).toBe(8);
+  const first = pageBriefingItems(bounded.progressed, 0);
+  const second = pageBriefingItems(bounded.progressed, 1);
+  expect(first.items).toHaveLength(5);
+  expect(second.items).toHaveLength(3);
+  expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(8);
+  expect(second).toMatchObject({ from: 6, to: 8, page: 1, pageCount: 2 });
+  expect(pageBriefingItems(bounded.progressed.slice(0, 2), 1)).toMatchObject({
+    page: 0,
+    from: 1,
+    to: 2,
+  });
+  expect(pageBriefingItems([], 99)).toMatchObject({ page: 0, from: 0, to: 0, items: [] });
+});
+
+test('surfaces running work regardless of start date and provides its real session destination', () => {
+  const result = project({
+    sessions: [
+      session('active', { status: CoworkSessionStatus.Running, updatedAt: now - 86_400_000 }),
+    ],
+    activities: [
+      {
+        id: 'background-active',
+        source: ActivitySource.ScheduledTask,
+        status: ActivityStatus.Running,
+        startedAt: now - 86_400_000,
+        updatedAt: now - 1000,
+        sessionId: 'background-session',
+        replyPreview: 'Partial result',
+      },
+    ],
+  });
+  expect(result.progressed).toHaveLength(2);
+  expect(
+    result.progressed.every(item => item.running && item.reasonKey === 'briefingRunning'),
+  ).toBe(true);
+  expect(result.progressed[0]).toMatchObject({
+    sessionId: 'background-session',
+    description: 'Partial result',
+  });
+  expect(result.next).toEqual([]);
 });

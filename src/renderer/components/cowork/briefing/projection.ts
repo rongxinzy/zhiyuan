@@ -19,6 +19,7 @@ export interface BriefingItem {
   target: (typeof BriefingTarget)[keyof typeof BriefingTarget];
   sessionId?: string;
   taskId?: string;
+  running?: boolean;
 }
 
 export interface BriefingInput {
@@ -58,19 +59,27 @@ export function buildWorkBriefing(input: BriefingInput) {
   // The same background run may also appear in the session list. Prefer its durable output.
   const activitySessionIds = new Set(activities.map(run => run.sessionId).filter(Boolean));
   const progressed: BriefingItem[] = activities
-    .filter(run => run.status === ActivityStatus.Completed && today(run.updatedAt))
+    .filter(
+      run =>
+        (!run.sessionId || !waitingIds.has(run.sessionId)) &&
+        (run.status === ActivityStatus.Running ||
+          (run.status === ActivityStatus.Completed && today(run.updatedAt))),
+    )
     .map(run => ({
       id: `activity:${run.id}`,
       title: run.taskName || run.inputPreview || '',
       description: run.replyPreview,
-      reasonKey: 'briefingBackgroundCompleted',
+      reasonKey:
+        run.status === ActivityStatus.Running ? 'briefingRunning' : 'briefingBackgroundCompleted',
+      running: run.status === ActivityStatus.Running,
+      sessionId: run.sessionId,
       timestamp: run.updatedAt,
       target: BriefingTarget.Activity,
     }));
   for (const session of manualWork) {
     if (
-      session.status !== CoworkSessionStatus.Completed ||
-      !today(session.updatedAt) ||
+      (session.status !== CoworkSessionStatus.Running &&
+        (session.status !== CoworkSessionStatus.Completed || !today(session.updatedAt))) ||
       waitingIds.has(session.id) ||
       activitySessionIds.has(session.id)
     )
@@ -78,13 +87,19 @@ export function buildWorkBriefing(input: BriefingInput) {
     progressed.push({
       id: `session:${session.id}`,
       title: session.title,
-      reasonKey: 'briefingWorkUpdated',
+      reasonKey:
+        session.status === CoworkSessionStatus.Running ? 'briefingRunning' : 'briefingWorkUpdated',
+      running: session.status === CoworkSessionStatus.Running,
       timestamp: session.updatedAt,
       target: BriefingTarget.Session,
       sessionId: session.id,
     });
   }
-  progressed.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+  progressed.sort(
+    (a, b) =>
+      Number(Boolean(b.running)) - Number(Boolean(a.running)) ||
+      (b.timestamp ?? 0) - (a.timestamp ?? 0),
+  );
 
   // Failed work is an invitation to inspect, not a claim that it can be resumed.
   const failedActivitySessions = new Set<string>();
@@ -107,6 +122,7 @@ export function buildWorkBriefing(input: BriefingInput) {
       reasonKey: 'briefingInspectWork',
       timestamp: run.updatedAt,
       target: BriefingTarget.Activity,
+      sessionId: run.sessionId,
     });
   }
   const attention: BriefingItem[] = manualWork
@@ -148,9 +164,9 @@ export function buildWorkBriefing(input: BriefingInput) {
     ...upcoming,
   ];
   return {
-    decisions: decisions.slice(0, BRIEFING_ITEM_LIMIT),
-    progressed: progressed.slice(0, BRIEFING_ITEM_LIMIT),
-    next: next.slice(0, BRIEFING_ITEM_LIMIT),
+    decisions,
+    progressed,
+    next,
     decisionCount: decisions.length,
     progressedCount: progressed.length,
     nextCount: next.length,
@@ -159,5 +175,22 @@ export function buildWorkBriefing(input: BriefingInput) {
       activities.length > 0 ||
       schedules.length > 0 ||
       decisions.length > 0,
+  };
+}
+
+/** Page only the already loaded projection; never fan out into session reads. */
+export function pageBriefingItems(items: readonly BriefingItem[], requestedPage: number) {
+  const pageCount = Math.max(1, Math.ceil(items.length / BRIEFING_ITEM_LIMIT));
+  const page = Math.min(
+    pageCount - 1,
+    Math.max(0, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 0),
+  );
+  const offset = page * BRIEFING_ITEM_LIMIT;
+  return {
+    page,
+    pageCount,
+    items: items.slice(offset, offset + BRIEFING_ITEM_LIMIT),
+    from: items.length ? offset + 1 : 0,
+    to: Math.min(items.length, offset + BRIEFING_ITEM_LIMIT),
   };
 }

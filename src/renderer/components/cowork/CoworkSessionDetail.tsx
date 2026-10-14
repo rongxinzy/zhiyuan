@@ -5,12 +5,23 @@ import {
 } from '@shared/components/ai-elements/conversation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/components/ui/dialog';
 import { Button } from '@shared/components/ui/button';
+import { TabsContent } from '@shared/components/ui/tabs';
+import type { WorkDocument } from '../../../shared/durable/workDocument';
+import {
+  WorkSceneResults,
+  latestSavedReply,
+  type WorkSceneSection,
+} from './scene/WorkSceneResults';
 import { ChevronDown, ChevronUp, Download, Image as ImageIcon } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { CoworkSessionMode, type CoworkPermissionMode } from '../../../shared/cowork/constants';
+import {
+  CoworkSessionMode,
+  CoworkSessionStatus,
+  type CoworkPermissionMode,
+} from '../../../shared/cowork/constants';
 import { resolveArtifactPath } from '../../../shared/cowork/artifactPath';
 
 import { ArtifactDetectionService } from '../../services/artifactDetectionService';
@@ -209,6 +220,35 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   const sessionId = currentSession?.id;
 
+  const initialSection: WorkSceneSection = latestSavedReply(currentSession?.messages ?? [])
+    ? 'results'
+    : 'conversation';
+  const [scene, setScene] = useState<{ sessionId?: string; section: WorkSceneSection }>({
+    sessionId,
+    section: initialSection,
+  });
+  const section =
+    workMode === CoworkSessionMode.Work
+      ? scene.sessionId === sessionId
+        ? scene.section
+        : initialSection
+      : 'conversation';
+  useLayoutEffect(() => {
+    setScene(previous =>
+      previous.sessionId === sessionId ? previous : { sessionId, section: initialSection },
+    );
+  }, [sessionId, initialSection]);
+  const [documentSnapshot, setDocumentSnapshot] = useState<{
+    sessionId?: string;
+    document: WorkDocument | null;
+  }>({ document: null });
+  const onDocumentSnapshot = useCallback(
+    (document: WorkDocument | null) => {
+      setDocumentSnapshot({ sessionId, document });
+    },
+    [sessionId],
+  );
+
   // Rail navigation states
   const [currentRailIndex, setCurrentRailIndex] = useState(-1);
   const currentRailIndexRef = useRef(-1);
@@ -261,6 +301,26 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const previewArtifacts = useSelector((state: RootState) =>
     previewSessionId ? selectSessionArtifacts(state, previewSessionId) : EMPTY_ARTIFACTS,
   );
+
+  const changeSection = useCallback(
+    (next: WorkSceneSection) => {
+      setScene({ sessionId, section: next });
+      if (isArtifactWorkspace) dispatch(closePanel());
+    },
+    [sessionId, isArtifactWorkspace, dispatch],
+  );
+  const openConversation = useCallback(() => {
+    changeSection('conversation');
+    requestAnimationFrame(() => promptInputRef.current?.focus());
+  }, [changeSection]);
+
+  const openDecision = useCallback(() => {
+    changeSection('conversation');
+    requestAnimationFrame(() => {
+      scrollContainerRef.current?.lastElementChild?.scrollIntoView({ block: 'end' });
+      detailRootRef.current?.focus({ preventScroll: true });
+    });
+  }, [changeSection]);
 
   const artifactDetectionServiceRef = useRef<ArtifactDetectionService | null>(null);
   // Whether this session produced anything while we were watching it. Revealing the
@@ -564,6 +624,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const handleOpenShareOptions = (event: Event) => {
       const detail = (event as CustomEvent<CoworkOpenShareOptionsEventDetail>).detail;
       if (!detail?.sessionId || detail.sessionId !== currentSession?.id) return;
+      setScene({ sessionId: currentSession.id, section: 'conversation' });
       setShowExportOptions(true);
     };
 
@@ -1135,6 +1196,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         resolveSessionDisplayTitle(currentSession, i18nService.getLanguage()) ||
         i18nService.t('coworkNewSession')
       }
+      section={workMode === CoworkSessionMode.Work ? section : undefined}
+      onSectionChange={changeSection}
       isSessionSwitching={isSessionSwitching}
       isSidebarCollapsed={isSidebarCollapsed}
       isArtifactPanelOpen={isPanelOpen}
@@ -1217,14 +1280,95 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       )}
 
       {/* Content row: chat + artifact panel */}
-      <div ref={contentRowRef} className="flex-1 flex overflow-hidden">
-        <div
+      {!isSessionSwitching && sessionId && workMode === CoworkSessionMode.Work && (
+        <div className="max-h-64 shrink-0 overflow-y-auto px-4">
+          <DurableRecoveryCard sessionId={sessionId} disabled={isStreaming} compact />
+          {(inlineQuestionPermission || inlinePermission) && section !== 'conversation' && (
+            <div role="status" className="flex flex-wrap items-center gap-2 py-2 text-sm">
+              <span>{i18nService.t('workSceneDecision')}</span>
+              <Button variant="outline" onClick={openDecision}>
+                {i18nService.t('workSceneReviewDecision')}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      <div ref={contentRowRef} className="min-h-0 flex-1 flex overflow-hidden">
+        {workMode === CoworkSessionMode.Work && (
+          <>
+            <TabsContent
+              value="results"
+              keepMounted
+              inert={section !== 'results'}
+              className={
+                section !== 'results' || isArtifactWorkspace
+                  ? 'hidden'
+                  : 'min-w-0 overflow-auto p-4'
+              }
+            >
+              {isSessionSwitching ? (
+                <CoworkConversationLoadingSkeleton />
+              ) : (
+                <div className="mx-auto max-w-6xl">
+                  <WorkSceneResults
+                    key={sessionId}
+                    messages={currentSession.messages}
+                    artifacts={sessionArtifacts}
+                    document={
+                      documentSnapshot.sessionId === sessionId ? documentSnapshot.document : null
+                    }
+                    running={isStreaming}
+                    failed={currentSession.status === CoworkSessionStatus.Error}
+                    onConversation={openConversation}
+                    onDocument={() => changeSection('document')}
+                    onStop={onStop}
+                    onArtifact={artifact =>
+                      void openAvailableArtifact(
+                        artifact,
+                        () => dispatch(selectArtifact(artifact.id)),
+                        currentSession.cwd,
+                        { isCurrent: () => artifactListenerSessionIdRef.current === sessionId },
+                      )
+                    }
+                  />
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent
+              value="document"
+              keepMounted
+              inert={section !== 'document'}
+              className={
+                section !== 'document' || isArtifactWorkspace
+                  ? 'hidden'
+                  : 'min-w-0 overflow-auto p-4'
+              }
+            >
+              {sessionId && (
+                <div className="mx-auto max-w-6xl">
+                  <WorkDocumentCard
+                    key={sessionId}
+                    sessionId={sessionId}
+                    expanded
+                    onSnapshot={onDocumentSnapshot}
+                  />
+                </div>
+              )}
+            </TabsContent>
+          </>
+        )}
+        <TabsContent
+          value="conversation"
+          keepMounted
+          inert={section !== 'conversation'}
           ref={detailRootRef}
           data-page-canvas
           className={`relative min-w-0 flex-1 flex flex-col bg-background h-full ${
-            !isSessionSwitching && isArtifactWorkspace ? 'hidden' : ''
+            section !== 'conversation' || (!isSessionSwitching && isArtifactWorkspace)
+              ? 'hidden'
+              : ''
           }`}
-          aria-hidden={!isSessionSwitching && isArtifactWorkspace}
+          aria-hidden={section !== 'conversation' || (!isSessionSwitching && isArtifactWorkspace)}
         >
           {/* 2026/09/16 lixiang  流式时也用 instant，避免 smooth 跟随时动画叠加造成抖动 */}
           {/* 2026/09/16 lixiang  输入框绝对定位且与对话区平级，对话区 flex:1 会被挡住；用 paddingBottom 把可视区收在输入框上方 */}
@@ -1244,12 +1388,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 >
                   <div ref={scrollContainerRef}>
                     {renderConversationTurns()}
-                    {sessionId && workMode === CoworkSessionMode.Work && (
-                      <div className="mx-auto w-full max-w-6xl px-4">
-                        <DurableRecoveryCard sessionId={sessionId} disabled={isStreaming} />
-                        <WorkDocumentCard key={sessionId} sessionId={sessionId} />
-                      </div>
-                    )}
                     {inlineQuestionPermission && onRespondToInlineQuestion && (
                       <div className="px-3 pt-3">
                         <div className="mx-auto w-full max-w-6xl min-w-[320px] pl-4">
@@ -1566,7 +1704,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </div>
             </div>
           </div>
-        </div>
+        </TabsContent>
         {!isSessionSwitching && shouldRenderArtifactPanel && (
           <ArtifactPanelErrorBoundary onClose={() => dispatch(closePanel())}>
             <React.Suspense

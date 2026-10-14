@@ -81,3 +81,23 @@ test('unmounts the artifact panel after its close transition', () => {
     'setShouldRenderArtifactPanel(false);',
   );
 });
+
+test('work scene keeps conversation and document mounted with native decisions outside the panels', () => {
+  expect(source).toContain('latestSavedReply(currentSession?.messages ?? [])');
+  expect(source).toContain("? 'results'");
+  expect(source).toContain(": 'conversation'");
+  expect(source).toMatch(
+    /value="conversation"\s+keepMounted\s+inert=\{section !== 'conversation'\}/,
+  );
+  expect(source).toMatch(/value="document"\s+keepMounted\s+inert=\{section !== 'document'\}/);
+  expect(source.match(/<WorkDocumentCard/g)).toHaveLength(1);
+  expect(source.match(/<DurableRecoveryCard/g)).toHaveLength(1);
+  expect(source.indexOf('<DurableRecoveryCard')).toBeLessThan(
+    source.indexOf('ref={contentRowRef}'),
+  );
+  expect(source).toContain('onSnapshot={onDocumentSnapshot}');
+  expect(source).toContain('onClick={openDecision}');
+  expect(source).toContain('onConversation={openConversation}');
+  expect(source).toContain('onStop={onStop}');
+  expect(source).toContain("setScene({ sessionId: currentSession.id, section: 'conversation' });");
+});

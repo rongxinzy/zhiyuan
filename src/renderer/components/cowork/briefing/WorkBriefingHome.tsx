@@ -12,7 +12,7 @@ import type { RootState } from '../../../store';
 import { selectTask } from '../../../store/slices/scheduledTaskSlice';
 import MarkdownContent from '../../MarkdownContent';
 import { BRIEFING_CLOCK_INTERVAL_MS, BriefingTarget } from './constants';
-import { buildWorkBriefing, type BriefingItem } from './projection';
+import { buildWorkBriefing, pageBriefingItems, type BriefingItem } from './projection';
 import { useBriefingData } from './useBriefingData';
 
 interface WorkBriefingHomeProps {
@@ -37,6 +37,7 @@ export function WorkBriefingHome({
   const [language, setLanguage] = useState(i18nService.getLanguage());
   const [now, setNow] = useState(Date.now);
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(() => new Set());
+  const [pages, setPages] = useState<Record<string, number>>({});
   const { loading, loadFailed, refresh } = useBriefingData();
   const briefing = useMemo(
     () =>
@@ -49,6 +50,21 @@ export function WorkBriefingHome({
       }),
     [sessions, permissions, activities, schedules, now],
   );
+
+  useEffect(() => {
+    setPages(previous => {
+      const next = {
+        briefingDecisions: pageBriefingItems(briefing.decisions, previous.briefingDecisions ?? 0)
+          .page,
+        briefingProgressed: pageBriefingItems(briefing.progressed, previous.briefingProgressed ?? 0)
+          .page,
+        briefingNext: pageBriefingItems(briefing.next, previous.briefingNext ?? 0).page,
+      };
+      return Object.entries(next).every(([key, value]) => (previous[key] ?? 0) === value)
+        ? previous
+        : next;
+    });
+  }, [briefing]);
 
   useEffect(() => i18nService.subscribe(() => setLanguage(i18nService.getLanguage())), []);
   useEffect(() => {
@@ -130,110 +146,156 @@ export function WorkBriefingHome({
             </Empty>
           ) : (
             <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
-              {sections.map(section => (
-                <section
-                  key={section.title}
-                  aria-labelledby={section.title}
-                  className="flex min-w-0 flex-col gap-4"
-                >
-                  <h2 id={section.title} className="theme-card-title">
-                    {i18nService.t(section.title)} · {section.count}
-                  </h2>
-                  {section.items.length === 0 ? (
-                    <p className="theme-home-caption">
-                      {i18nService.t(
-                        loading
-                          ? 'briefingLoading'
-                          : failed
-                            ? 'briefingUnavailable'
-                            : section.empty,
-                      )}
-                    </p>
-                  ) : (
-                    <ul className="flex min-w-0 flex-col gap-4">
-                      {section.items.map(item => (
-                        <li key={item.id} className="flex min-w-0 flex-col gap-2">
-                          <p
-                            className={cn(
-                              'theme-card-title break-words',
-                              !expandedRecords.has(item.id) && 'line-clamp-2',
-                            )}
-                            title={item.title}
-                          >
-                            {item.title || i18nService.t('briefingUntitled')}
-                          </p>
-                          <p className="theme-home-caption">{i18nService.t(item.reasonKey)}</p>
-                          {(item.description || item.descriptionKey) && (
-                            <div
+              {sections.map(section => {
+                const page = pageBriefingItems(section.items, pages[section.title] ?? 0);
+                return (
+                  <section
+                    key={section.title}
+                    aria-labelledby={section.title}
+                    className="flex min-w-0 flex-col gap-4"
+                  >
+                    <h2 id={section.title} className="theme-card-title">
+                      {i18nService.t(section.title)} · {section.count}
+                    </h2>
+                    {section.items.length === 0 ? (
+                      <p className="theme-home-caption">
+                        {i18nService.t(
+                          loading
+                            ? 'briefingLoading'
+                            : failed
+                              ? 'briefingUnavailable'
+                              : section.empty,
+                        )}
+                      </p>
+                    ) : (
+                      <ul className="flex min-w-0 flex-col gap-4">
+                        {page.items.map(item => (
+                          <li key={item.id} className="flex min-w-0 flex-col gap-2">
+                            <p
                               className={cn(
-                                'theme-home-caption min-w-0 break-words overflow-hidden',
-                                !expandedRecords.has(item.id) && 'line-clamp-3',
+                                'theme-card-title break-words',
+                                !expandedRecords.has(item.id) && 'line-clamp-2',
                               )}
+                              title={item.title}
                             >
-                              <MarkdownContent
-                                content={
-                                  item.descriptionKey
-                                    ? i18nService.t(item.descriptionKey)
-                                    : (item.description ?? '')
-                                }
-                              />
-                            </div>
-                          )}
-                          {item.timestamp !== undefined && (
-                            <time
-                              className="theme-home-status"
-                              dateTime={new Date(item.timestamp).toISOString()}
-                            >
-                              {new Date(item.timestamp).toLocaleString(
-                                language === 'zh' ? 'zh-CN' : 'en-US',
-                                {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                },
-                              )}
-                            </time>
-                          )}
-                          <div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openItem(item)}
-                              aria-expanded={
-                                item.target === BriefingTarget.Activity
-                                  ? expandedRecords.has(item.id)
-                                  : undefined
-                              }
-                              disabled={
-                                item.target === BriefingTarget.Schedule && !onShowScheduledTasks
-                              }
-                            >
-                              {i18nService.t(
-                                item.target === BriefingTarget.Schedule
-                                  ? 'briefingViewSchedule'
-                                  : item.target === BriefingTarget.Activity
+                              {item.title || i18nService.t('briefingUntitled')}
+                            </p>
+                            <p className="theme-home-caption">{i18nService.t(item.reasonKey)}</p>
+                            {(item.description || item.descriptionKey) && (
+                              <div
+                                className={cn(
+                                  'theme-home-caption min-w-0 break-words overflow-hidden',
+                                  !expandedRecords.has(item.id) && 'line-clamp-3',
+                                )}
+                              >
+                                <MarkdownContent
+                                  content={
+                                    item.descriptionKey
+                                      ? i18nService.t(item.descriptionKey)
+                                      : (item.description ?? '')
+                                  }
+                                />
+                              </div>
+                            )}
+                            {item.timestamp !== undefined && (
+                              <time
+                                className="theme-home-status"
+                                dateTime={new Date(item.timestamp).toISOString()}
+                              >
+                                {new Date(item.timestamp).toLocaleString(
+                                  language === 'zh' ? 'zh-CN' : 'en-US',
+                                  {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  },
+                                )}
+                              </time>
+                            )}
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openItem(item)}
+                                aria-expanded={
+                                  item.target === BriefingTarget.Activity
                                     ? expandedRecords.has(item.id)
-                                      ? 'briefingCollapseRecord'
-                                      : 'briefingViewActivity'
-                                    : 'briefingViewWork',
+                                    : undefined
+                                }
+                                disabled={
+                                  item.target === BriefingTarget.Schedule && !onShowScheduledTasks
+                                }
+                              >
+                                {i18nService.t(
+                                  item.target === BriefingTarget.Schedule
+                                    ? 'briefingViewSchedule'
+                                    : item.target === BriefingTarget.Activity
+                                      ? expandedRecords.has(item.id)
+                                        ? 'briefingCollapseRecord'
+                                        : 'briefingViewActivity'
+                                      : 'briefingViewWork',
+                                )}
+                              </Button>
+                              {item.target === BriefingTarget.Activity && item.sessionId && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    openItem({ ...item, target: BriefingTarget.Session })
+                                  }
+                                >
+                                  {i18nService.t('briefingViewWork')}
+                                </Button>
                               )}
-                            </Button>
-                          </div>
-                          <Separator />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {section.count > section.items.length && (
-                    <p className="theme-home-caption">
-                      {i18nService
-                        .t('briefingShowingRecent')
-                        .replace('{count}', String(section.items.length))}
-                    </p>
-                  )}
-                </section>
-              ))}
+                            </div>
+                            <Separator />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {page.pageCount > 1 && (
+                      <nav
+                        aria-label={`${i18nService.t(section.title)} · ${i18nService.t('briefingPages')}`}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <p
+                          role="status"
+                          aria-live="polite"
+                          aria-atomic="true"
+                          className="theme-home-caption w-full"
+                        >
+                          {i18nService
+                            .t('briefingPageRange')
+                            .replace('{from}', String(page.from))
+                            .replace('{to}', String(page.to))
+                            .replace('{count}', String(section.count))}
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={page.page === 0}
+                          onClick={() =>
+                            setPages(previous => ({ ...previous, [section.title]: page.page - 1 }))
+                          }
+                        >
+                          {i18nService.t('briefingPreviousPage')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={page.page + 1 >= page.pageCount}
+                          onClick={() =>
+                            setPages(previous => ({ ...previous, [section.title]: page.page + 1 }))
+                          }
+                        >
+                          {i18nService.t('briefingNextPage')}
+                        </Button>
+                      </nav>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           )}
         </div>

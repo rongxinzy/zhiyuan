@@ -1,3 +1,4 @@
+import { workSceneTranslations } from './workSceneTranslations';
 import { historyTranslations } from './historyTranslations';
 import { configService } from './config';
 import { briefingTranslations } from './briefingTranslations';
@@ -11,6 +12,7 @@ export type LanguageType = 'zh' | 'en';
 // 语言文本映射
 const translations: Record<LanguageType, Record<string, string>> = {
   zh: {
+    ...workSceneTranslations.zh,
     ...historyTranslations.zh,
     ...briefingTranslations.zh,
     ...durableTranslations.zh,
@@ -2591,6 +2593,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     linkSafetyConfirmOpen: '打开链接',
   },
   en: {
+    ...workSceneTranslations.en,
     ...historyTranslations.en,
     ...briefingTranslations.en,
     ...durableTranslations.en,
