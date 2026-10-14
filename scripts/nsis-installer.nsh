@@ -541,7 +541,8 @@ Var /GLOBAL zyDeleteRealAppData
   ; Embed the routing table as a compile-time asset. Building it incrementally
   ; with NSIS FileWrite can split hyphenated component keys on Windows runners.
   File /oname=component-targets.json "${PROJECT_DIR}\scripts\nsis-offline-components.json"
-  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "(Get-FileHash -LiteralPath \"$PLUGINSDIR\7za.exe\" -Algorithm SHA256).Hash.ToLowerInvariant()"'
+  ; Use .NET directly: Windows PowerShell may inherit pwsh's incompatible module path.
+  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "$$hasher = [System.Security.Cryptography.SHA256]::Create(); try { $$stream = [IO.File]::OpenRead(\"$PLUGINSDIR\7za.exe\"); try { [BitConverter]::ToString($$hasher.ComputeHash($$stream)).Replace([string][char]45, [string]::Empty).ToLowerInvariant() } finally { $$stream.Dispose() } } finally { $$hasher.Dispose() }"'
   Pop $0
   Pop $1
   StrCmp $0 "0" 0 OfflineComponentInstallFailed

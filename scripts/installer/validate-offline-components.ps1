@@ -32,6 +32,22 @@ function Get-ElapsedMilliseconds([datetime]$StartedAt) {
   return [int64]((Get-Date) - $StartedAt).TotalMilliseconds
 }
 
+function Get-FileSha256([string]$Path) {
+  # Windows PowerShell can inherit a pwsh module path without Get-FileHash.
+  # Hash the actual file stream without module autoload or whole-file buffering.
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+      return [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $stream.Dispose()
+    }
+  } finally {
+    $hasher.Dispose()
+  }
+}
+
 function Read-ExpectedHash([string]$Path, [string]$Description) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
     throw "Missing ${Description}: ${Path}"
@@ -211,7 +227,7 @@ try {
           $rejected = 'missing-sentinel'
         }
         if (-not $rejected) {
-          $actualHash = (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          $actualHash = Get-FileSha256 $sentinel
           if ($actualHash -ne $component.SentinelHash) { $rejected = 'sentinel-hash' }
         }
         # Deep audit only. The cheap checks above already reject anything an
@@ -274,7 +290,7 @@ try {
       if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
         Stop-WithCode 5 "sentinel-missing:$($component.Key)"
       }
-      $actualSentinelHash = (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash.ToLowerInvariant()
+      $actualSentinelHash = Get-FileSha256 $sentinel
       if ($actualSentinelHash -ne $component.SentinelHash) {
         Stop-WithCode 5 "sentinel-mismatch:$($component.Key)"
       }
@@ -287,7 +303,7 @@ try {
       if (-not (Test-Path -LiteralPath $movedSentinel -PathType Leaf)) {
         Stop-WithCode 4 "extract-failed:$($component.Key):moved-tree-incomplete"
       }
-      $movedSentinelHash = (Get-FileHash -LiteralPath $movedSentinel -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+      $movedSentinelHash = Get-FileSha256 $movedSentinel
       if ($movedSentinelHash -ne $component.SentinelHash) {
         Stop-WithCode 4 "extract-failed:$($component.Key):moved-sentinel-mismatch"
       }

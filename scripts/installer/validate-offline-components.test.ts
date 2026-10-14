@@ -23,7 +23,12 @@ function runValidator(
   mode: 'cache' | 'expand',
   pluginDir: string,
   runtimeRoot: string,
-  options: { deepAudit?: boolean; targetsPath?: string; timingLogPath?: string } = {},
+  options: {
+    deepAudit?: boolean;
+    targetsPath?: string;
+    timingLogPath?: string;
+    blockFileHashCmdlet?: boolean;
+  } = {},
 ) {
   const args = [
     '-NoProfile',
@@ -47,6 +52,21 @@ function runValidator(
     args.push('-DeepAudit');
   }
   if (options.timingLogPath) args.push('-TimingLogPath', options.timingLogPath);
+  if (options.blockFileHashCmdlet) {
+    const fileIndex = args.indexOf('-File');
+    const invocation = args
+      .slice(fileIndex + 1)
+      .map((value, index) =>
+        index > 0 && value.startsWith('-') ? value : `'${value.replaceAll("'", "''")}'`,
+      )
+      .join(' ');
+    args.splice(
+      fileIndex,
+      args.length - fileIndex,
+      '-Command',
+      `function global:Get-FileHash { throw 'Get-FileHash must not be called' }; & ${invocation}; exit $LASTEXITCODE`,
+    );
+  }
   return spawnSync('powershell.exe', args, { encoding: 'utf8' });
 }
 
@@ -173,6 +193,71 @@ test('installer validators enforce the current exact component set and preserve 
 });
 
 describe.skipIf(process.platform !== 'win32')('offline component cache validator', () => {
+  test('hashes actual expanded and cached bytes without the Get-FileHash cmdlet', () => {
+    const fixture = makeFixture();
+    const expanded = runValidator('expand', fixture.pluginDir, fixture.runtimeRoot, {
+      blockFileHashCmdlet: true,
+    });
+    expect(expanded.status, expanded.stderr || expanded.stdout).toBe(0);
+    const cached = runValidator('cache', fixture.pluginDir, fixture.runtimeRoot, {
+      blockFileHashCmdlet: true,
+    });
+    expect(cached.status, cached.stderr || cached.stdout).toBe(0);
+    expect(cached.stdout).toContain('cache-hit:portable-git');
+    const sentinel = path.join(targetDir(fixture, 'portable-git'), 'mingit/usr/bin/bash.exe');
+    fs.appendFileSync(sentinel, 'tampered');
+    const rejected = runValidator('cache', fixture.pluginDir, fixture.runtimeRoot, {
+      blockFileHashCmdlet: true,
+    });
+    expect(rejected.status, rejected.stderr || rejected.stdout).toBe(0);
+    expect(rejected.stdout).not.toContain('cache-hit:');
+    expect(fs.existsSync(path.join(fixture.pluginDir, 'component-portable-git.cache-valid'))).toBe(
+      false,
+    );
+  });
+
+  test('rejects a bad expected sentinel hash without the Get-FileHash cmdlet', () => {
+    const fixture = makeFixture();
+    fs.writeFileSync(
+      path.join(fixture.pluginDir, 'component-portable-git.sentinel-sha256'),
+      '0'.repeat(64),
+    );
+    const rejected = runValidator('expand', fixture.pluginDir, fixture.runtimeRoot, {
+      blockFileHashCmdlet: true,
+    });
+    expect(rejected.status).toBe(5);
+    expect(rejected.stdout).toContain('sentinel-mismatch:portable-git');
+    expect(fs.existsSync(path.join(targetDir(fixture, 'portable-git'), '.complete'))).toBe(false);
+  });
+
+  test('the actual NSIS 7za hash expression matches SHA256 without module autoload', () => {
+    const fixture = makeFixture();
+    const bytes = Buffer.from('NSIS hash fixture\0\xff');
+    fs.writeFileSync(path.join(fixture.pluginDir, '7za.exe'), bytes);
+    const installer = fs.readFileSync(path.join(projectRoot, 'scripts/nsis-installer.nsh'), 'utf8');
+    const line = installer
+      .split('\n')
+      .find(value => value.includes('$$hasher.ComputeHash($$stream)'));
+    const expression = line?.match(/-Command "(.*)"'$/)?.[1];
+    expect(expression).toBeTruthy();
+    const command = expression!
+      .replaceAll('$PLUGINSDIR', fixture.pluginDir)
+      .replaceAll('$$', '$')
+      .replaceAll('\\"', '"');
+    const result = spawnSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `function global:Get-FileHash { throw 'Get-FileHash must not be called' }; ${command}`,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stdout.trim()).toBe(sha256Hex(bytes));
+  });
+
   test('activates the actual single-component manifest after verified expansion', () => {
     const fixture = makeFixture();
     expandFixture(fixture);

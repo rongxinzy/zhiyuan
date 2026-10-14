@@ -65,7 +65,16 @@ describe('NSIS offline resource and local inference flow', () => {
     expect(validatorScript).toContain("$normalized -match '(^|/)\\.\\.(/|$)'");
     expect(validatorScript).toContain("$value -and $value -ne '-'");
     expect(validatorScript).toContain("[ValidateSet('cache', 'expand')]");
-    expect(validatorScript).toContain('Get-FileHash -LiteralPath $sentinel');
+    expect(validatorScript).toContain('Get-FileSha256 $sentinel');
+    expect(validatorScript).toContain('Get-FileSha256 $movedSentinel');
+    expect(validatorScript).toContain('[System.Security.Cryptography.SHA256]::Create()');
+    expect(validatorScript).toContain('$hasher.ComputeHash($stream)');
+    expect(validatorScript).not.toContain('Get-FileHash -LiteralPath');
+    const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
+    expect(installerScript).toContain('$$hasher.ComputeHash($$stream)');
+    expect(installerScript).toContain('$$stream.Dispose()');
+    expect(installerScript).toContain('StrCmp $1 $R7 0 OfflineComponentInstallFailed');
+    expect(installerScript).not.toContain('Get-FileHash -LiteralPath');
     // Full-archive hashing was removed: staged archives come from the
     // installer payload and 7z verifies per-entry CRCs during extraction,
     // while the sentinel hash plus manifest binding pin the content.
