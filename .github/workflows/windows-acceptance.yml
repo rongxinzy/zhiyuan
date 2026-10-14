@@ -45,6 +45,8 @@ jobs:
       - run: bun run apply:patches
       - name: Verify acceptance safeguards
         run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts scripts/magpie-archive.test.ts scripts/installer/validate-offline-components.test.ts scripts/ci/windows-installer-diagnostics.test.ts scripts/setup-mingit.test.ts src/renderer/components/cowork/CoworkView.modelGate.test.tsx --maxWorkers=1
+      - name: Record isolated Windows PowerShell startup evidence
+        run: node scripts/ci/windows-powershell-startup.mjs --output acceptance-diagnostics/powershell-startup
       - name: Download official Electron for packaging
         run: node node_modules/electron/install.js
       - name: Clean cross-platform source build and runtime gate
