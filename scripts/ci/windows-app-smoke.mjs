@@ -91,9 +91,11 @@ export function assertPythonResult(response, manifest) {
   return result;
 }
 
-export function runPythonProbe(
-  { executablePath, runnerPath, jobRunnerPath, root, env, timeoutMs = 600_000 },
-  spawnRunner = fork,
+function runPackagedProbe(
+  { executablePath, runnerPath, root, env, timeoutMs },
+  request,
+  label,
+  spawnRunner,
 ) {
   return new Promise((resolve, reject) => {
     const child = spawnRunner(runnerPath, [], {
@@ -135,23 +137,42 @@ export function runPythonProbe(
         reject(new Error(`Packaged Runner exited (${code ?? signal}): ${diagnostics}`));
       else resolve(response);
     });
-    timeout = setTimeout(() => cancel(new Error('Packaged Python probe timed out')), timeoutMs);
-    child.send(
-      {
-        operation: 'execute',
-        storageRoot: path.join(root, 'python-runtime'),
-        jobRunnerPath,
-        input: {
-          workspace: root,
-          timeoutMs: Math.min(timeoutMs, 600_000),
-          code: 'import json, sys\nprint(json.dumps({"value": 6 * 7, "version": ".".join(map(str, sys.version_info[:3])), "isolated": sys.prefix != sys.base_prefix}))',
-        },
-      },
-      error => {
-        if (error) cancel(error);
-      },
-    );
+    timeout = setTimeout(() => cancel(new Error(`${label} timed out`)), timeoutMs);
+    child.send(request, error => {
+      if (error) cancel(error);
+    });
   });
+}
+
+export function runPythonProbe(options, spawnRunner = fork) {
+  const { root, jobRunnerPath, timeoutMs = 600_000 } = options;
+  return runPackagedProbe(
+    { ...options, timeoutMs },
+    {
+      operation: 'execute',
+      storageRoot: path.join(root, 'python-runtime'),
+      jobRunnerPath,
+      input: {
+        workspace: root,
+        timeoutMs: Math.min(timeoutMs, 600_000),
+        code: 'import json, sys\nprint(json.dumps({"value": 6 * 7, "version": ".".join(map(str, sys.version_info[:3])), "isolated": sys.prefix != sys.base_prefix}))',
+      },
+    },
+    'Packaged Python probe',
+    spawnRunner,
+  );
+}
+
+export function runNativeBashProbe(options, spawnRunner = fork) {
+  return runPackagedProbe(
+    { ...options, timeoutMs: 45_000 },
+    {
+      cwd: options.root,
+      resourcesRoot: options.resourcesRoot,
+    },
+    'Packaged native Bash probe',
+    spawnRunner,
+  );
 }
 
 export function assertMagpieStatus(status, version) {
@@ -230,6 +251,15 @@ export async function runSmoke({ executablePath, outputDirectory }) {
     await page
       .getByTestId('sidebar-new-conversation')
       .waitFor({ state: 'visible', timeout: 120_000 });
+    // Fresh profiles open model settings before any source is configured.
+    // Exercise the normal Close action; never fabricate a configured model.
+    if (await page.locator('[data-active-view="settings"]').isVisible()) {
+      await page.screenshot({
+        path: path.join(outputDirectory, 'installed-initial-settings.png'),
+        fullPage: true,
+      });
+      await page.getByRole('button', { name: /^(Close|关闭)$/ }).click();
+    }
     await page
       .locator('[data-active-view="cowork"]')
       .waitFor({ state: 'visible', timeout: 30_000 });
@@ -309,6 +339,19 @@ export async function runSmoke({ executablePath, outputDirectory }) {
       runnerPath,
       jobRunnerPath,
     };
+    const nativeBash = await runNativeBashProbe({
+      executablePath,
+      root,
+      env,
+      resourcesRoot: resources,
+      runnerPath: path.join(resources, 'app.asar', 'dist-electron', 'native-execution-smoke.js'),
+    });
+    assert.equal(nativeBash.success, true, nativeBash.error);
+    assert.equal(nativeBash.result.passed, true);
+    assert.equal(nativeBash.result.tool, 'bash');
+    assert.equal(nativeBash.result.approvals, 1);
+    assert.ok(nativeBash.result.output.includes('zhiyuan-native-bash-中文'));
+    report.phases.nativeBash = nativeBash.result;
     // Verify the renderer and main remain healthy after real sidecar work.
     const overlay = page.locator('[data-slot="dialog-overlay"]').first();
     if (await overlay.isVisible()) {

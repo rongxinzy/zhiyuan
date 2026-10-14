@@ -70,6 +70,11 @@ await build(createBuildOptions('src/main/magpie/hashWorker.ts'));
 await build(createBuildOptions('src/main/magpie/catalogWorker.ts'));
 await build(createBuildOptions('src/main/history/archiveWorker.ts'));
 await build(
+  createBuildOptions('src/main/libs/agentEngine/durable/nativeExecutionSmoke.ts', {
+    output: { format: 'cjs', entryFileNames: 'native-execution-smoke.js' },
+  }),
+);
+await build(
   createBuildOptions('src/main/pythonRuntime/runner.ts', {
     output: { format: 'cjs', entryFileNames: 'python-runtime-runner.js' },
   }),

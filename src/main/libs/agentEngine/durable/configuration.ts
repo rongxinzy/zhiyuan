@@ -1,3 +1,6 @@
+import { app } from 'electron';
+import { join } from 'node:path';
+import { createNativeExecutionEnv } from './nativeExecutionEnv';
 import { getPythonRuntimeService } from '../../../pythonRuntime/host';
 import { createPythonTools } from './pythonTools';
 import { WorkDocumentDoc, WorkDocumentExtension } from './workDocument';
@@ -17,10 +20,9 @@ export async function buildDurableConfiguration(input: {
   approvals: DurableApprovalBroker;
   approvalMode: () => ToolApprovalMode;
 }): Promise<DurableConfiguration> {
-  const [{ createRegistry, section }, { CodingTools }, { NodeExecutionEnv }] = await Promise.all([
+  const [{ createRegistry, section }, { CodingTools }] = await Promise.all([
     import('@earendil-works/pi-durable'),
     import('@earendil-works/pi-durable/tools'),
-    import('@earendil-works/pi-durable/env/node'),
   ]);
   const registry = createRegistry();
   registry.install(WorkDocumentExtension);
@@ -68,7 +70,14 @@ export async function buildDurableConfiguration(input: {
     });
   }
   const cwd = input.options.workspaceRoot || process.cwd();
-  const environment = new NodeExecutionEnv({ cwd });
+  const environment = await createNativeExecutionEnv(
+    cwd,
+    process.platform === 'win32'
+      ? app.isPackaged
+        ? process.resourcesPath
+        : join(app.getAppPath(), 'resources')
+      : '',
+  );
   return {
     harness: {
       models: input.models,

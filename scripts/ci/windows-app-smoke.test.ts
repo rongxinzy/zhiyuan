@@ -7,6 +7,7 @@ import {
   assertPythonResult,
   assertMagpieStatus,
   runPythonProbe,
+  runNativeBashProbe,
   deadline,
 } from './windows-app-smoke.mjs';
 
@@ -192,6 +193,8 @@ test('installed smoke has no disabled sandbox, security exclusions or success ar
   );
   expect(source).toContain("getByTestId('sidebar-new-conversation')");
   expect(source).toContain("'installed-ui.png'");
+  expect(source).toContain("'installed-initial-settings.png'");
+  expect(source).toContain("getByRole('button', { name: /^(Close|关闭)$/ }).click()");
   expect(source).toContain("'app.asar', 'dist-electron', 'python-runtime-runner.js'");
   expect(source.indexOf('report.passed = true')).toBeGreaterThan(
     source.indexOf('assertPythonResult(response, manifest)'),
@@ -205,4 +208,25 @@ test('clean Runner exit without an IPC result cannot pass the Python phase', asy
   const pending = runPythonProbe(f.options, f.spawn);
   f.child.emit('exit', 0, null);
   await expect(pending).rejects.toThrow('Runner exited');
+});
+
+test('native Bash smoke uses the installed entry and product factory request, never an absolute shell probe', async () => {
+  const f = runnerFixture();
+  const runnerPath = 'C:\\installed\\resources\\app.asar\\dist-electron\\native-execution-smoke.js';
+  const pending = runNativeBashProbe(
+    { ...f.options, runnerPath, resourcesRoot: 'C:\\installed\\resources' },
+    f.spawn,
+  );
+  expect(f.spawn).toHaveBeenCalledWith(
+    runnerPath,
+    [],
+    expect.objectContaining({ execPath: f.options.executablePath }),
+  );
+  expect(f.child.send.mock.calls[0][0]).toEqual({
+    cwd: f.options.root,
+    resourcesRoot: 'C:\\installed\\resources',
+  });
+  f.child.emit('message', { success: true, result: { passed: true } });
+  f.child.emit('exit', 0, null);
+  await expect(pending).resolves.toMatchObject({ success: true });
 });

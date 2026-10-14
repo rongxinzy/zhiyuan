@@ -198,6 +198,22 @@ export default defineConfig(async ({ command }) => {
                 onstart() {},
               },
               {
+                // Accountless acceptance of the same native execution environment as the app.
+                entry: 'src/main/libs/agentEngine/durable/nativeExecutionSmoke.ts',
+                vite: {
+                  build: {
+                    watch: command === 'serve' ? {} : null,
+                    sourcemap: electronSourceMap,
+                    outDir: 'dist-electron',
+                    minify: false,
+                    rolldownOptions: {
+                      output: { format: 'cjs', entryFileNames: 'native-execution-smoke.js' },
+                    },
+                  },
+                },
+                onstart() {},
+              },
+              {
                 entry: 'src/main/pythonRuntime/runner.ts',
                 vite: {
                   build: {

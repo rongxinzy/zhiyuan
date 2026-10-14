@@ -21,6 +21,7 @@ const BUNDLES = [
   'hashWorker.js',
   'appUpdateHashWorker.js',
   'python-runtime-runner.js',
+  'native-execution-smoke.js',
 ];
 const ADAPTERS = [
   ['@agentclientprotocol/codex-acp', 'codex-acp'],

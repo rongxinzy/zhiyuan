@@ -12,6 +12,7 @@ on:
       - 'scripts/build-magpie-runtime.cjs'
       - 'scripts/installer-ui/**'
       - 'scripts/installer/**'
+      - 'src/main/libs/agentEngine/durable/nativeExecution*'
       - 'scripts/ci/windows-installer-*'
 
 permissions:
