@@ -1,4 +1,4 @@
-export interface WorkbenchMessageArtifactBlock {
+export interface MessageArtifactBlock {
   index: number;
   explicit: boolean;
   language: string;
@@ -6,11 +6,9 @@ export interface WorkbenchMessageArtifactBlock {
   content: string;
 }
 
-export function discoverWorkbenchMessageArtifactBlocks(
-  messageContent: string,
-): WorkbenchMessageArtifactBlock[] {
+export function discoverMessageArtifactBlocks(messageContent: string): MessageArtifactBlock[] {
   if (!messageContent) return [];
-  const blocks: WorkbenchMessageArtifactBlock[] = [];
+  const blocks: MessageArtifactBlock[] = [];
   const pattern = /```(artifact:)?([^\s`]+)(?:\s+title="([^"]*)")?\s*\n([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(messageContent)) !== null) {

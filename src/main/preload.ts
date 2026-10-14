@@ -55,11 +55,6 @@ import type {
 import { TriageIpcChannel } from '../shared/triage';
 import { TodoIpc } from '../shared/todo';
 import { WorkspaceIpc } from '../shared/workspace';
-import {
-  WorkbenchTaskIpc,
-  type WorkbenchApprovalResponseInput,
-  type WorkbenchTaskChangedEvent,
-} from '../shared/workbenchTask';
 import { CodingAgentIpc } from '../shared/codingAgent';
 import { RuntimeNoticeIpc } from '../shared/ipc/channels';
 
@@ -544,19 +539,6 @@ contextBridge.exposeInMainWorld('electron', {
         agentId?: string;
       }) => void,
     ) => onPush(CoworkStreamIpc.SessionsChanged, callback),
-  },
-
-  workbenchTask: {
-    getCurrent: (sessionId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.GetCurrent, sessionId),
-    getDetail: (taskId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.GetDetail, taskId),
-    listForSession: (sessionId: string) =>
-      ipcRenderer.invoke(WorkbenchTaskIpc.ListForSession, sessionId),
-    exportAudit: (taskId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.ExportAudit, taskId),
-    accept: (taskId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.Accept, taskId),
-    respondToApproval: (input: WorkbenchApprovalResponseInput) =>
-      ipcRenderer.invoke(WorkbenchTaskIpc.RespondToApproval, input),
-    onChanged: (callback: (event: WorkbenchTaskChangedEvent) => void) =>
-      onPush(WorkbenchTaskIpc.Changed, callback),
   },
 
   todo: {

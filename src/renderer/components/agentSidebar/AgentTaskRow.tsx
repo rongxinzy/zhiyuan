@@ -143,7 +143,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
           <OverflowingSessionTitle title={task.title} />
           {hasPendingPermission && (
             <span className="theme-sidebar-approval shrink-0">
-              {i18nService.t('workbenchTaskStatusWaitingApproval')}
+              {i18nService.t('coworkStatusWaitingApproval')}
             </span>
           )}
         </Button>
@@ -162,7 +162,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
           {hasPendingPermission && (
             <span
               className="absolute inset-y-0 right-0 inline-flex size-6 items-center justify-center transition-opacity group-hover:pointer-events-none group-hover:opacity-0"
-              title={i18nService.t('workbenchTaskStatusWaitingApproval')}
+              title={i18nService.t('coworkStatusWaitingApproval')}
             >
               <Loader className="size-3 animate-spin text-success [animation-duration:1.8s]" />
             </span>

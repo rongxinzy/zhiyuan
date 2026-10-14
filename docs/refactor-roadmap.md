@@ -62,9 +62,27 @@
 
 第二批远端验证：[IM / Cron / Document / 单主题 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38517317459)。
 
-## 最终代码验证与剩余验收
+## 7. 移除重复 Workbench 审计 — 已实现，验证中
 
-六阶段代码均已发布。最终代码版本：[9abb416](https://github.com/rongxinzy/zhiyuan/commit/9abb41682d1949b9296e0daffc1f8d2a5183ddc2)。本清单后续更新只记录验收结果，不改变该代码版本的验证证据。
+- 删除另一套任务 / 运行 / 审批记录 / 交付验收引擎、SQLite 新表初始化、IPC、轨迹审计与验收界面，以及 Coding 的重复运行绑定。
+- 保留原生 Durable 执行、工作档案、普通会话产物、Coding 自身事件 / diff / 文件内容。通用工具审批分类和有界内容 Worker 迁为独立模块。
+- 旧用户审计数据原地保留；新增数据库不再创建旧表。本地完整 renderer/shared 1803 项、原生与保留工具等 76 项、Coding 206 项通过；双类型检查、lint、格式和 Main / Preload / 内容 Worker 构建通过。远端 CI 待本批发布后核验。
+
+## 8. Magpie 统一模型设置 — 实施中
+
+- 用户已确认：Magpie 统一管理 provider、凭据、模型目录与路由；Pi 负责执行、恢复与 Document。
+- 知远只提供企业托管模型与本地 GPU 的薄适配，本地 GPU 模型也注册到同一目录；不修改上游 Go 代码。
+- 待交付：原生 provider 薄适配、统一模型设置 UI、企业 / 本地注册与错误处理回归。
+
+## 9. 原生历史与统一检索存储 — 实施中
+
+- 用户已确认：Pi 原生历史与 Coding 自身事件各自保存真实记录，提供统一目录、cursor 分页、可重建 FTS5 检索、附件管理及一致备份恢复。
+- 不再重建另一套任务执行真相，不主动清除用户历史数据。
+- 待交付：跨来源读取 / 检索 / 备份后端、实际界面接线与恢复一致性验证。
+
+## 六阶段基线验证与剩余验收
+
+六阶段代码均已发布。六阶段代码版本：[9abb416](https://github.com/rongxinzy/zhiyuan/commit/9abb41682d1949b9296e0daffc1f8d2a5183ddc2)。后续用户追加需求单独列项；上述版本的验证证据仍保留。
 
 - [全库轻量 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38520513595)：双类型检查、renderer/shared 1831 项、原生执行与档案 53 项、侧车与打包契约 23 项、renderer 构建。侧车 2 项 opt-in / 平台测试跳过；Linux 原样 Go 进程纵切已另行实际执行。
 - [Python Linux / Windows 专项 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38520513522)：使用真实下载校验后的运行时和真实系统进程，不以 mock 代替安装或进程清理。

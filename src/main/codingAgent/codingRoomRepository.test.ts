@@ -411,3 +411,37 @@ test('recovers the lanes and missions that were waiting for an answer', () => {
   expect(repository.getLaneById(lane.id)?.status).toBe(CodingLaneStatus.Idle);
   expect(repository.listMissions(room.id)[0]?.status).toBe(CodingMissionStatus.NeedsReview);
 });
+
+test('assignments use their own events and leave legacy audit columns untouched', () => {
+  db = new Database(':memory:');
+  initializeCodingAgentSchema(db);
+  const columns = db.prepare('PRAGMA table_info(coding_assignments)').all() as { name: string }[];
+  expect(columns.map(column => column.name)).not.toContain('workbench_task_id');
+  expect(columns.map(column => column.name)).not.toContain('workbench_run_id');
+  // Existing installations can still have these nullable columns. No DROP or migration is needed.
+  db.exec(
+    'ALTER TABLE coding_assignments ADD COLUMN workbench_task_id TEXT; ALTER TABLE coding_assignments ADD COLUMN workbench_run_id TEXT;',
+  );
+  const repository = new CodingRoomRepository(db);
+  const room = repository.getOrCreateRoom('/fixture');
+  const mission = repository.createMission(room.id, 'Independent coding task');
+  const lane = repository.createLane(mission.id, 'builtin-zhiyuan-coding', '/fixture');
+  const assignment = repository.createAssignment({
+    missionId: mission.id,
+    laneId: lane.id,
+    title: 'Code',
+    instructions: 'Keep content',
+  });
+  db.prepare('UPDATE coding_assignments SET workbench_run_id = ? WHERE id = ?').run(
+    'historical-run',
+    assignment.id,
+  );
+  repository.appendEvent(lane.id, CodingEventKind.Message, {
+    content: 'Normal conversation remains',
+  });
+  expect(repository.listAssignments([mission.id])[0]).not.toHaveProperty('workbenchRunId');
+  expect(repository.listEvents([lane.id])[0].payload.content).toBe('Normal conversation remains');
+  expect(
+    db.prepare('SELECT workbench_run_id FROM coding_assignments WHERE id = ?').get(assignment.id),
+  ).toEqual({ workbench_run_id: 'historical-run' });
+});

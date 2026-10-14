@@ -59,8 +59,6 @@ const createMockRepository = () => ({
     title: 'Test',
     instructions: 'Test',
     status: 'planned',
-    workbenchTaskId: null,
-    workbenchRunId: null,
     workflowStage: CodingWorkflowStage.Implementation,
     previousAssignmentId: null,
     createdAt: Date.now(),

@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { CoworkRunPolicy } from '../shared/cowork/runState';
 import { CoworkContentBuffer } from '../renderer/services/coworkContentBuffer';
-import { TextWorkerKind, runTextWorkerOperation } from './workbenchTask/textWorkerOperations';
+import { TextWorkerKind, runTextWorkerOperation } from './contentWorker/textWorkerOperations';
 import { CoworkContentProjection } from './coworkContentProjection';
 
 test('keeps growing past the old IPC cap with bounded frames and exact final metadata', async () => {

@@ -1,39 +1,23 @@
 import { expect, test } from 'vitest';
 
-import { WorkbenchApprovalRiskLevel } from '../../shared/workbenchTask';
-import {
-  classifyWorkbenchToolRisk,
-  createToolIdempotencyKey,
-  isSafeShellCommand,
-} from './riskClassifier';
+import { ToolRiskLevel } from '../../shared/cowork/approval';
+import { classifyToolRisk, isSafeShellCommand } from './riskClassifier';
 
 test('classifies known reads, reversible writes, and destructive shell commands', () => {
-  expect(classifyWorkbenchToolRisk('read', { path: 'README.md' })).toBe(
-    WorkbenchApprovalRiskLevel.ReadOnly,
+  expect(classifyToolRisk('read', { path: 'README.md' })).toBe(ToolRiskLevel.ReadOnly);
+  expect(classifyToolRisk('write', { path: 'out.txt' })).toBe(ToolRiskLevel.Reversible);
+  expect(classifyToolRisk('bash', { command: 'git reset --hard HEAD' })).toBe(
+    ToolRiskLevel.Irreversible,
   );
-  expect(classifyWorkbenchToolRisk('write', { path: 'out.txt' })).toBe(
-    WorkbenchApprovalRiskLevel.Reversible,
-  );
-  expect(classifyWorkbenchToolRisk('bash', { command: 'git reset --hard HEAD' })).toBe(
-    WorkbenchApprovalRiskLevel.Irreversible,
-  );
-  expect(classifyWorkbenchToolRisk('mcp_proxy', {})).toBe(WorkbenchApprovalRiskLevel.Unknown);
-  expect(classifyWorkbenchToolRisk('subagent', {})).toBe(WorkbenchApprovalRiskLevel.Unknown);
-  expect(classifyWorkbenchToolRisk('skill_runtime_capabilities', {})).toBe(
-    WorkbenchApprovalRiskLevel.ReadOnly,
-  );
+  expect(classifyToolRisk('mcp_proxy', {})).toBe(ToolRiskLevel.Unknown);
+  expect(classifyToolRisk('subagent', {})).toBe(ToolRiskLevel.Unknown);
+  expect(classifyToolRisk('skill_runtime_capabilities', {})).toBe(ToolRiskLevel.Unknown);
 });
 
-test('idempotency hashing is stable across object key order', () => {
-  expect(createToolIdempotencyKey('run', 'call', { a: 1, b: 2 })).toBe(
-    createToolIdempotencyKey('run', 'call', { b: 2, a: 1 }),
+test('removed control tools do not bypass user approval', () => {
+  expect(classifyToolRisk('declare_artifact', { filePath: 'D:/workspace/report.md' })).toBe(
+    ToolRiskLevel.Unknown,
   );
-});
-
-test('artifact declarations bypass user approval', () => {
-  expect(
-    classifyWorkbenchToolRisk('declare_artifact', { filePath: 'D:/workspace/report.md' }),
-  ).toBe(WorkbenchApprovalRiskLevel.ReadOnly);
 });
 
 test('only explicitly read-only shell commands qualify for allow-all auto approval', () => {
@@ -68,13 +52,9 @@ test('read-only classification cannot be used to write files', () => {
 });
 
 test('read-only shell commands classify as ReadOnly without approval', () => {
-  expect(classifyWorkbenchToolRisk('bash', { command: 'ls -lt | head -20' })).toBe(
-    WorkbenchApprovalRiskLevel.ReadOnly,
-  );
-  expect(classifyWorkbenchToolRisk('bash', { command: 'python move_files.py' })).toBe(
-    WorkbenchApprovalRiskLevel.Unknown,
-  );
-  expect(classifyWorkbenchToolRisk('bash', { command: 'git push origin main' })).toBe(
-    WorkbenchApprovalRiskLevel.Irreversible,
+  expect(classifyToolRisk('bash', { command: 'ls -lt | head -20' })).toBe(ToolRiskLevel.ReadOnly);
+  expect(classifyToolRisk('bash', { command: 'python move_files.py' })).toBe(ToolRiskLevel.Unknown);
+  expect(classifyToolRisk('bash', { command: 'git push origin main' })).toBe(
+    ToolRiskLevel.Irreversible,
   );
 });

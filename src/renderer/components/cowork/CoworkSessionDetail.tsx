@@ -104,7 +104,6 @@ import {
   useCoworkComposerInset,
 } from './hooks/useCoworkComposerInset';
 import AskUserQuestionCard from './AskUserQuestionCard';
-import { WorkbenchTaskAcceptanceCard } from './WorkbenchTaskAcceptanceCard';
 import { DurableRecoveryCard } from './durable/DurableRecoveryCard';
 import { WorkDocumentCard } from './durable/WorkDocumentCard';
 import CoworkPermissionModal from './CoworkPermissionModal';
@@ -1111,12 +1110,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 pendingPermission={isLastTurn ? inlinePermission : null}
                 onRespondToPermission={isLastTurn ? onRespondToInlinePermission : undefined}
                 expandToolResults={isExportingImage}
-                // 2026/09/20 lixiang  验收卡放在末轮复制按钮上方（issue #805）
-                beforeCopySlot={
-                  isLastTurn && sessionId ? (
-                    <WorkbenchTaskAcceptanceCard sessionId={sessionId} />
-                  ) : null
-                }
               />
             </div>
           )}
@@ -1142,7 +1135,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         resolveSessionDisplayTitle(currentSession, i18nService.getLanguage()) ||
         i18nService.t('coworkNewSession')
       }
-      sessionId={sessionId}
       isSessionSwitching={isSessionSwitching}
       isSidebarCollapsed={isSidebarCollapsed}
       isArtifactPanelOpen={isPanelOpen}

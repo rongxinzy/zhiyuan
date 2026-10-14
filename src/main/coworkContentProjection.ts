@@ -1,11 +1,11 @@
 import { getCoworkStreamMetadata } from './coworkStreamMetadata';
 import { CoworkRunPolicy, type CoworkContentPatch } from '../shared/cowork/runState';
-import { transformCoworkTextAsync } from './workbenchTask/artifactWorkerPool';
+import { transformCoworkTextAsync } from './contentWorker/contentWorkerPool';
 import {
   TextWorkerKind,
   type TextWorkerInput,
   type TextWorkerOutput,
-} from './workbenchTask/textWorkerOperations';
+} from './contentWorker/textWorkerOperations';
 
 type Entry = {
   revision: number;

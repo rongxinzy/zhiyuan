@@ -1,15 +1,6 @@
-import { createHash } from 'crypto';
+import { ToolRiskLevel } from '../../shared/cowork/approval';
 
-import { WorkbenchApprovalRiskLevel } from '../../shared/workbenchTask';
-
-const readOnlyTools = new Set(['read', 'grep', 'find', 'ls', 'skill_runtime_capabilities']);
-const internalControlTools = new Set([
-  'askuserquestion',
-  'agent_loop',
-  'workflow_state',
-  'research_state',
-  'declare_artifact',
-]);
+const readOnlyTools = new Set(['read', 'grep', 'find', 'ls']);
 const reversibleTools = new Set(['write', 'edit']);
 const irreversibleShellPattern =
   /(?:\brm\b|\brmdir\b|\bdel\b|\bremove-item\b|\bformat\b|\bshutdown\b|\bgit\s+push\b|\bgit\s+reset\s+--hard\b|\bdrop\s+(?:table|database)\b)/i;
@@ -51,35 +42,20 @@ const READ_ONLY_SHELL_SEGMENTS: Record<string, RegExp> = {
   ...READ_ONLY_SHELL_FILTERS,
 };
 
-const stableValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, child]) => [key, stableValue(child)]),
-    );
-  }
-  return value;
-};
-
-export function classifyWorkbenchToolRisk(
-  toolName: string,
-  input: Record<string, unknown>,
-): WorkbenchApprovalRiskLevel {
+export function classifyToolRisk(toolName: string, input: Record<string, unknown>): ToolRiskLevel {
   const normalizedName = toolName.trim().toLowerCase();
-  if (readOnlyTools.has(normalizedName) || internalControlTools.has(normalizedName)) {
-    return WorkbenchApprovalRiskLevel.ReadOnly;
+  if (readOnlyTools.has(normalizedName)) {
+    return ToolRiskLevel.ReadOnly;
   }
-  if (reversibleTools.has(normalizedName)) return WorkbenchApprovalRiskLevel.Reversible;
+  if (reversibleTools.has(normalizedName)) return ToolRiskLevel.Reversible;
   if (normalizedName === 'bash' || normalizedName === 'shell') {
     const command = typeof input.command === 'string' ? input.command : JSON.stringify(input);
-    if (isSafeShellCommand(command)) return WorkbenchApprovalRiskLevel.ReadOnly;
+    if (isSafeShellCommand(command)) return ToolRiskLevel.ReadOnly;
     return irreversibleShellPattern.test(command)
-      ? WorkbenchApprovalRiskLevel.Irreversible
-      : WorkbenchApprovalRiskLevel.Unknown;
+      ? ToolRiskLevel.Irreversible
+      : ToolRiskLevel.Unknown;
   }
-  return WorkbenchApprovalRiskLevel.Unknown;
+  return ToolRiskLevel.Unknown;
 }
 
 export function isSafeShellCommand(command: string): boolean {
@@ -96,15 +72,4 @@ function isReadOnlyShellSegment(segment: string, allowed: Record<string, RegExp>
   const name = segment.split(/\s+/)[0];
   const pattern = allowed[name];
   return pattern !== undefined && pattern.test(segment);
-}
-
-export function createToolIdempotencyKey(
-  runId: string,
-  toolCallId: string,
-  input: Record<string, unknown>,
-): string {
-  const hash = createHash('sha256')
-    .update(JSON.stringify(stableValue(input)))
-    .digest('hex');
-  return `${runId}:${toolCallId}:${hash}`;
 }

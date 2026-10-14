@@ -5,7 +5,7 @@ import type { CoworkMessage } from '../../coworkStore';
 import type { CoworkPendingMessage } from '../../../shared/cowork/pendingMessageQueue';
 import type { CoworkQueueDelivery } from '../../../shared/cowork/pendingMessageQueue';
 import type { CoworkSessionInterruption } from '../../../shared/cowork/interruption';
-import type { WorkbenchApprovalMode } from '../../../shared/workbenchTask';
+import type { ToolApprovalMode } from '../../../shared/cowork/approval';
 import type { PiPlanEntry } from './piPlanTool';
 import type { PiRunProgressEvent } from './piRunState';
 
@@ -113,7 +113,7 @@ export type PiStartOptions = {
    */
   attachedSkillIds?: string[];
   systemPrompt?: string;
-  approvalMode?: WorkbenchApprovalMode;
+  approvalMode?: ToolApprovalMode;
   /** Enables the built-in coding-only free-text elicitation tool. */
   codingElicitation?: boolean;
   /** No foreground user is available to answer questions during this run. */
@@ -179,7 +179,7 @@ export type PiContinueOptions = {
   /** Forwarded to startSession when the runtime has to recreate the session. */
   thinkingLevel?: PiThinkingLevel;
   /** Forwarded to startSession when the runtime has to recreate the session. */
-  approvalMode?: WorkbenchApprovalMode;
+  approvalMode?: ToolApprovalMode;
   /** Forwarded when a dormant session is recreated. */
   codingElicitation?: boolean;
   /** No foreground user is available to answer questions during this run. */

@@ -5,11 +5,11 @@ import { expect, test, vi } from 'vitest';
 import { CoworkSessionIpc, CoworkStreamIpc } from '../shared/ipc/channels';
 import type { PiRuntimeAdapter } from './libs/agentEngine/piRuntimeAdapter';
 import { bindCoworkRunBridge } from './coworkRunBridge';
-import { runTextWorkerOperation, type TextWorkerInput } from './workbenchTask/textWorkerOperations';
+import { runTextWorkerOperation, type TextWorkerInput } from './contentWorker/textWorkerOperations';
 import { CoworkContentBuffer } from '../renderer/services/coworkContentBuffer';
 import type { CoworkContentPatch } from '../shared/cowork/runState';
 
-vi.mock('./workbenchTask/artifactWorkerPool', () => ({
+vi.mock('./contentWorker/contentWorkerPool', () => ({
   transformCoworkTextAsync: async (input: TextWorkerInput) => runTextWorkerOperation(input),
 }));
 

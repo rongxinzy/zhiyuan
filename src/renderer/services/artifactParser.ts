@@ -1,6 +1,6 @@
 import { ArtifactRole, type Artifact, type ArtifactType } from '../types/artifact';
 import type { CoworkMessage } from '../types/cowork';
-import { discoverWorkbenchMessageArtifactBlocks } from '../../shared/workbenchTask';
+import { discoverMessageArtifactBlocks } from '../../shared/cowork/artifactDiscovery';
 import {
   ArtifactTypeByLanguage,
   getInlineArtifactRole,
@@ -60,7 +60,7 @@ export function parseCodeBlockArtifacts(
 
   const artifacts: Artifact[] = [];
 
-  for (const block of discoverWorkbenchMessageArtifactBlocks(messageContent)) {
+  for (const block of discoverMessageArtifactBlocks(messageContent)) {
     const isExplicitArtifact = block.explicit;
     const language = block.language;
     const explicitTitle = block.title;

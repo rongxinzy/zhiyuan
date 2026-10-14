@@ -20,7 +20,6 @@ import {
   openSqliteDatabaseWithRecovery,
   SqliteBackupManager,
 } from './libs/sqliteBackup/sqliteBackupManager';
-import { initializeWorkbenchTaskSchema } from './workbenchTask/schema';
 import { initializeCodingAgentSchema } from './codingAgent/schema';
 import { initializeTodoSchema } from './todo/schema';
 import { normalizeWorkspacePath, workspaceIdForPath, workspaceNameForPath } from './workspaceUtils';
@@ -197,7 +196,6 @@ export class SqliteStore {
       );
     `);
 
-    initializeWorkbenchTaskSchema(this.db);
     initializeCodingAgentSchema(this.db);
     initializeTodoSchema(this.db);
 

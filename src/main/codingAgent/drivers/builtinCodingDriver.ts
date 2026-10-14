@@ -9,7 +9,7 @@ import {
   type CodingPermissionResponse,
 } from '../../../shared/codingAgent';
 import { t } from '../../i18n';
-import { WorkbenchApprovalMode } from '../../../shared/workbenchTask';
+import { ToolApprovalMode } from '../../../shared/cowork/approval';
 import { PiThinkingLevel } from '../../libs/agentEngine/piRuntimeTypes';
 import type {
   CodingAgentAuthRequest,
@@ -35,7 +35,7 @@ export type BuiltinCodingConfigId =
 export interface BuiltinCodingSessionStartOptions {
   modelOverride?: string | null;
   thinkingLevel?: string;
-  permissionMode?: WorkbenchApprovalMode;
+  permissionMode?: ToolApprovalMode;
   /** Experts the lane runs with; an empty list clears the current selection. */
   expertIds?: string[];
 }
@@ -58,7 +58,7 @@ export interface BuiltinCodingRuntime {
     patch: { model?: string | null; thinkingLevel?: string | null },
   ): Promise<void>;
   /** Applies approval-mode changes to a live Pi session. */
-  setApprovalMode?(sessionId: string, mode: WorkbenchApprovalMode): void;
+  setApprovalMode?(sessionId: string, mode: ToolApprovalMode): void;
 }
 
 const BUILTIN_CAPABILITIES: CodingAgentCapabilities = {
@@ -83,8 +83,8 @@ const THINKING_LEVEL_OPTIONS = Object.values(PiThinkingLevel).map(level => ({
 const isValidThinkingLevel = (value: string): value is PiThinkingLevel =>
   (Object.values(PiThinkingLevel) as string[]).includes(value);
 
-const isValidApprovalMode = (value: string): value is WorkbenchApprovalMode =>
-  (Object.values(WorkbenchApprovalMode) as string[]).includes(value);
+const isValidApprovalMode = (value: string): value is ToolApprovalMode =>
+  (Object.values(ToolApprovalMode) as string[]).includes(value);
 
 /**
  * `/expert` carries the selected id into the runtime options. An
@@ -188,7 +188,7 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
     }
     if (configId === BuiltinCodingConfigId.PermissionMode) {
       // The select-option whitelist above already validated the value.
-      this.runtime.setApprovalMode?.(sessionId, value as WorkbenchApprovalMode);
+      this.runtime.setApprovalMode?.(sessionId, value as ToolApprovalMode);
     }
     return options;
   }
@@ -259,11 +259,11 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
           typeof persistedPermissionMode === 'string' &&
           isValidApprovalMode(persistedPermissionMode)
             ? persistedPermissionMode
-            : WorkbenchApprovalMode.Ask,
+            : ToolApprovalMode.Ask,
         options: [
-          { value: WorkbenchApprovalMode.Ask, name: t('codingAgentPermissionModeAsk') },
-          { value: WorkbenchApprovalMode.Auto, name: t('codingAgentPermissionModeAuto') },
-          { value: WorkbenchApprovalMode.AllowAll, name: t('codingAgentPermissionModeAllowAll') },
+          { value: ToolApprovalMode.Ask, name: t('codingAgentPermissionModeAsk') },
+          { value: ToolApprovalMode.Auto, name: t('codingAgentPermissionModeAuto') },
+          { value: ToolApprovalMode.AllowAll, name: t('codingAgentPermissionModeAllowAll') },
         ],
       },
     ];
@@ -278,12 +278,12 @@ export class BuiltinCodingDriver implements CodingAgentDriver {
       : undefined;
   }
 
-  private currentPermissionMode(sessionId: string): WorkbenchApprovalMode {
+  private currentPermissionMode(sessionId: string): ToolApprovalMode {
     const option = this.sessionConfigOptions
       .get(sessionId)
       ?.find(candidate => candidate.id === BuiltinCodingConfigId.PermissionMode);
     return typeof option?.currentValue === 'string' && isValidApprovalMode(option.currentValue)
       ? option.currentValue
-      : WorkbenchApprovalMode.Ask;
+      : ToolApprovalMode.Ask;
   }
 }

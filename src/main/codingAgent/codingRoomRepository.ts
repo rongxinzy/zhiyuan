@@ -71,8 +71,6 @@ const rowAssignment = (row: Record<string, unknown>): CodingAssignment => ({
   title: String(row.title),
   instructions: String(row.instructions),
   status: row.status as CodingAssignmentStatus,
-  workbenchTaskId: row.workbench_task_id as string | null,
-  workbenchRunId: row.workbench_run_id as string | null,
   workflowStage: (row.workflow_stage as CodingWorkflowStage | null) ?? null,
   previousAssignmentId: (row.previous_assignment_id as string | null) ?? null,
   createdAt: Number(row.created_at),
@@ -637,14 +635,12 @@ export class CodingRoomRepository {
       workflowStage: input.workflowStage ?? null,
       previousAssignmentId: input.previousAssignmentId ?? null,
       status: CodingAssignmentStatus.Planned,
-      workbenchTaskId: null,
-      workbenchRunId: null,
       createdAt: now,
       updatedAt: now,
     };
     this.db
       .prepare(
-        'INSERT INTO coding_assignments (id, mission_id, lane_id, title, instructions, workflow_stage, previous_assignment_id, status, workbench_task_id, workbench_run_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)',
+        'INSERT INTO coding_assignments (id, mission_id, lane_id, title, instructions, workflow_stage, previous_assignment_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         assignment.id,
@@ -664,17 +660,6 @@ export class CodingRoomRepository {
     this.db
       .prepare('UPDATE coding_assignments SET status = ?, updated_at = ? WHERE id = ?')
       .run(status, Date.now(), assignmentId);
-  }
-  linkAssignmentWorkbench(
-    assignmentId: string,
-    workbenchTaskId: string,
-    workbenchRunId: string,
-  ): void {
-    this.db
-      .prepare(
-        'UPDATE coding_assignments SET workbench_task_id = ?, workbench_run_id = ?, updated_at = ? WHERE id = ?',
-      )
-      .run(workbenchTaskId, workbenchRunId, Date.now(), assignmentId);
   }
   setActive(roomId: string, missionId: string, laneId: string): void {
     const now = Date.now();

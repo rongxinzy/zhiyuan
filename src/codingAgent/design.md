@@ -76,11 +76,9 @@
 - [`src/renderer/components/Sidebar.tsx`](../../src/renderer/components/Sidebar.tsx)
 - [`src/renderer/App.tsx`](../../src/renderer/App.tsx)
 
-现有 Workbench Task 已定义 Task、Run、Approval 和 Artifact，可以复用其领域语义，但当前主进程中的部分恢复和验证路径仍然直接依赖 Cowork/Pi 会话，接入 ACP 前需要增加运行时路由层：
+Coding 使用独立的会话、Assignment、事件与 diff 仓库。已移除重复的 Workbench Task/Run 审计和验收映射；不得为 Coding 另建第二套运行事实。
 
-- [`src/shared/workbenchTask/constants.ts`](../../src/shared/workbenchTask/constants.ts)
-- [`src/shared/workbenchTask/types.ts`](../../src/shared/workbenchTask/types.ts)
-- [`src/main/workbenchTask/taskService.ts`](../../src/main/workbenchTask/taskService.ts)
+工具权限使用 `src/shared/cowork/approval.ts`，文件内容检查使用 `src/main/contentWorker/` 的有界异步 Worker。
 
 ## 5. 总体架构
 
@@ -458,7 +456,7 @@ CodingWorkspace               用户可见的编程工作区
     └── CodingMission         Session 所属的用户目标
         ├── AgentLane × N      主 Session 与协作 Session 的执行内核
     ├── CodingAssignment × N   分配给某个 Agent 的工作单元
-    │   └── Workbench Task
+    │   └── Coding 会话与事件仓库
     │       └── Run × N
     ├── HandoffPackage × N
     ├── Approval × N
@@ -522,7 +520,7 @@ Mission 中交给单个 Agent 的明确工作单元，例如：
 - 执行测试并验证。
 - 根据审查意见修改。
 
-每个 Assignment 映射到独立 Workbench Task/Run，避免多个 Agent 争用单一 `active_run_id`。
+每个 Assignment 关联自己的 Lane；真实执行由对应驱动负责，消息、工具结果与 diff 保存在 Coding 事件仓库，不映射额外 Task/Run。
 
 ### 10.7 HandoffPackage
 
@@ -569,7 +567,7 @@ sequenceDiagram
     R->>O: 审查意见
     O->>V: 发送基线、Diff 和审查意见
     V->>O: 测试与验证结果
-    O->>U: 汇总状态，等待验收
+    O->>U: 展示执行结果与代码 diff
 ```
 
 #### 并行方案评审
@@ -631,7 +629,7 @@ sequenceDiagram
 - 使用 `realpath` 校验真实目标。
 - 目标必须位于工作区根目录或用户明确授权的附加目录。
 - 阻止 `../`、符号链接和挂载点逃逸。
-- 文件修改记录到事件流、Artifact 和审计信息。
+- 文件修改记录到 Coding 事件流，并保留代码 diff 与内容。
 
 ### 13.2 ACP Terminal
 
@@ -885,7 +883,7 @@ initialize / session/new
 
 ## 17. 持久化建议
 
-建议新增应用自有 SQLite 表或在现有 Workbench Task 领域上增加清晰关联：
+Coding 使用独立的应用 SQLite 表：
 
 - `coding_rooms`
 - `coding_workspace_sources`
@@ -1014,7 +1012,7 @@ src/renderer/store/slices/
 - Writer Lease。
 - Git Worktree 并行写入。
 - 实现→审查→验证预设。
-- Workbench Task/Run/Approval/Artifact 路由解耦。
+- 工具审批与内容检查复用通用模块，不增设运行审计或验收层。
 
 ### P4：安装、远程与强隔离
 
@@ -1091,7 +1089,7 @@ src/renderer/store/slices/
 - 没有知远模型配置被注入外部 Agent。
 - 多 Agent 写入不会未经隔离作用于同一物理目录。
 - 外部 Agent 崩溃不影响内置 Agent 和其他 Lane。
-- Mission 完成需要验证或用户验收，不由单次 ACP Turn 自动决定。
+- 真实驱动完成、失败和取消事件决定当前执行状态；用户按需查看代码 diff，不强制额外验收。
 
 ## 21. 非目标
 
@@ -1113,7 +1111,7 @@ src/renderer/store/slices/
 
 1. OpenCode 当前推荐 ACP 启动方式、版本和凭据复用行为。
 2. Claude Code、Codex 和 OpenCode 在 Windows、Linux 上的安装发现规则；Codex 的 macOS 规则已经验证。
-3. Workbench Task 当前 Pi 耦合路径的最小解耦方案。
+3. Coding 与通用工具审批、异步内容检查模块的边界。
 4. 内置 Agent Session 恢复与 Coding Mission 持久化的映射。
 5. Git Worktree 的目录位置、清理策略和磁盘配额。
 6. 外部 Agent 自带直接本机工具时，产品需要展示的安全提示级别。

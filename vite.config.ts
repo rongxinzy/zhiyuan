@@ -142,7 +142,7 @@ export default defineConfig(async ({ command }) => {
               },
               {
                 // Pure artifact parsing and hashing run outside the main process.
-                entry: 'src/main/workbenchTask/artifactWorker.ts',
+                entry: 'src/main/contentWorker/contentWorker.ts',
                 vite: {
                   build: {
                     watch: command === 'serve' ? {} : null,

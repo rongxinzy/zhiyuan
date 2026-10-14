@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 
 import type { CodingAgentConfigOption } from '../../../shared/codingAgent';
-import { WorkbenchApprovalMode } from '../../../shared/workbenchTask';
+import { ToolApprovalMode } from '../../../shared/cowork/approval';
 import { PiThinkingLevel } from '../../libs/agentEngine/piRuntimeTypes';
 import {
   BuiltinCodingConfigId,
@@ -216,12 +216,12 @@ test('setConfigOption applies the permission mode to the live session', async ()
   const updated = await driver.setConfigOption(
     's1',
     BuiltinCodingConfigId.PermissionMode,
-    WorkbenchApprovalMode.AllowAll,
+    ToolApprovalMode.AllowAll,
   );
 
-  expect(runtime.setApprovalMode).toHaveBeenCalledWith('s1', WorkbenchApprovalMode.AllowAll);
+  expect(runtime.setApprovalMode).toHaveBeenCalledWith('s1', ToolApprovalMode.AllowAll);
   expect(findOption(updated, BuiltinCodingConfigId.PermissionMode)?.currentValue).toBe(
-    WorkbenchApprovalMode.AllowAll,
+    ToolApprovalMode.AllowAll,
   );
 });
 
@@ -229,11 +229,7 @@ test('prompt forwards the selected permission mode to the runtime', async () => 
   const runtime = createRuntime();
   const driver = new BuiltinCodingDriver(runtime);
   await driver.createSession({ workspaceRoot: '/ws', localSessionId: 's1' });
-  await driver.setConfigOption(
-    's1',
-    BuiltinCodingConfigId.PermissionMode,
-    WorkbenchApprovalMode.Auto,
-  );
+  await driver.setConfigOption('s1', BuiltinCodingConfigId.PermissionMode, ToolApprovalMode.Auto);
 
   for await (const _event of driver.prompt({
     sessionId: 's1',
@@ -247,7 +243,7 @@ test('prompt forwards the selected permission mode to the runtime', async () => 
     's1',
     '/ws',
     'hi',
-    expect.objectContaining({ permissionMode: WorkbenchApprovalMode.Auto }),
+    expect.objectContaining({ permissionMode: ToolApprovalMode.Auto }),
   );
 });
 
@@ -261,13 +257,13 @@ test('createSession restores a persisted permission mode and rejects invalid val
         id: BuiltinCodingConfigId.PermissionMode,
         name: 'Permission mode',
         type: 'select',
-        currentValue: WorkbenchApprovalMode.Auto,
+        currentValue: ToolApprovalMode.Auto,
       },
     ],
   });
   expect(
     findOption(restored.configOptions, BuiltinCodingConfigId.PermissionMode)?.currentValue,
-  ).toBe(WorkbenchApprovalMode.Auto);
+  ).toBe(ToolApprovalMode.Auto);
 
   const invalid = await driver.createSession({
     workspaceRoot: '/ws',
@@ -283,7 +279,7 @@ test('createSession restores a persisted permission mode and rejects invalid val
   });
   expect(
     findOption(invalid.configOptions, BuiltinCodingConfigId.PermissionMode)?.currentValue,
-  ).toBe(WorkbenchApprovalMode.Ask);
+  ).toBe(ToolApprovalMode.Ask);
 });
 
 test('setConfigOption rejects unknown options and values', async () => {
@@ -311,7 +307,7 @@ test('prompt forwards the selected thinking level to the runtime', async () => {
 
   expect(runtime.start).toHaveBeenCalledWith('s1', '/ws', 'hi', {
     thinkingLevel: 'high',
-    permissionMode: WorkbenchApprovalMode.Ask,
+    permissionMode: ToolApprovalMode.Ask,
   });
 });
 
@@ -325,7 +321,7 @@ test('getDefaultConfigOptions builds options without binding them to a session',
     }),
     expect.objectContaining({
       id: BuiltinCodingConfigId.PermissionMode,
-      currentValue: WorkbenchApprovalMode.Ask,
+      currentValue: ToolApprovalMode.Ask,
     }),
   ]);
   // Defaults are not bound to any session yet.
@@ -369,7 +365,7 @@ test('passes retired commands literally without capability options', async () =>
     }
     expect(runtime.start).toHaveBeenLastCalledWith(session.id, '/workspace', prompt, {
       thinkingLevel: PiThinkingLevel.Medium,
-      permissionMode: WorkbenchApprovalMode.Ask,
+      permissionMode: ToolApprovalMode.Ask,
     });
   }
   expect((await driver.getCapabilities()).supportsPlans).toBe(false);
@@ -399,7 +395,7 @@ test('passes and clears an expert selection without legacy skill options', async
     expect(runtime.start).toHaveBeenLastCalledWith(session.id, '/workspace', 'review it', {
       expertIds,
       thinkingLevel: PiThinkingLevel.Medium,
-      permissionMode: WorkbenchApprovalMode.Ask,
+      permissionMode: ToolApprovalMode.Ask,
     });
   }
 });

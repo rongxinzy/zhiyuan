@@ -71,9 +71,6 @@ process.stdin.on('data', chunk => {
     service = new CodingRoomService(new CodingRoomRepository(db), registry, {
       startBuiltinSession: async () => undefined,
       cancelBuiltinSession: async () => undefined,
-      getBuiltinWorkbenchLink: () => null,
-      beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-      completeExternalWorkbenchRun: () => undefined,
     });
 
     if (terminal) {

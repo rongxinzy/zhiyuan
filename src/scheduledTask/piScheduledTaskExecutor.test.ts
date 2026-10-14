@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import type { CoworkSession } from '../main/coworkStore';
 import { CoworkSessionSource } from '../shared/cowork/constants';
-import { WorkbenchApprovalMode } from '../shared/workbenchTask';
+import { ToolApprovalMode } from '../shared/cowork/approval';
 import { PayloadKind, ScheduleKind, SessionTarget, TaskStatus, WakeMode } from './constants';
 import { PiScheduledTaskExecutor } from './piScheduledTaskExecutor';
 import type { ScheduledTask, ScheduledTaskRun } from './types';
@@ -88,7 +88,7 @@ test('submits a stable per-run native request with normal unattended approval ru
     'run',
     expect.objectContaining({
       requestId: 'scheduled:run',
-      approvalMode: WorkbenchApprovalMode.Ask,
+      approvalMode: ToolApprovalMode.Ask,
       unattended: true,
       workspaceRoot: '/finance',
     }),

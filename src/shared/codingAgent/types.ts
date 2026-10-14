@@ -152,8 +152,6 @@ export interface CodingAssignment {
   workflowStage: CodingWorkflowStage | null;
   previousAssignmentId: string | null;
   status: CodingAssignmentStatus;
-  workbenchTaskId: string | null;
-  workbenchRunId: string | null;
   createdAt: number;
   updatedAt: number;
 }

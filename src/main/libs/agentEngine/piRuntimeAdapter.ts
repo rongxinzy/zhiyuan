@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { app } from 'electron';
 import type { CoworkStore } from '../../coworkStore';
-import { WorkbenchApprovalMode } from '../../../shared/workbenchTask';
+import { ToolApprovalMode } from '../../../shared/cowork/approval';
 import type { CoworkPendingMessage } from '../../../shared/cowork/pendingMessageQueue';
 import {
   buildPiBackgroundCompletionContext,
@@ -35,7 +35,7 @@ export class PiRuntimeAdapter extends EventEmitter {
     string,
     Promise<import('@earendil-works/pi-durable').Submission>
   >();
-  private readonly approvalModes = new Map<string, WorkbenchApprovalMode>();
+  private readonly approvalModes = new Map<string, ToolApprovalMode>();
   private readonly confirmationModes = new Map<string, 'modal' | 'text'>();
   private readonly approvals = new DurableApprovalBroker(
     (sessionId, request) => this.emit('permissionRequest', sessionId, request),
@@ -67,7 +67,7 @@ export class PiRuntimeAdapter extends EventEmitter {
           models: provider.models,
           model: provider.model,
           approvals: this.approvals,
-          approvalMode: () => this.approvalModes.get(sessionId) ?? WorkbenchApprovalMode.Ask,
+          approvalMode: () => this.approvalModes.get(sessionId) ?? ToolApprovalMode.Ask,
         });
       },
       (event, ...args) => {
@@ -86,7 +86,7 @@ export class PiRuntimeAdapter extends EventEmitter {
     prompt: string,
     options: PiStartOptions = {},
   ): Promise<void> {
-    this.approvalModes.set(sessionId, options.approvalMode ?? WorkbenchApprovalMode.Ask);
+    this.approvalModes.set(sessionId, options.approvalMode ?? ToolApprovalMode.Ask);
     this.confirmationModes.set(sessionId, options.confirmationMode ?? 'modal');
     await this.runtime().submit(sessionId, prompt, options);
   }
@@ -97,7 +97,7 @@ export class PiRuntimeAdapter extends EventEmitter {
     prompt: string,
     options: PiStartOptions & { requestId: string },
   ): Promise<{ submissionId: number; conversationId: number }> {
-    this.approvalModes.set(sessionId, options.approvalMode ?? WorkbenchApprovalMode.Ask);
+    this.approvalModes.set(sessionId, options.approvalMode ?? ToolApprovalMode.Ask);
     const admission = this.runtime().submit(sessionId, prompt, { ...options, unattended: true });
     // Register synchronously so Stop cannot finish before a pending admission.
     this.scheduledAdmissions.set(sessionId, admission);
@@ -178,7 +178,7 @@ export class PiRuntimeAdapter extends EventEmitter {
       console.error('[DurableRuntime] Failed to close work:', error),
     );
   }
-  setApprovalModeForSession(sessionId: string, mode: WorkbenchApprovalMode): void {
+  setApprovalModeForSession(sessionId: string, mode: ToolApprovalMode): void {
     this.approvalModes.set(sessionId, mode);
   }
   respondToPermission(requestId: string, result: PiPermissionResult): void {

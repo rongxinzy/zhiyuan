@@ -261,7 +261,7 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
                 }`}
                 title={
                   showPendingPermission
-                    ? i18nService.t('workbenchTaskStatusWaitingApproval')
+                    ? i18nService.t('coworkStatusWaitingApproval')
                     : showRunningIndicator
                       ? i18nService.t(statusLabels[session.status])
                       : undefined
@@ -292,7 +292,7 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
                 </h3>
                 {showPendingPermission && (
                   <span className="inline-flex shrink-0 items-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
-                    {i18nService.t('workbenchTaskStatusWaitingApproval')}
+                    {i18nService.t('coworkStatusWaitingApproval')}
                   </span>
                 )}
               </div>

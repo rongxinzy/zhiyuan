@@ -376,3 +376,25 @@ test('migrates unique workspace paths while preserving existing workspaces', asy
   expect(workspaceCount.count).toBe(2);
   store.close();
 });
+
+test('does not create retired Workbench tables or purge existing audit rows', async () => {
+  const fresh = await SqliteStore.create(createTempUserDataPath());
+  expect(
+    fresh
+      .getDatabase()
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'workbench_%'")
+      .all(),
+  ).toEqual([]);
+  fresh.close();
+  const userDataPath = createTempUserDataPath();
+  const legacy = new Database(path.join(userDataPath, DB_FILENAME));
+  legacy.exec(
+    "CREATE TABLE workbench_tasks (id TEXT PRIMARY KEY, goal TEXT); INSERT INTO workbench_tasks VALUES ('historical', 'Keep user data');",
+  );
+  legacy.close();
+  const reopened = await SqliteStore.create(userDataPath);
+  expect(reopened.getDatabase().prepare('SELECT * FROM workbench_tasks').all()).toEqual([
+    { id: 'historical', goal: 'Keep user data' },
+  ]);
+  reopened.close();
+});

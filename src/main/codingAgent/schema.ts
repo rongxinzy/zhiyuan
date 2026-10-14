@@ -33,7 +33,6 @@ export function initializeCodingAgentSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS coding_assignments (
       id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, lane_id TEXT NOT NULL,
       title TEXT NOT NULL, instructions TEXT NOT NULL, workflow_stage TEXT, previous_assignment_id TEXT, status TEXT NOT NULL,
-      workbench_task_id TEXT, workbench_run_id TEXT,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_coding_assignments_mission ON coding_assignments(mission_id, created_at);

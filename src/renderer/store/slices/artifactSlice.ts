@@ -32,7 +32,6 @@ interface ArtifactSessionViewState {
 
 interface ArtifactState {
   artifactsBySession: Record<string, Artifact[]>;
-  activeProjectionBySession: Record<string, { taskId: string; runId: string | null } | undefined>;
   activeSessionId: string | null;
   viewStateBySession: Record<string, ArtifactSessionViewState>;
   selectedArtifactId: string | null;
@@ -46,7 +45,6 @@ interface ArtifactState {
 
 const initialState: ArtifactState = {
   artifactsBySession: {},
-  activeProjectionBySession: {},
   activeSessionId: null,
   viewStateBySession: {},
   selectedArtifactId: null,
@@ -251,20 +249,15 @@ const artifactSlice = createSlice({
       action: PayloadAction<{ sessionId: string; artifact: Artifact; reveal?: boolean }>,
     ) {
       const { sessionId, artifact, reveal = false } = action.payload;
-      const projection = state.activeProjectionBySession[sessionId];
-      const projectedArtifact =
-        projection?.runId && !artifact.taskId && !artifact.runId
-          ? { ...artifact, taskId: projection.taskId, runId: projection.runId }
-          : artifact;
       if (!state.artifactsBySession[sessionId]) {
         state.artifactsBySession[sessionId] = [];
       }
       const existing = state.artifactsBySession[sessionId].findIndex(
-        candidate => candidate.id === projectedArtifact.id,
+        candidate => candidate.id === artifact.id,
       );
       if (existing >= 0) {
         const old = state.artifactsBySession[sessionId][existing];
-        const merged = mergeArtifact(old, projectedArtifact);
+        const merged = mergeArtifact(old, artifact);
         if (merged !== old) {
           state.artifactsBySession[sessionId][existing] = merged;
         }
@@ -275,14 +268,14 @@ const artifactSlice = createSlice({
       }
 
       // Deduplicate by filePath: if another artifact with same filePath already exists, update it
-      if (projectedArtifact.filePath) {
-        const normalizedPath = normalizeFilePathForDedup(projectedArtifact.filePath);
+      if (artifact.filePath) {
+        const normalizedPath = normalizeFilePathForDedup(artifact.filePath);
         const dupIndex = state.artifactsBySession[sessionId].findIndex(
           a => a.filePath && normalizeFilePathForDedup(a.filePath) === normalizedPath,
         );
         if (dupIndex >= 0) {
           const old = state.artifactsBySession[sessionId][dupIndex];
-          const merged = mergeArtifact(old, projectedArtifact);
+          const merged = mergeArtifact(old, artifact);
           if (merged !== old) {
             state.artifactsBySession[sessionId][dupIndex] = merged;
           }
@@ -293,22 +286,10 @@ const artifactSlice = createSlice({
         }
       }
 
-      state.artifactsBySession[sessionId].push(projectedArtifact);
-      if (reveal && projectedArtifact.role === ArtifactRole.Deliverable) {
-        revealArtifactInPanel(state, sessionId, RevealKind.New, projectedArtifact.id);
+      state.artifactsBySession[sessionId].push(artifact);
+      if (reveal && artifact.role === ArtifactRole.Deliverable) {
+        revealArtifactInPanel(state, sessionId, RevealKind.New, artifact.id);
       }
-    },
-
-    setActiveArtifactProjection(
-      state,
-      action: PayloadAction<{
-        sessionId: string;
-        taskId: string | null;
-        runId: string | null;
-      }>,
-    ) {
-      const { sessionId, taskId, runId } = action.payload;
-      state.activeProjectionBySession[sessionId] = taskId ? { taskId, runId } : undefined;
     },
 
     selectArtifact(state, action: PayloadAction<string | null>) {
@@ -367,7 +348,6 @@ const artifactSlice = createSlice({
     clearSessionArtifacts(state, action: PayloadAction<string>) {
       const sessionId = action.payload;
       delete state.artifactsBySession[sessionId];
-      delete state.activeProjectionBySession[sessionId];
       delete state.viewStateBySession[sessionId];
       if (state.activeSessionId === sessionId) {
         restoreSessionView(state, getDefaultSessionViewState());
@@ -380,7 +360,6 @@ export const {
   activateSessionArtifactView,
   setSessionArtifacts,
   addArtifact,
-  setActiveArtifactProjection,
   selectArtifact,
   togglePanel,
   closePanel,
@@ -395,16 +374,6 @@ export const EMPTY_ARTIFACTS: Artifact[] = [];
 
 export const selectSessionArtifacts = (state: RootState, sessionId: string): Artifact[] =>
   state.artifact.artifactsBySession[sessionId] ?? EMPTY_ARTIFACTS;
-
-export const selectTaskRunArtifacts = (
-  state: RootState,
-  sessionId: string,
-  taskId: string,
-  runId?: string,
-): Artifact[] =>
-  (state.artifact.artifactsBySession[sessionId] ?? EMPTY_ARTIFACTS).filter(
-    artifact => artifact.taskId === taskId && (!runId || artifact.runId === runId),
-  );
 
 export const selectSelectedArtifact = (state: RootState): Artifact | null => {
   const id = state.artifact.selectedArtifactId;

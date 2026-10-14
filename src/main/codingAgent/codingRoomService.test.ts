@@ -24,7 +24,7 @@ import { CodingRoomService } from './codingRoomService';
 import { initializeCodingAgentSchema } from './schema';
 import { AcpSessionUpdateKind } from './acp/protocol';
 import { PiThinkingLevel } from '../libs/agentEngine/piRuntimeTypes';
-import { WorkbenchApprovalMode } from '../../shared/workbenchTask';
+import { ToolApprovalMode } from '../../shared/cowork/approval';
 import { BuiltinCodingConfigId } from './drivers/builtinCodingDriver';
 import { BuiltinCodingControlCommand } from './drivers/builtinCodingCommands';
 import { CoworkInterruptionCause } from '../../shared/cowork/interruption';
@@ -67,9 +67,6 @@ test('creates workspace-scoped sessions with immutable agent and source bindings
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -114,9 +111,6 @@ test('does not persist a draft session when its default agent model is unavailab
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
     validateBuiltinModel: async () => {
       throw new Error('Configured model is unavailable.');
     },
@@ -178,9 +172,6 @@ test('does not persist a session before an external ACP session is established',
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const profile = registry.list().find(candidate => !candidate.isBuiltin)!;
   const [workspace] = service.createWorkspace({
@@ -210,9 +201,6 @@ test('routes a builtin lane through its driver and projects runtime completion',
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -232,7 +220,7 @@ test('routes a builtin lane through its driver and projects runtime completion',
     workspaceRoot,
     prompt: 'Investigate the failure.',
     thinkingLevel: PiThinkingLevel.Medium,
-    permissionMode: WorkbenchApprovalMode.Ask,
+    permissionMode: ToolApprovalMode.Ask,
   });
   service.recordBuiltinEvent(lane.localSessionId, CodingEventKind.TurnComplete, {});
 
@@ -253,9 +241,6 @@ test('advertises the builtin commands for a lane whose row predates them', async
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -283,9 +268,6 @@ test('refreshes stale builtin commands and config options when the lane is prepa
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -307,7 +289,7 @@ test('refreshes stale builtin commands and config options when the lane is prepa
       id: BuiltinCodingConfigId.PermissionMode,
       name: 'Permission mode',
       type: 'select',
-      currentValue: WorkbenchApprovalMode.AllowAll,
+      currentValue: ToolApprovalMode.AllowAll,
     },
     { id: 'plan-mode', name: 'Plan mode', type: 'select', currentValue: 'plan' },
   ];
@@ -330,7 +312,7 @@ test('refreshes stale builtin commands and config options when the lane is prepa
     }),
     expect.objectContaining({
       id: BuiltinCodingConfigId.PermissionMode,
-      currentValue: WorkbenchApprovalMode.AllowAll,
+      currentValue: ToolApprovalMode.AllowAll,
     }),
   ]);
 });
@@ -343,9 +325,6 @@ test('re-projects builtin commands for an already bound lane on the next prompt'
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -379,9 +358,6 @@ test('reacquires the workspace writer lease before resuming a builtin elicitatio
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
     respondBuiltinElicitation,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'zhiyuan-coding-elicitation-lease-'));
   tempDirectories.push(workspaceRoot);
@@ -420,9 +396,6 @@ test('blocks builtin prompts while an elicitation awaits an answer', async () =>
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/elicitation-prompt-block';
   const created = await service.createMission({
@@ -451,9 +424,6 @@ test('cancels a stale question and frees its lane after an application restart',
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/elicitation-restart';
   const created = await service.createMission({
@@ -497,9 +467,6 @@ test('cancels a pending elicitation before stopping its session and blocks delet
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
     cancelBuiltinElicitation,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'zhiyuan-coding-elicitation-cancel-'));
   tempDirectories.push(workspaceRoot);
@@ -546,9 +513,6 @@ test('runs builtin control commands locally instead of forwarding them to the ag
     compactBuiltinSession,
     isBuiltinSessionRunning: () => false,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/commands';
   const created = await service.createMission({
@@ -595,9 +559,6 @@ test('treats a too-small builtin compaction as a no-op instead of a failure', as
     },
     isBuiltinSessionRunning: () => false,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/compact-noop';
   const created = await service.createMission({
@@ -624,9 +585,6 @@ test('reports a missing builtin session instead of failing to compact', async ()
     isBuiltinSessionRunning: () => false,
     isBuiltinSessionActive: () => false,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/compact-no-session';
   const created = await service.createMission({
@@ -658,9 +616,6 @@ test('queues a builtin control command while the session is running', async () =
       return { success: true };
     },
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/queued-command';
   const created = await service.createMission({
@@ -688,9 +643,6 @@ test('does not create a mission when the selected agent needs model configuratio
     {
       startBuiltinSession: async () => undefined,
       cancelBuiltinSession: async () => undefined,
-      getBuiltinWorkbenchLink: () => null,
-      beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-      completeExternalWorkbenchRun: () => undefined,
     },
   );
 
@@ -712,9 +664,6 @@ test('rediscovers external agents on demand and returns the refreshed room snaps
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const snapshot = await service.discoverAgents('/workspace/project');
@@ -732,9 +681,6 @@ test('projects builtin permission requests into the coding room status', async (
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const snapshot = await service.createMission({
@@ -759,9 +705,6 @@ test('responds to builtin coding permissions through the in-process runtime', as
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
     respondBuiltinPermission,
   });
   const workspaceRoot = '/workspace/project';
@@ -796,9 +739,6 @@ test('pauses a builtin lane when its runtime reports a recoverable interruption'
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -837,9 +777,6 @@ test('cancels a running turn and retains the mission and lane', async () => {
     cancelBuiltinSession: async sessionId => {
       cancelled.push(sessionId);
     },
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -869,9 +806,6 @@ test('cancel leaves a lane without an active turn untouched', async () => {
     cancelBuiltinSession: async sessionId => {
       cancelled.push(sessionId);
     },
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -896,9 +830,6 @@ test('reports a failed automatic collaboration stage without changing assignment
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -944,9 +875,6 @@ test('recovers stale running lanes after an application restart without losing t
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = '/workspace/project';
   const created = await service.createMission({
@@ -995,13 +923,9 @@ test('requires explicit confirmation before sending a recovery summary to a repl
       "let buffer=''; process.stdin.on('data', chunk => { buffer += chunk; while (buffer.includes('\\n')) { const index = buffer.indexOf('\\n'); const request = JSON.parse(buffer.slice(0, index)); buffer = buffer.slice(index + 1); if (request.method === 'initialize') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentCapabilities: {} } }) + '\\n'); if (request.method === 'session/new') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'replacement-session' } }) + '\\n'); if (request.method === 'session/prompt') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } }) + '\\n'); } });",
     ],
   });
-  const beginExternalWorkbenchRun = vi.fn(() => ({ taskId: 'task', runId: 'run' }));
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun,
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = process.cwd();
   const profile = registry.list().find(candidate => !candidate.isBuiltin)!;
@@ -1017,13 +941,10 @@ test('requires explicit confirmation before sending a recovery summary to a repl
     status: CodingLaneStatus.Idle,
     pendingRecoveryPrompt: 'Continue the task.',
   });
-  expect(beginExternalWorkbenchRun).not.toHaveBeenCalled();
 
   await service.confirmSessionRecovery(workspaceRoot, lane.id, true);
   await new Promise(resolve => setTimeout(resolve, 10));
-  expect(beginExternalWorkbenchRun).toHaveBeenCalledWith(
-    expect.objectContaining({ goal: 'Continue the task.' }),
-  );
+  expect(service.bootstrap(workspaceRoot).lanes[0].pendingRecoveryPrompt).toBeNull();
 });
 
 test('prepares a new ACP lane and projects its dynamic commands before the first prompt', async () => {
@@ -1063,9 +984,6 @@ test('prepares a new ACP lane and projects its dynamic commands before the first
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = process.cwd();
   const profile = registry.list().find(candidate => !candidate.isBuiltin)!;
@@ -1115,9 +1033,6 @@ test('dispose waits for an in-flight turn to record its failure', async () => {
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = process.cwd();
   const profile = registry.list().find(candidate => !candidate.isBuiltin)!;
@@ -1169,9 +1084,6 @@ test('a turn settling after the test body does not touch a closed database', asy
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const workspaceRoot = process.cwd();
   const profile = registry.list().find(candidate => !candidate.isBuiltin)!;
@@ -1197,9 +1109,6 @@ test('creates collaborator lanes in isolated workspaces and runs them independen
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
     createIsolatedWorkspace,
     getWorkspaceBaseline,
   });
@@ -1229,7 +1138,7 @@ test('creates collaborator lanes in isolated workspaces and runs them independen
     workspaceRoot: lane.executionRoot,
     prompt: 'Review the implementation.',
     thinkingLevel: PiThinkingLevel.Medium,
-    permissionMode: WorkbenchApprovalMode.Ask,
+    permissionMode: ToolApprovalMode.Ask,
   });
 });
 
@@ -1240,9 +1149,6 @@ test('previews and persists an immutable handoff with the source Git baseline', 
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
     createIsolatedWorkspace: async ({ laneId }) => `/isolated/${laneId}`,
     getWorkspaceBaseline: async workspaceRoot =>
       workspaceRoot === '/workspace/project' ? 'base-commit' : null,
@@ -1297,9 +1203,6 @@ test('requires an isolated lane and an idle primary writer before applying colla
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
     createIsolatedWorkspace: async ({ laneId }) => `/isolated/${laneId}`,
     getIsolatedWorkspaceDiff: async () => 'diff --git a/file b/file',
     getWorkspaceBaseline: async () => 'base-commit',
@@ -1345,9 +1248,6 @@ test('creates deterministic isolated review and verification assignments for a c
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
     createIsolatedWorkspace: async ({ laneId }) => `/isolated/${laneId}`,
     getWorkspaceBaseline: async () => 'base-commit',
     getWorkspaceDiff: async () => 'diff --git a/file b/file',
@@ -1410,9 +1310,6 @@ test('deleteSession removes a collaborator lane but keeps the primary session', 
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1455,9 +1352,6 @@ test('deleteSession of the primary session removes the whole mission', async () 
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1491,9 +1385,6 @@ test('deleteSession refuses a running session', async () => {
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1523,9 +1414,6 @@ test('applies draft config option overrides when starting a builtin session', as
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1564,9 +1452,6 @@ test('ignores invalid draft config option overrides instead of failing the sessi
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1601,9 +1486,6 @@ test('prepareLane populates config options for legacy builtin lanes', async () =
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1634,9 +1516,6 @@ test('getProfileConfigOptions returns defaults for the builtin profile only', ()
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const options = service.getProfileConfigOptions(CodingAgentProfileId.Builtin);
@@ -1652,9 +1531,6 @@ test('getProfileAvailableCommands returns the builtin command list without a ses
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const names = service
@@ -1678,9 +1554,6 @@ test('setLaneModelOverride persists the model and patches the live builtin sessi
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
     patchBuiltinSession,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const [workspace] = service.createWorkspace({
@@ -1737,9 +1610,6 @@ test('setLaneModelOverride rejects non-builtin lanes', async () => {
   const service = createService(repository, registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   const profile = registry.list().find(candidate => !candidate.isBuiltin)!;
@@ -1795,9 +1665,6 @@ test('probeAgent revives a needs_auth profile when the agent responds', async ()
   const service = createService(new CodingRoomRepository(db), registry, {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   const snapshot = await service.probeAgent(root, profile.id);
 
@@ -1814,9 +1681,6 @@ test('manages agent profiles without an open workspace', async () => {
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
 
   // The sidebar entry reaches the manager before any workspace is open, so

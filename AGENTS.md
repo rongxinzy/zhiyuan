@@ -62,6 +62,7 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 - 基础执行工具使用官方 CodingTools 的 `read` / `write` / `edit` / `bash`，在宿主环境和项目工作目录执行。不要假设解释器、包管理器或第三方库已安装。
 - 新 Python Runtime 使用固定 python-build-standalone 3.12 与 uv、每工作区独立 venv、Main 调度独立 Runner；模型工具 python_execute / python_install 经原生审批，Windows 必须使用 Job Object helper。详见 `src/main/pythonRuntime/README.md`。
 - 旧 Skill/MCP 管理、托管 Python/uv、自动安装与 IM 渠道已经移除；不得恢复旧目录读取、启动、环境注入或安装链。旧用户数据原地保留，不主动清理。
+- Workbench Task / Run / Approval / 验收 / 审计引擎已经移除。Coding 使用自身会话事件、任务指派、diff 与文件记录；原生工作使用 Durable，不再双写另一套运行状态。通用工具审批规则在 `main/toolApproval`，消息与文件内容转换在 `main/contentWorker`。旧用户审计表不读取、不新增，不主动删除。
 - 工作文档由 `src/main/libs/agentEngine/durable/workDocument.ts` 中的 `WorkDocumentDoc` 承载，属于 conversation scope，支持 rewind/asOf。`WorkDocumentExtension` 提供 `update_work_document` 与提示上下文。
 - `src/shared/durable/workDocument.ts` 定义 goal / agreements / decisions / progress 及 revision / updatedAt；UI 修改带 expectedRevision，避免覆盖并发更新。不要重建 Engram 或独立记忆投影与自动抽取链。
 
@@ -185,7 +186,7 @@ export type SessionTarget = (typeof SessionTarget)[keyof typeof SessionTarget];
 - 改 token/recipe/生成器：`bun run theme:generate`。改共享契约/外观生成器：另跑 `bunx vitest run src/renderer src/shared`、`bun run build`、`bun run test:bundle-budget`。
 - 单测与源码同目录，只用 `.test.ts`，`import { test, expect } from 'vitest'`；避免 import Electron-only API（如 electron-log）。新建/修改的测试必须跑到通过。
 - 全量测试有少量环境相关存量失败（release manifest 等）。遇失败用 `git stash` 对照 HEAD 判断是否由你引入。
-- **Provider 回放**：`tests/piLongTaskReplay.test.ts` 用录制磁带（`tests/replay/tapes/longtask-32doc.jsonl.gz`）对完整 Pi adapter 栈跑 32 文档长任务，做严格 seq+hash 匹配，prompt 组装、工具接线或完成语义漂移即失败。prompt/场景有意变更后重录：`AB_LONGTASK=record AB_LONGTASK_UPSTREAM_API_KEY=<token> bunx vitest run tests/abLongTask.harness.test.ts`（live 上游与模型见 `tests/replay/piLongTaskScenario.ts`；2026-10 起算力为 64K 上下文单模型部署，场景规模据此定为 32 文档）。
+- **原生执行回归**：`src/main/libs/agentEngine/durable/` 与 `piRuntimeAdapter.test.ts` 直接覆盖 SQLite 重开、工具审批、队列、恢复与取消。旧 Workbench 任务/验收/审计及绑定旧 adapter 的磁带场景已经移除；不要复活第二套执行事实源。
 - UI 改动在 `bun run electron:dev` 验证关键流程：Cowork（发 prompt、批准/拒绝权限、停止）、Artifacts（HTML/SVG/Mermaid/React）、Settings（主题/语言切换）；console 无新增警告/错误。
 
 ## Git 与 PR

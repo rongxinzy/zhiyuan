@@ -53,13 +53,6 @@ import type {
   MarketplaceSearchResult,
 } from '../../shared/marketplace';
 import type {
-  WorkbenchApprovalResponseInput,
-  WorkbenchTaskActionResult,
-  WorkbenchTaskChangedEvent,
-  WorkbenchTaskExportResult,
-  WorkbenchTaskListResult,
-} from '../../shared/workbenchTask';
-import type {
   OllamaCancelPullResult,
   OllamaChatChunk,
   OllamaChatPayload,
@@ -690,17 +683,6 @@ interface IElectronAPI {
         agentId?: string;
       }) => void,
     ) => () => void;
-  };
-  workbenchTask: {
-    getCurrent: (sessionId: string) => Promise<WorkbenchTaskActionResult>;
-    getDetail: (taskId: string) => Promise<WorkbenchTaskActionResult>;
-    listForSession: (sessionId: string) => Promise<WorkbenchTaskListResult>;
-    exportAudit: (taskId: string) => Promise<WorkbenchTaskExportResult>;
-    accept: (taskId: string) => Promise<WorkbenchTaskActionResult>;
-    respondToApproval: (
-      input: WorkbenchApprovalResponseInput,
-    ) => Promise<WorkbenchTaskActionResult>;
-    onChanged: (callback: (event: WorkbenchTaskChangedEvent) => void) => () => void;
   };
   todo: {
     list: (

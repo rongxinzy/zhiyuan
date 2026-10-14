@@ -10,7 +10,6 @@ import {
   selectArtifact,
   selectSessionSelectedArtifact,
   selectSelectedArtifact,
-  setActiveArtifactProjection,
   setActiveTab,
   setArtifactLayoutMode,
   setPanelView,
@@ -200,29 +199,6 @@ describe('artifact reducer', () => {
     const resized = artifactReducer(undefined, setPanelWidth(1536));
 
     expect(resized.panelWidth).toBe(1536);
-  });
-
-  test('projects newly detected artifacts onto the active task run', () => {
-    let state = artifactReducer(
-      undefined,
-      setActiveArtifactProjection({
-        sessionId: 'session-1',
-        taskId: 'task-1',
-        runId: 'run-1',
-      }),
-    );
-    state = artifactReducer(
-      state,
-      addArtifact({
-        sessionId: 'session-1',
-        artifact: makeArtifact({ id: 'projected' }),
-      }),
-    );
-
-    expect(state.artifactsBySession['session-1'][0]).toMatchObject({
-      taskId: 'task-1',
-      runId: 'run-1',
-    });
   });
 
   test('restores the preview belonging to the active session after switching back', () => {

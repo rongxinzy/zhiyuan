@@ -78,8 +78,8 @@ import {
 } from './drivers/builtinCodingCommands';
 import { CodingDriverFactory } from './drivers/driverFactory';
 import type { CoworkSessionInterruption } from '../../shared/cowork/interruption';
-import { WorkbenchApprovalMode } from '../../shared/workbenchTask';
-import { inspectWorkspaceContentAsync } from '../workbenchTask/artifactWorkerPool';
+import { ToolApprovalMode } from '../../shared/cowork/approval';
+import { inspectWorkspaceContentAsync } from '../contentWorker/contentWorkerPool';
 import type { CoworkPendingMessage } from '../../shared/cowork/pendingMessageQueue';
 import {
   CoworkQueueDelivery,
@@ -100,7 +100,7 @@ export interface CodingRoomRuntime {
     prompt: string;
     modelOverride?: string | null;
     thinkingLevel?: string;
-    permissionMode?: WorkbenchApprovalMode;
+    permissionMode?: ToolApprovalMode;
     /** Experts the lane runs with; an empty list clears the selection. */
     expertIds?: string[];
   }): Promise<void>;
@@ -109,7 +109,7 @@ export interface CodingRoomRuntime {
   /** Bumped when the advertised experts change. */
   commandCatalogGeneration?(): number;
   /** Applies approval-mode changes to a live built-in session. */
-  setBuiltinApprovalMode?(sessionId: string, mode: WorkbenchApprovalMode): void;
+  setBuiltinApprovalMode?(sessionId: string, mode: ToolApprovalMode): void;
   cancelBuiltinSession(sessionId: string): Promise<void>;
   /** Delivers the user's answer to a question the live built-in session asked. */
   respondBuiltinElicitation?(requestId: string, answer: string): boolean;
@@ -139,19 +139,6 @@ export interface CodingRoomRuntime {
   isBuiltinSessionRunning?(sessionId: string): boolean;
   /** Whether a live built-in Pi session exists for this lane in this process. */
   isBuiltinSessionActive?(sessionId: string): boolean;
-  getBuiltinWorkbenchLink(sessionId: string): { taskId: string; runId: string } | null;
-  beginExternalWorkbenchRun(input: { sessionId: string; goal: string; workspaceRoot: string }): {
-    taskId: string;
-    runId: string;
-  };
-  completeExternalWorkbenchRun(input: {
-    sessionId: string;
-    runId: string;
-    workspaceRoot: string;
-    finalAnswer: string;
-  }): void | Promise<void>;
-  failExternalWorkbenchRun?(input: { sessionId: string; runId: string; error: string }): void;
-  cancelExternalWorkbenchRun?(input: { sessionId: string; runId: string }): void;
   respondBuiltinPermission?(requestId: string, approved: boolean): void;
   validateBuiltinModel?(): Promise<void>;
   createIsolatedWorkspace?(input: {
@@ -794,14 +781,6 @@ export class CodingRoomService extends EventEmitter {
         this.repository.updateLaneRecovery(lane.id, prompt, session.recoveryContext);
         return this.publish(workspaceRoot);
       }
-      if (profile.driverKind !== CodingAgentDriverKind.Builtin) {
-        const workbench = this.runtime.beginExternalWorkbenchRun({
-          sessionId: lane.localSessionId,
-          goal: prompt,
-          workspaceRoot: executionRoot,
-        });
-        this.linkLaneAssignment(snapshot, lane.id, workbench.taskId, workbench.runId);
-      }
       const turnGeneration = this.beginLaneTurn(lane.id);
       this.trackTurn(
         this.runTurn(
@@ -872,14 +851,6 @@ export class CodingRoomService extends EventEmitter {
       this.repository.updateLaneStatus(lane.id, CodingLaneStatus.Running);
       this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.Running);
       this.updateLaneAssignmentStatus(snapshot, lane.id, CodingAssignmentStatus.Running);
-      if (profile.driverKind !== CodingAgentDriverKind.Builtin) {
-        const workbench = this.runtime.beginExternalWorkbenchRun({
-          sessionId: lane.localSessionId,
-          goal: lane.pendingRecoveryPrompt,
-          workspaceRoot: executionRoot,
-        });
-        this.linkLaneAssignment(snapshot, lane.id, workbench.taskId, workbench.runId);
-      }
       const turnGeneration = this.beginLaneTurn(lane.id);
       this.trackTurn(
         this.runTurn(
@@ -946,13 +917,6 @@ export class CodingRoomService extends EventEmitter {
       this.cancelledTurnGenerations.set(lane.id, activeTurnGeneration);
     }
     await driver.cancel(session.id);
-    const assignment = this.repository.getLatestAssignmentForLane(lane.id);
-    if (assignment?.workbenchRunId) {
-      this.runtime.cancelExternalWorkbenchRun?.({
-        sessionId: lane.localSessionId,
-        runId: assignment.workbenchRunId,
-      });
-    }
     if (this.requiresWriterLease(lane.sourceRoot, this.executionRoot(lane, workspaceRoot))) {
       this.repository.releaseWriterLease(snapshot.room.id, lane.sourceRoot, lane.id);
     }
@@ -1643,13 +1607,13 @@ export class CodingRoomService extends EventEmitter {
     return typeof value === 'string' ? value : undefined;
   }
 
-  private getApprovalMode(lane: CodingAgentLane): WorkbenchApprovalMode {
+  private getApprovalMode(lane: CodingAgentLane): ToolApprovalMode {
     const value = lane.configOptions.find(
       option => option.id === BuiltinCodingConfigId.PermissionMode,
     )?.currentValue;
-    return value === WorkbenchApprovalMode.Auto || value === WorkbenchApprovalMode.AllowAll
+    return value === ToolApprovalMode.Auto || value === ToolApprovalMode.AllowAll
       ? value
-      : WorkbenchApprovalMode.Ask;
+      : ToolApprovalMode.Ask;
   }
 
   recordBuiltinEvent(
@@ -2067,24 +2031,7 @@ export class CodingRoomService extends EventEmitter {
         // (not signed in / missing or invalid API key / unreachable endpoint).
         throw new Error(CodingErrorMessage.AgentNoOutput);
       }
-      if (driverKind === CodingAgentDriverKind.Builtin) {
-        const workbench = this.runtime.getBuiltinWorkbenchLink(lane.localSessionId);
-        const assignment = this.repository.getLatestAssignmentForLane(lane.id);
-        if (workbench && assignment) {
-          this.repository.linkAssignmentWorkbench(assignment.id, workbench.taskId, workbench.runId);
-        }
-      }
       if (driverKind !== CodingAgentDriverKind.Builtin) {
-        const answer = this.eventsToAnswer(lane.id);
-        const assignment = this.repository.getLatestAssignmentForLane(lane.id);
-        if (assignment?.workbenchRunId) {
-          await this.runtime.completeExternalWorkbenchRun({
-            sessionId: lane.localSessionId,
-            runId: assignment.workbenchRunId,
-            workspaceRoot: executionRoot,
-            finalAnswer: answer,
-          });
-        }
         this.repository.appendEvent(lane.id, CodingEventKind.TurnComplete, {});
         this.finishTurn(roomId, roomWorkspaceRoot, lane, CodingLaneStatus.Completed);
         if (queuedItemId) this.deletePendingMessage(lane.id, queuedItemId);
@@ -2095,15 +2042,6 @@ export class CodingRoomService extends EventEmitter {
       if (this.consumeCancelledTurn(lane.id, turnGeneration)) {
         if (queuedItemId) this.deletePendingMessage(lane.id, queuedItemId);
         return;
-      }
-      const assignment = this.repository.getLatestAssignmentForLane(lane.id);
-      console.error(`[CodingRoom] coding turn failed for lane ${lane.id}:`, error);
-      if (assignment?.workbenchRunId) {
-        this.runtime.failExternalWorkbenchRun?.({
-          sessionId: lane.localSessionId,
-          runId: assignment.workbenchRunId,
-          error: this.errorMessage(error),
-        });
       }
       console.error('[CodingRoom] turn failed:', error);
       this.repository.appendEvent(lane.id, CodingEventKind.TurnFailed, {
@@ -2222,17 +2160,6 @@ export class CodingRoomService extends EventEmitter {
   ): void {
     const assignment = snapshot.assignments.find(candidate => candidate.laneId === laneId);
     if (assignment) this.repository.updateAssignmentStatus(assignment.id, status);
-  }
-
-  private linkLaneAssignment(
-    snapshot: CodingRoomSnapshot,
-    laneId: string,
-    workbenchTaskId: string,
-    workbenchRunId: string,
-  ): void {
-    const assignment = snapshot.assignments.find(candidate => candidate.laneId === laneId);
-    if (assignment)
-      this.repository.linkAssignmentWorkbench(assignment.id, workbenchTaskId, workbenchRunId);
   }
 
   private eventsToAnswer(laneId: string): string {

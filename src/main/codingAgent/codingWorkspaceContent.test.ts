@@ -12,10 +12,10 @@ import { initializeCodingAgentSchema } from './schema';
 
 const workerFixture = vi.hoisted(() => ({ dispose: undefined as (() => void) | undefined }));
 
-vi.mock('../workbenchTask/artifactWorkerPool', async importOriginal => {
-  const actual = await importOriginal<typeof import('../workbenchTask/artifactWorkerPool')>();
-  const pool = new actual.WorkbenchArtifactWorkerPool(
-    path.resolve('dist-electron/main/workbenchTask/artifactWorker.js'),
+vi.mock('../contentWorker/contentWorkerPool', async importOriginal => {
+  const actual = await importOriginal<typeof import('../contentWorker/contentWorkerPool')>();
+  const pool = new actual.ContentWorkerPool(
+    path.resolve('dist-electron/main/contentWorker/contentWorker.js'),
   );
   workerFixture.dispose = () => pool.dispose();
   return {
@@ -42,9 +42,6 @@ test('real worker inspection preserves preview hashes, save results and external
   service = new CodingRoomService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
-    getBuiltinWorkbenchLink: () => null,
-    beginExternalWorkbenchRun: () => ({ taskId: 'task', runId: 'run' }),
-    completeExternalWorkbenchRun: () => undefined,
   });
   service.createWorkspace({
     name: 'test',

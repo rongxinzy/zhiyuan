@@ -2,11 +2,8 @@ import { getPythonRuntimeService } from '../../../pythonRuntime/host';
 import { createPythonTools } from './pythonTools';
 import { WorkDocumentDoc, WorkDocumentExtension } from './workDocument';
 import type { AgentChange, HarnessOptions } from '@earendil-works/pi-durable';
-import { classifyWorkbenchToolRisk } from '../../../workbenchTask/riskClassifier';
-import {
-  WorkbenchApprovalMode,
-  WorkbenchApprovalRiskLevel,
-} from '../../../../shared/workbenchTask';
+import { classifyToolRisk } from '../../../toolApproval/riskClassifier';
+import { ToolApprovalMode, ToolRiskLevel } from '../../../../shared/cowork/approval';
 import type { PiStartOptions } from '../piRuntimeTypes';
 import { DurableApprovalBroker } from './approvalBroker';
 import { authorizeNativeTool, type DurableToolBridgeOptions } from './toolBridge';
@@ -18,7 +15,7 @@ export async function buildDurableConfiguration(input: {
   models: HarnessOptions['models'];
   model: NonNullable<AgentChange['model']>;
   approvals: DurableApprovalBroker;
-  approvalMode: () => WorkbenchApprovalMode;
+  approvalMode: () => ToolApprovalMode;
 }): Promise<DurableConfiguration> {
   const [{ createRegistry, section }, { CodingTools }, { NodeExecutionEnv }] = await Promise.all([
     import('@earendil-works/pi-durable'),
@@ -31,8 +28,8 @@ export async function buildDurableConfiguration(input: {
     const authorization: DurableToolBridgeOptions = {
       authorize: async call => {
         const mode = input.approvalMode();
-        const risk = classifyWorkbenchToolRisk(call.toolName, call.toolInput);
-        if (mode === WorkbenchApprovalMode.AllowAll || risk === WorkbenchApprovalRiskLevel.ReadOnly)
+        const risk = classifyToolRisk(call.toolName, call.toolInput);
+        if (mode === ToolApprovalMode.AllowAll || risk === ToolRiskLevel.ReadOnly)
           return { allow: true };
         if (input.options.unattended)
           return {

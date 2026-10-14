@@ -1,4 +1,3 @@
-import type { WorkbenchJsonObject } from '../../shared/workbenchTask';
 import type { ZhiyuanEvaluationToolMode } from './constants';
 
 export interface ZhiyuanEvaluationTool {
@@ -30,7 +29,7 @@ export interface ZhiyuanEvaluationPolicyContext {
           tools: ReadonlyArray<string>;
         }>;
   }>;
-  emitActivation(name: string, evidence?: WorkbenchJsonObject): void;
+  emitActivation(name: string, evidence?: Record<string, unknown>): void;
 }
 
 export interface ZhiyuanEvaluationAgentEndInput {

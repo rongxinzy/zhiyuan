@@ -95,11 +95,7 @@ import {
 } from '../shared/ipc/schemas';
 import { shouldRecordApiRequest } from '../shared/ipc/apiRequest';
 import { WorkspaceIpc, WorkspaceStoreKey } from '../shared/workspace';
-import {
-  WorkbenchApprovalMode,
-  WorkbenchContractKind,
-  WorkbenchRunTrigger,
-} from '../shared/workbenchTask';
+import { ToolApprovalMode } from '../shared/cowork/approval';
 import { AgentManager } from './agentManager';
 import { registerModelPoolIpcHandlers } from './modelPoolIpc';
 import {
@@ -169,8 +165,6 @@ import {
   PiUiEventSequencer,
 } from '../shared/cowork/piUiEvent';
 import { normalizePiMessage, normalizePiToolActivity } from './codingAgent/piCodingEventAdapter';
-import { registerWorkbenchTaskIpcHandlers } from './workbenchTask/ipc';
-import { WorkbenchTaskService } from './workbenchTask/taskService';
 import { registerTodoIpcHandlers } from './todo/ipc';
 import { TodoReminderScheduler } from './todo/reminderScheduler';
 import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
@@ -1056,16 +1050,8 @@ let store: SqliteStore | null = null;
 let coworkStore: CoworkStore | null = null;
 let piRuntimeAdapter: PiRuntimeAdapter | null = null;
 let piModelCatalogRefreshCoordinator: PiModelCatalogRefreshCoordinator | null = null;
-let workbenchTaskService: WorkbenchTaskService | null = null;
 let codingRoomService: CodingRoomService | null = null;
 let todoReminderScheduler: TodoReminderScheduler | null = null;
-
-const getWorkbenchTaskService = (): WorkbenchTaskService => {
-  if (!workbenchTaskService) {
-    workbenchTaskService = new WorkbenchTaskService(getStore().getDatabase());
-  }
-  return workbenchTaskService;
-};
 
 /**
  * Refresh installed expert command choices after agent edits.
@@ -1103,10 +1089,9 @@ const getCodingRoomService = (): CodingRoomService => {
           expertIds,
         }) => {
           const approvalMode =
-            permissionMode === WorkbenchApprovalMode.Auto ||
-            permissionMode === WorkbenchApprovalMode.AllowAll
+            permissionMode === ToolApprovalMode.Auto || permissionMode === ToolApprovalMode.AllowAll
               ? permissionMode
-              : WorkbenchApprovalMode.Ask;
+              : ToolApprovalMode.Ask;
           const coworkStoreInstance = getCoworkStore();
           if (!coworkStoreInstance.getSession(sessionId)) {
             coworkStoreInstance.createSession(
@@ -1194,45 +1179,6 @@ const getCodingRoomService = (): CodingRoomService => {
           const queued = await runtime.enqueuePendingMessage(sessionId, prompt);
           if (!queued.success || !queued.item) return queued;
           return await runtime.steerPendingMessage(sessionId, queued.item.id);
-        },
-        getBuiltinWorkbenchLink: sessionId => {
-          const detail = getWorkbenchTaskService().getCurrent(sessionId);
-          const runId = detail?.task.activeRunId;
-          return detail && runId ? { taskId: detail.task.id, runId } : null;
-        },
-        beginExternalWorkbenchRun: ({ sessionId, goal, workspaceRoot }) => {
-          const workbench = getWorkbenchTaskService().beginRun({
-            sessionId,
-            goal,
-            contract: {
-              kind: WorkbenchContractKind.GenericWork,
-              requiresUserAcceptance: true,
-              metadata: { codingAgent: true, workspaceRoot },
-            },
-            trigger: WorkbenchRunTrigger.Message,
-          });
-          getWorkbenchTaskService().updateRunContext(workbench.run.id, {
-            model: 'external-agent',
-            provider: 'external-agent',
-            reasoningProfile: 'external',
-            workspaceRoot,
-            skillIds: [],
-          });
-          return { taskId: workbench.task.id, runId: workbench.run.id };
-        },
-        completeExternalWorkbenchRun: async ({ sessionId, runId, workspaceRoot, finalAnswer }) => {
-          await getWorkbenchTaskService().completeRun({
-            sessionId,
-            runId,
-            workspaceRoot,
-            finalAnswer,
-          });
-        },
-        failExternalWorkbenchRun: ({ sessionId, error }) => {
-          getWorkbenchTaskService().failRun(sessionId, { message: error });
-        },
-        cancelExternalWorkbenchRun: ({ sessionId, runId }) => {
-          getWorkbenchTaskService().cancelRun(sessionId, runId);
         },
         respondBuiltinPermission: (requestId, approved) =>
           runtime.respondToPermission(
@@ -3099,8 +3045,8 @@ if (!gotTheLock) {
           goalMode: options.goalMode,
           approvalMode:
             (options.permissionMode ?? config.permissionMode) === CoworkPermissionMode.AllowAll
-              ? WorkbenchApprovalMode.AllowAll
-              : WorkbenchApprovalMode.Ask,
+              ? ToolApprovalMode.AllowAll
+              : ToolApprovalMode.Ask,
           imageAttachments: storedImages,
           fileAttachments: options.fileAttachments,
           agentId: options.agentId,
@@ -3242,8 +3188,8 @@ if (!gotTheLock) {
           (options.permissionMode ??
             store.getConfig().permissionModeBySession[options.sessionId] ??
             store.getConfig().permissionMode) === CoworkPermissionMode.AllowAll
-            ? WorkbenchApprovalMode.AllowAll
-            : WorkbenchApprovalMode.Ask,
+            ? ToolApprovalMode.AllowAll
+            : ToolApprovalMode.Ask,
       });
 
       const session = getCoworkStore().getSession(options.sessionId);
@@ -4045,8 +3991,8 @@ if (!gotTheLock) {
             getPiRuntimeAdapter().setApprovalModeForSession(
               sessionId,
               mode === CoworkPermissionMode.AllowAll
-                ? WorkbenchApprovalMode.AllowAll
-                : WorkbenchApprovalMode.Ask,
+                ? ToolApprovalMode.AllowAll
+                : ToolApprovalMode.Ask,
             );
           }
         }
@@ -5300,15 +5246,6 @@ if (!gotTheLock) {
     if (prunedActivityRuns > 0) {
       console.log(`[Activity] removed ${prunedActivityRuns} expired activity run(s)`);
     }
-    const recoveredWorkbenchTasks = getWorkbenchTaskService().recoverInterruptedState();
-    if (recoveredWorkbenchTasks > 0) {
-      console.log(
-        `[WorkbenchTask] marked ${recoveredWorkbenchTasks} interrupted task(s) for explicit recovery`,
-      );
-    }
-    registerWorkbenchTaskIpcHandlers({
-      getService: getWorkbenchTaskService,
-    });
     todoReminderScheduler = new TodoReminderScheduler(getStore().getDatabase());
     todoReminderScheduler.start();
     registerTodoIpcHandlers(() => getStore().getDatabase(), {

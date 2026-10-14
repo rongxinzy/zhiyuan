@@ -116,7 +116,6 @@ const TurnBlockComponent: React.FC<{
   onRespondToPermission?: (result: CoworkPermissionResult) => void;
   /** Expand long tool results fully for image export. */
   expandToolResults?: boolean;
-  beforeCopySlot?: React.ReactNode;
 }> = ({
   turn,
   artifacts,
@@ -130,7 +129,6 @@ const TurnBlockComponent: React.FC<{
   pendingPermission = null,
   onRespondToPermission,
   expandToolResults = false,
-  beforeCopySlot = null,
 }) => {
   const items = getVisibleAssistantItems(turn.assistantItems);
   const primaryExpert = getTurnPrimaryExpert(turn);
@@ -313,7 +311,7 @@ const TurnBlockComponent: React.FC<{
             <ToolActivityStatusLine activity={latestActivity} />
           )}
           {showTypingIndicator && !isTurnComplete && <WorkingIndicator />}
-          {(deliverables.length > 0 || copyContent || beforeCopySlot) && (
+          {(deliverables.length > 0 || copyContent) && (
             <div className="flex flex-col gap-1">
               {deliverables.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -322,7 +320,6 @@ const TurnBlockComponent: React.FC<{
                   ))}
                 </div>
               )}
-              {beforeCopySlot}
               {copyContent?.type === CoworkMessageType.Assistant && (
                 <div className="flex items-center gap-1">
                   <CopyButton content={copyContent.message.content} visible />

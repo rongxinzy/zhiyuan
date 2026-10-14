@@ -3,7 +3,7 @@ import type { PiRuntime, PiStartOptions } from '../main/libs/agentEngine/piRunti
 import { getDefaultConversationWorkspacePath } from '../main/defaultConversationWorkspace';
 import { parseManagedSessionKey } from '../main/libs/managedSessionKey';
 import { buildScheduledSessionTitle, CoworkSessionSource } from '../shared/cowork/constants';
-import { WorkbenchApprovalMode } from '../shared/workbenchTask';
+import { ToolApprovalMode } from '../shared/cowork/approval';
 
 import { PayloadKind, SessionTarget } from './constants';
 import type { ScheduledTask, ScheduledTaskRun } from './types';
@@ -34,7 +34,7 @@ export class PiScheduledTaskExecutor {
       modelOverride: session.modelOverride || undefined,
       requestId: `scheduled:${run.id}`,
       // A timer does not grant permission to perform unattended external actions.
-      approvalMode: WorkbenchApprovalMode.Ask,
+      approvalMode: ToolApprovalMode.Ask,
       unattended: true,
     };
     const execution = this.runtime.runScheduledTask(session.id, prompt, options);

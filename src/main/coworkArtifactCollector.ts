@@ -1,4 +1,4 @@
-import { discoverWorkbenchMessageArtifactBlocks } from '../shared/workbenchTask';
+import { discoverMessageArtifactBlocks } from '../shared/cowork/artifactDiscovery';
 import type { CoworkPersistedArtifact } from '../shared/cowork/artifacts';
 import { CoworkArtifactRole, CoworkArtifactSource } from '../shared/cowork/artifacts';
 import { resolveCoworkArtifactType } from '../shared/cowork/artifactPreview';
@@ -162,7 +162,7 @@ function collectCodeBlocks(messages: CoworkArtifactMessage[]): CoworkArtifactCan
     if (message.type !== 'assistant' || !message.content || message.metadata?.isThinking) {
       continue;
     }
-    for (const block of discoverWorkbenchMessageArtifactBlocks(message.content)) {
+    for (const block of discoverMessageArtifactBlocks(message.content)) {
       const type = LANGUAGE_TYPES[block.language];
       if (!type && !block.explicit) continue;
       const artifactType = type ?? 'code';
