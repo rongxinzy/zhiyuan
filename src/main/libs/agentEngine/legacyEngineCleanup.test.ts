@@ -15,9 +15,16 @@ describe('legacy engine cleanup', () => {
       '_workbenchRunId',
       '_streamStallResume',
       '_queueDelivery',
+      'toolActivity:',
+      'retryNotice:',
+      'sessionInterrupted:',
     ]) {
       expect(options).not.toContain(retired);
     }
+  });
+
+  test('does not retain the unused asynchronous startup failure adapter', () => {
+    expect(fs.existsSync(path.resolve(__dirname, '../../piSessionFailure.ts'))).toBe(false);
   });
 
   test('does not ship a second renderer-owned chat execution path', () => {

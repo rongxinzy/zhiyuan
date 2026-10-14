@@ -205,7 +205,7 @@ export class PiRuntimeAdapter extends EventEmitter {
   async close(): Promise<void> {
     this.closing = true;
     this.host?.cancelPreparing();
-    await this.host?.runner.close();
+    await this.host?.close();
   }
   stopAllSessions(): void {
     void this.close().catch(error =>
@@ -215,8 +215,8 @@ export class PiRuntimeAdapter extends EventEmitter {
   setApprovalModeForSession(sessionId: string, mode: ToolApprovalMode): void {
     this.approvalModes.set(sessionId, mode);
   }
-  respondToPermission(requestId: string, result: PiPermissionResult): void {
-    this.approvals.respond(requestId, result);
+  respondToPermission(requestId: string, result: PiPermissionResult): boolean {
+    return this.approvals.respond(requestId, result);
   }
   isSessionActive(sessionId: string): boolean {
     return this.host?.hasSession(sessionId) ?? false;

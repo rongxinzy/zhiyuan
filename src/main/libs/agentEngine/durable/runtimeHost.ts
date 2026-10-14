@@ -4,12 +4,19 @@ import { readCoworkImageBase64 } from '../../../coworkImageAttachments';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { persistHistoryFileAttachments } from '../../../history/managedAttachments';
-import type { AgentChange, HarnessOptions, ConversationView } from '@earendil-works/pi-durable';
+import type {
+  AgentChange,
+  HarnessOptions,
+  ConversationView,
+  SettledSubmissionRecord,
+} from '@earendil-works/pi-durable';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { CoworkStore, CoworkMessage } from '../../../coworkStore';
 import type { PiStartOptions, PiContinueOptions, PiRuntimeEvents } from '../piRuntimeTypes';
 import { DurableSessionOwner } from './sessionOwner';
 import { DurableConversationRunner } from './conversationRunner';
 import { projectDurableEntry, projectDurablePartial } from './messageProjection';
+import { projectNativeRetry, projectNativeStop } from './nativeEventProjection';
 
 export interface DurableConfiguration {
   harness: HarnessOptions;
@@ -18,6 +25,7 @@ export interface DurableConfiguration {
 
 export class DurableRuntimeHost {
   readonly runner: DurableConversationRunner;
+  private closing = false;
   private readonly views = new Map<string, ConversationView>();
   private readonly running = new Set<string>();
   private readonly preparing = new Map<string, Set<AbortController>>();
@@ -45,11 +53,14 @@ export class DurableRuntimeHost {
       documentChanged: (sessionId, document) =>
         this.emit('workDocumentChanged', { sessionId, document }),
       changed: (sessionId, view) => this.project(sessionId, view),
-      settled: (sessionId, success, reason) => {
-        void this.settle(sessionId, success, reason).catch(error =>
-          console.error('[DurableRuntime] Failed to project a submission result:', error),
-        );
+      settled: (sessionId, record) => {
+        void this.settle(sessionId, record).catch(error => {
+          if (!this.closing)
+            console.error('[DurableRuntime] Failed to project a submission result:', error);
+        });
       },
+      failed: (sessionId, error) =>
+        this.emit('error', sessionId, classifyCoworkError(error.message)),
     });
   }
 
@@ -181,22 +192,44 @@ export class DurableRuntimeHost {
     return this.running.size > 0 || this.preparing.size > 0;
   }
 
-  private async settle(sessionId: string, success: boolean, reason?: string): Promise<void> {
+  close(): Promise<void> {
+    this.closing = true;
+    return this.runner.close();
+  }
+
+  private async settle(sessionId: string, record: SettledSubmissionRecord): Promise<void> {
     const snapshot = await this.runner.inspect(sessionId);
+    if (this.closing) return;
     if (snapshot?.tasks.length || snapshot?.pendingSubmissionCount) return;
-    this.running.delete(sessionId);
-    if (reason === 'aborted') {
+    if (snapshot?.latestInput && snapshot.latestInput.id !== record.id) return;
+    if (record.status === 'unanswered' && record.reason === 'aborted') {
+      const session = await this.runner.owner.open(sessionId);
+      const watch = await session.conversation.watch(BACKGROUND_CONTEXT);
+      const receipt = projectNativeStop(record, watch.value);
+      await watch.stop();
+      const current = await this.runner.inspect(sessionId);
+      if (
+        this.closing ||
+        !current ||
+        current.tasks.length ||
+        current.pendingSubmissionCount ||
+        current.latestInput?.id !== record.id
+      )
+        return;
+      this.running.delete(sessionId);
       this.store.updateSession(sessionId, { status: 'idle' });
-      this.emit('sessionStopped', sessionId);
-    } else if (success) {
+      this.emit('sessionStopped', sessionId, receipt);
+    } else if (record.status === 'done') {
+      this.running.delete(sessionId);
       this.store.updateSession(sessionId, { status: 'completed' });
       this.emit('complete', sessionId);
     } else {
+      this.running.delete(sessionId);
       this.store.updateSession(sessionId, { status: 'error' });
       this.emit(
         'error',
         sessionId,
-        classifyCoworkError(reason ?? 'The submission ended without an answer.'),
+        classifyCoworkError(typeof record.detail === 'string' ? record.detail : record.reason),
       );
     }
   }
@@ -210,7 +243,19 @@ export class DurableRuntimeHost {
   }
 
   private project(sessionId: string, view: ConversationView): void {
+    const previousRetry = this.views.has(sessionId)
+      ? projectNativeRetry(this.views.get(sessionId)!)
+      : undefined;
+    const retry = projectNativeRetry(view);
     this.views.set(sessionId, view);
+    if (
+      retry &&
+      (retry.retryAt !== previousRetry?.retryAt ||
+        retry.attempt !== previousRetry?.attempt ||
+        retry.message !== previousRetry?.message)
+    ) {
+      this.emit('nativeRetry', sessionId, retry);
+    }
     this.emit('queueUpdated', sessionId, projectPendingQueue(view));
     let seen = this.projected.get(sessionId);
     if (!seen) {

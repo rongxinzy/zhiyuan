@@ -41,7 +41,6 @@ import { RootState } from '../../store';
 import {
   selectCurrentMessagesLength,
   selectCurrentSession,
-  selectCurrentToolActivities,
   selectIsStreaming,
 } from '../../store/selectors/coworkSelectors';
 import { resolveSessionDisplayTitle } from '../../utils/sessionTitle';
@@ -214,7 +213,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const dispatch = useDispatch();
   const currentSession = useSelector(selectCurrentSession);
   const isStreaming = useSelector(selectIsStreaming);
-  const toolActivities = useSelector(selectCurrentToolActivities);
   const messagesLength = useSelector(selectCurrentMessagesLength);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1122,8 +1120,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               assistantItems: [],
             }}
             resolveLocalFilePath={resolveLocalFilePath}
-            showTypingIndicator={toolActivities.length === 0}
-            toolActivities={toolActivities}
+            showTypingIndicator
             showCopyButtons={!isStreaming}
             isTurnComplete={false}
             hideDefaultAssistantHeader={hideDefaultAssistantHeader}
@@ -1134,11 +1131,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     const renderTurn = (turn: (typeof turns)[number], index: number) => {
       const isLastTurn = index === turns.length - 1;
-      const hasActiveToolActivity = isStreaming && isLastTurn && toolActivities.length > 0;
-      const showTypingIndicator =
-        isStreaming && isLastTurn && !hasRenderableAssistantContent(turn) && !hasActiveToolActivity;
-      const showAssistantBlock =
-        turn.assistantItems.length > 0 || showTypingIndicator || hasActiveToolActivity;
+      const showTypingIndicator = isStreaming && isLastTurn && !hasRenderableAssistantContent(turn);
+      const showAssistantBlock = turn.assistantItems.length > 0 || showTypingIndicator;
       // Rail indices are precomputed from data (virtualized turns may be unmounted)
       const userRailIdx = turnRailIndices[index]?.user ?? -1;
       const asstRailIdx = turnRailIndices[index]?.assistant ?? -1;
@@ -1166,7 +1160,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 resolveLocalFilePath={resolveLocalFilePath}
                 mapDisplayText={mapDisplayText}
                 showTypingIndicator={showTypingIndicator}
-                toolActivities={isLastTurn ? toolActivities : undefined}
                 showCopyButtons={!isStreaming || !isLastTurn}
                 isTurnComplete={!isStreaming || !isLastTurn}
                 // 2026/09/17 lixiang  流式或恢复中禁用继续执行按钮

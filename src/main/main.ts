@@ -155,10 +155,7 @@ import { resolveAcpAdapterRoot } from './codingAgent/acp/adapterRoot';
 import { CodingAgentRegistry } from './codingAgent/codingAgentRegistry';
 import { CodingAgentProfileRepository } from './codingAgent/codingAgentProfileRepository';
 import { GitWorktreeService } from './codingAgent/gitWorktreeService';
-import { CodingEventKind, CodingStreamUpdateMode } from '../shared/codingAgent';
-import type { CoworkToolActivityEvent } from '../shared/cowork/toolActivity';
 import { PiUiRuntimeSnapshots } from '../shared/cowork/piUiRuntimeSnapshot';
-import { CoworkInterruptionCause } from '../shared/cowork/interruption';
 import {
   type PiUiEvent,
   type PiUiEventPayload,
@@ -166,7 +163,7 @@ import {
   PiUiEventType,
   PiUiEventSequencer,
 } from '../shared/cowork/piUiEvent';
-import { normalizePiMessage, normalizePiToolActivity } from './codingAgent/piCodingEventAdapter';
+import { bindBuiltinCodingRuntime } from './codingAgent/bindBuiltinCodingRuntime';
 import { registerTodoIpcHandlers } from './todo/ipc';
 import { TodoReminderScheduler } from './todo/reminderScheduler';
 import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
@@ -1162,85 +1159,8 @@ const getCodingRoomService = (): CodingRoomService => {
       },
     );
     codingRoomService.registry.hydrate();
-    runtime.on('message', (sessionId: string, message: unknown) => {
-      const metadata =
-        message && typeof message === 'object' && 'metadata' in message
-          ? (message as { metadata?: unknown }).metadata
-          : null;
-      const isThinking =
-        metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-          ? (metadata as { isThinking?: unknown }).isThinking === true
-          : false;
-      if (isThinking) {
-        codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.Reasoning, {
-          message,
-          streamUpdateMode: CodingStreamUpdateMode.Replace,
-        });
-        return;
-      }
-      const normalized = normalizePiMessage(message);
-      if (normalized)
-        codingRoomService?.recordBuiltinEvent(sessionId, normalized.kind, normalized.payload);
-    });
-    runtime.on(
-      'messageUpdate',
-      (
-        sessionId: string,
-        messageId: string,
-        content: string,
-        metadata?: Record<string, unknown>,
-      ) => {
-        const isThinking = metadata?.isThinking === true;
-        codingRoomService?.recordBuiltinEvent(
-          sessionId,
-          isThinking ? CodingEventKind.Reasoning : CodingEventKind.MessageDelta,
-          {
-            content,
-            messageId,
-            streamUpdateMode: CodingStreamUpdateMode.Replace,
-          },
-        );
-      },
-    );
-    runtime.on('toolActivity', (sessionId: string, event: CoworkToolActivityEvent) => {
-      const normalized = normalizePiToolActivity(event);
-      if (normalized)
-        codingRoomService?.recordBuiltinEvent(sessionId, normalized.kind, normalized.payload);
-    });
-    runtime.on('permissionRequest', (sessionId: string, request: unknown) => {
-      const requestId =
-        request &&
-        typeof request === 'object' &&
-        typeof (request as { requestId?: unknown }).requestId === 'string'
-          ? (request as { requestId: string }).requestId
-          : null;
-      codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.Permission, {
-        requestId,
-        request,
-      });
-    });
-    runtime.on('complete', (sessionId: string) => {
-      codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.TurnComplete, {});
-    });
-    runtime.on('error', (sessionId: string, error: unknown) => {
-      codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.TurnFailed, { error });
-    });
-    runtime.on(
-      'retryNotice',
-      (sessionId: string, notice: Omit<RuntimeRetryNotice, 'sessionId'>) => {
-        // Transient status: the shared prompt tells the user the model answered
-        // with an error while Pi keeps retrying, instead of leaving the turn
-        // looking frozen until the retry cycle settles.
-        const payload: RuntimeRetryNotice = { sessionId, ...notice };
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (!window.isDestroyed()) window.webContents.send(RuntimeNoticeIpc.Notice, payload);
-        }
-      },
-    );
-    runtime.on('sessionInterrupted', interruption => {
-      if (interruption.cause !== CoworkInterruptionCause.UserStop) {
-        codingRoomService?.recordBuiltinInterruption(interruption);
-      }
+    bindBuiltinCodingRuntime(runtime, (sessionId, kind, payload) => {
+      codingRoomService?.recordBuiltinEvent(sessionId, kind, payload);
     });
   }
   return codingRoomService;
@@ -1495,10 +1415,6 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
     },
   );
 
-  runtime.on('toolActivity', (sessionId, event) => {
-    emitUiEvent({ type: PiUiEventType.ToolActivity, sessionId, event });
-  });
-
   runtime.on('queueUpdated', (sessionId, items) => {
     const safeItems = slimQueuedMessagesForIpc(items);
     emitUiEvent({ type: PiUiEventType.QueueUpdated, sessionId, items: safeItems });
@@ -1543,12 +1459,11 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
     emitUiEvent({ type: PiUiEventType.PermissionDismiss, sessionId: null, requestId });
   });
 
-  runtime.on('sessionInterrupted', interruption => {
-    emitUiEvent({
-      type: PiUiEventType.Interrupted,
-      sessionId: interruption.sessionId,
-      interruption,
-    });
+  runtime.on('nativeRetry', (sessionId, notice) => {
+    const payload: RuntimeRetryNotice = { sessionId, ...notice };
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(RuntimeNoticeIpc.Notice, payload);
+    }
   });
 
   runtime.on('sessionStopped', (sessionId: string) => {
@@ -3854,7 +3769,9 @@ if (!gotTheLock) {
     ) => {
       try {
         const runtime = getPiRuntimeAdapter();
-        runtime.respondToPermission(options.requestId, options.result);
+        if (!runtime.respondToPermission(options.requestId, options.result)) {
+          return { success: false, error: t('approvalRequestExpired') };
+        }
         return { success: true };
       } catch (error) {
         return {

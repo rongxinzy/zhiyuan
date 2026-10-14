@@ -3,6 +3,8 @@ import { awaitWithContext } from '@earendil-works/chord/context';
 import { validateToolArguments } from '@earendil-works/pi-ai/utils/validation';
 import {
   defineTool,
+  LiveDoc,
+  InboxDoc,
   type JsonObject,
   type ToolExecutionApi,
   type ToolRegistration,
@@ -60,10 +62,29 @@ export function authorizeNativeTool(
       );
       context.abortSignal?.throwIfAborted();
       if (!decision.allow) {
+        if (decision.terminateRun) {
+          // `control.terminate` means successful completion in the native
+          // harness. A refused effect instead cancels the native conversation.
+          // Commit the refusal on the tool's own progress before aborting; the
+          // native abort result retains these details across close/reopen.
+          const submissions = await api.commit(async tx => {
+            const live = await tx.doc(LiveDoc, api.conversationId);
+            const inbox = await tx.doc(InboxDoc, api.conversationId);
+            return [
+              ...(live.run?.inputs ?? []),
+              ...inbox.items.filter(item => item.mode !== 'write').map(item => item.id),
+            ];
+          }, context);
+          api.output(decision.reason || 'The tool call was not authorized.');
+          await api.details({ zhiyuanApprovalDenied: true, submissionIds: submissions }, context);
+          const conversation = await api.conversation(api.conversationId, context);
+          if (!conversation) throw new Error('The tool conversation no longer exists.');
+          await conversation.abort(context);
+          context.abortSignal?.throwIfAborted();
+        }
         return {
           output: [{ type: 'text', text: decision.reason || 'The tool call was not authorized.' }],
           isError: true,
-          ...(decision.terminateRun ? { control: { terminate: true as const } } : {}),
         };
       }
       const authorizedArgs =

@@ -33,7 +33,6 @@ import {
   setHasMoreSessions,
   setSessions,
   updateMessageContents,
-  updateToolActivity,
   updateSessionPinned,
   updateCurrentSessionModelOverride,
   updateSessionStatus,
@@ -184,9 +183,8 @@ class CoworkService {
             );
           }
           store.dispatch(addMessage({ sessionId, message }));
-          const content = contentBuffer.latest(message.id);
-          if (content !== undefined)
-            updateBatcher.enqueue({ sessionId, messageId: message.id, content });
+          const update = contentBuffer.latest(message.id);
+          if (update) updateBatcher.enqueue(update);
           break;
         }
         case PiUiEventType.Started:
@@ -205,9 +203,6 @@ class CoworkService {
             metadata: event.metadata,
           });
           break;
-        case PiUiEventType.ToolActivity:
-          store.dispatch(updateToolActivity({ sessionId: event.sessionId, event: event.event }));
-          break;
         case PiUiEventType.PermissionRequest:
           store.dispatch(
             enqueuePendingPermission({
@@ -222,11 +217,6 @@ class CoworkService {
           break;
         case PiUiEventType.PermissionDismiss:
           store.dispatch(dequeuePendingPermission({ requestId: event.requestId }));
-          break;
-        case PiUiEventType.Interrupted:
-          updateBatcher.flush();
-          store.dispatch(clearPendingPermissionsForSession(event.sessionId));
-          store.dispatch(updateSessionStatus({ sessionId: event.sessionId, status: 'idle' }));
           break;
         case PiUiEventType.Completed:
           updateBatcher.flush();

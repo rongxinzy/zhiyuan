@@ -1,9 +1,7 @@
 import type { CoworkError } from '../../../common/coworkError';
 import type { RuntimeRetryNotice } from '../../../common/runtimeNotice';
-import type { CoworkToolActivityEvent } from '../../../shared/cowork/toolActivity';
 import type { CoworkMessage } from '../../coworkStore';
 import type { CoworkPendingMessage } from '../../../shared/cowork/pendingMessageQueue';
-import type { CoworkSessionInterruption } from '../../../shared/cowork/interruption';
 import type { ToolApprovalMode } from '../../../shared/cowork/approval';
 
 /**
@@ -35,6 +33,15 @@ export interface PiPermissionRequest {
   toolUseId?: string | null;
 }
 
+export const NativeStopCause = {
+  UserStop: 'user_stop',
+  ApprovalDenied: 'approval_denied',
+} as const;
+export interface NativeStopReceipt {
+  submissionId: number;
+  cause: (typeof NativeStopCause)[keyof typeof NativeStopCause];
+}
+
 export interface PiRuntimeEvents {
   workDocumentChanged: (
     event: import('../../../shared/durable/workDocument').WorkDocumentChanged,
@@ -47,7 +54,6 @@ export interface PiRuntimeEvents {
     content: string,
     metadata?: Record<string, unknown>,
   ) => void;
-  toolActivity: (sessionId: string, event: CoworkToolActivityEvent) => void;
   permissionRequest: (sessionId: string, request: PiPermissionRequest) => void;
   permissionDismiss: (requestId: string) => void;
   complete: (sessionId: string) => void;
@@ -56,9 +62,11 @@ export interface PiRuntimeEvents {
    * Pi is retrying a failed attempt. Transient by nature: the renderer shows it
    * as a shared prompt and never persists it.
    */
-  retryNotice: (sessionId: string, notice: Omit<RuntimeRetryNotice, 'sessionId'>) => void;
-  sessionStopped: (sessionId: string) => void;
-  sessionInterrupted: (event: CoworkSessionInterruption) => void;
+  nativeRetry: (
+    sessionId: string,
+    notice: Omit<RuntimeRetryNotice, 'sessionId'> & { retryAt: number },
+  ) => void;
+  sessionStopped: (sessionId: string, receipt: NativeStopReceipt) => void;
   queueUpdated: (sessionId: string, items: CoworkPendingMessage[]) => void;
 }
 
@@ -154,7 +162,7 @@ export interface PiRuntime {
   patchSession?(sessionId: string, patch: PiSessionPatch): Promise<void>;
   stopSession(sessionId: string): void | Promise<void>;
   stopAllSessions(): void;
-  respondToPermission(requestId: string, result: PiPermissionResult): void;
+  respondToPermission(requestId: string, result: PiPermissionResult): boolean;
   isSessionActive(sessionId: string): boolean;
   isSessionRunning(sessionId: string): boolean;
   /** Compacts an idle Pi session without turning the action into model input. */

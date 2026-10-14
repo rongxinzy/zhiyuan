@@ -4,10 +4,6 @@ import {
   CodingToolCallStatus,
   type CodingEvent,
 } from '../../shared/codingAgent';
-import {
-  CoworkToolActivityEventType,
-  type CoworkToolActivityEvent,
-} from '../../shared/cowork/toolActivity';
 
 type CodingDriverEvent = Omit<CodingEvent, 'id' | 'laneId' | 'sequence' | 'createdAt'>;
 
@@ -63,32 +59,32 @@ export const normalizePiMessage = (value: unknown): CodingDriverEvent | null => 
   return null;
 };
 
-/** Flattens Pi's transient tool activity envelope into a durable coding event. */
-export const normalizePiToolActivity = (
-  event: CoworkToolActivityEvent,
-): CodingDriverEvent | null => {
-  if (event.type === CoworkToolActivityEventType.Upsert) {
+/** Native message revisions retain tool identity instead of becoming assistant text. */
+export const normalizePiMessageUpdate = (
+  messageId: string,
+  content: string,
+  metadata?: Record<string, unknown>,
+): CodingDriverEvent => {
+  if (typeof metadata?.toolUseId === 'string') {
+    const isCall = Object.hasOwn(metadata, 'toolInput');
     return {
       kind: CodingEventKind.ToolCall,
       payload: {
-        toolCallId: event.activity.toolCallId,
-        toolName: event.activity.toolName,
-        toolInput: event.activity.toolInput,
-        phase: event.activity.phase,
-        status: CodingToolCallStatus.Pending,
+        toolCallId: metadata.toolUseId,
+        ...(typeof metadata.toolName === 'string' ? { toolName: metadata.toolName } : {}),
+        ...(isCall ? { toolInput: metadata.toolInput } : { output: content }),
+        status:
+          isCall || metadata.isStreaming === true
+            ? CodingToolCallStatus.Pending
+            : metadata.isError === true
+              ? CodingToolCallStatus.Failed
+              : CodingToolCallStatus.Completed,
         streamUpdateMode: CodingStreamUpdateMode.Replace,
       },
     };
   }
-  if (event.type === CoworkToolActivityEventType.Remove) {
-    return {
-      kind: CodingEventKind.ToolCall,
-      payload: {
-        toolCallId: event.toolCallId,
-        status: CodingToolCallStatus.Completed,
-        streamUpdateMode: CodingStreamUpdateMode.Replace,
-      },
-    };
-  }
-  return null;
+  return {
+    kind: metadata?.isThinking === true ? CodingEventKind.Reasoning : CodingEventKind.MessageDelta,
+    payload: { content, messageId, streamUpdateMode: CodingStreamUpdateMode.Replace },
+  };
 };

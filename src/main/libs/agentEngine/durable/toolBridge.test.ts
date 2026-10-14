@@ -182,7 +182,8 @@ test('denial and invalid approved edits cannot execute a tool', async () => {
     const session = await open(
       bridgeToolDefinition(definition(execute), { authorize: async () => decision }),
     );
-    await (await submit(session)).wait(context);
+    const receipt = await (await submit(session)).wait(context);
+    if (!decision.allow) expect(receipt).toMatchObject({ status: 'unanswered', reason: 'aborted' });
     expect(execute).not.toHaveBeenCalled();
     expect((await results(session))[0].isError).toBe(true);
   }

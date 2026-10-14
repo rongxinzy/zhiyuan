@@ -233,3 +233,131 @@ test('canonical bounded patches rebuild long content without reviving a complete
   expect(state.getState().cowork.currentSession?.status).toBe(CoworkSessionStatus.Completed);
   expect(state.getState().cowork.streamingSessionIds).toEqual([]);
 });
+
+test('replays tool metadata when a complete patch arrives and flushes before its message', async () => {
+  let frame: FrameRequestCallback | undefined;
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    vi.fn((callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    }),
+  );
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  await coworkService.init();
+  state.dispatch(addSession(session('A')));
+  publish(sequencer.next({ type: PiUiEventType.Started, sessionId: 'A' }));
+  const metadata = {
+    toolName: 'write',
+    toolUseId: 'call',
+    toolInput: { path: 'report.md', content: 'actual preview' },
+    toolInputTruncated: true,
+  };
+  publish(
+    sequencer.next({
+      type: PiUiEventType.ContentPatch,
+      sessionId: 'A',
+      patch: {
+        sessionId: 'A',
+        messageId: 'tool',
+        revision: 1,
+        baseRevision: 0,
+        offset: 0,
+        content: '',
+        totalLength: 0,
+        complete: true,
+        truncated: false,
+        metadata,
+      },
+    }),
+  );
+  frame?.(0);
+  publish(
+    sequencer.next({
+      type: PiUiEventType.Message,
+      sessionId: 'A',
+      message: {
+        id: 'tool',
+        type: 'tool_use',
+        content: '',
+        timestamp: 2,
+        metadata: { toolName: 'write', toolUseId: 'call', toolInput: {} },
+      },
+    }),
+  );
+  publish(sequencer.next({ type: PiUiEventType.Stopped, sessionId: 'A' }));
+  const tool = state
+    .getState()
+    .cowork.currentSession?.messages.find(message => message.id === 'tool');
+  expect(tool?.metadata).toMatchObject(metadata);
+  expect(state.getState().cowork.currentSession?.status).toBe(CoworkSessionStatus.Idle);
+});
+
+test('native parameter updates and denied tool result survive stop without marking completion', async () => {
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    vi.fn(() => 1),
+  );
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  await coworkService.init();
+  state.dispatch(addSession(session('A')));
+  publish(sequencer.next({ type: PiUiEventType.Started, sessionId: 'A' }));
+  publish(
+    sequencer.next({
+      type: PiUiEventType.Message,
+      sessionId: 'A',
+      message: {
+        id: 'tool',
+        type: 'tool_use',
+        content: '',
+        timestamp: 2,
+        metadata: { toolName: 'bash', toolUseId: 'call', toolInput: {} },
+      },
+    }),
+  );
+  publish(
+    sequencer.next({
+      type: PiUiEventType.ContentPatch,
+      sessionId: 'A',
+      patch: {
+        sessionId: 'A',
+        messageId: 'tool',
+        revision: 1,
+        baseRevision: 0,
+        offset: 0,
+        content: '',
+        totalLength: 0,
+        complete: true,
+        truncated: false,
+        metadata: { toolInput: { command: 'echo actual' }, isStreaming: false },
+      },
+    }),
+  );
+  publish(
+    sequencer.next({
+      type: PiUiEventType.Message,
+      sessionId: 'A',
+      message: {
+        id: 'result',
+        type: 'tool_result',
+        content: 'User denied tool execution',
+        timestamp: 3,
+        metadata: { toolUseId: 'call', isError: true },
+      },
+    }),
+  );
+  publish(sequencer.next({ type: PiUiEventType.Stopped, sessionId: 'A' }));
+  const current = state.getState().cowork.currentSession!;
+  expect(current.messages.find(message => message.id === 'tool')?.metadata).toMatchObject({
+    toolName: 'bash',
+    toolUseId: 'call',
+    toolInput: { command: 'echo actual' },
+  });
+  expect(current.messages.find(message => message.id === 'result')).toMatchObject({
+    content: 'User denied tool execution',
+    metadata: { isError: true },
+  });
+  expect(current.status).toBe(CoworkSessionStatus.Idle);
+  expect(current.status).not.toBe(CoworkSessionStatus.Completed);
+  expect(state.getState().cowork.streamingSessionIds).toEqual([]);
+});

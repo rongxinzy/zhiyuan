@@ -81,6 +81,8 @@ test('event validation rejects unversioned or incomplete payloads', () => {
   expect(isPiUiEvent(event)).toBe(true);
   expect(isPiUiEvent({ ...event, protocolVersion: 0 })).toBe(false);
   expect(isPiUiEvent({ ...event, eventId: '' })).toBe(false);
+  expect(isPiUiEvent({ ...event, type: 'tool_activity', event: { type: 'clear' } })).toBe(false);
+  expect(isPiUiEvent({ ...event, type: 'interrupted', interruption: {} })).toBe(false);
   expect(isPiUiEvent({ type: PiUiEventType.Started })).toBe(false);
   expect(
     isPiUiEvent({

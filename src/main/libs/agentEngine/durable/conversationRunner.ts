@@ -1,13 +1,19 @@
 import { WorkDocumentDoc, commitWorkDocument } from './workDocument';
 import type { WorkDocument, WorkDocumentPatch } from '../../../../shared/durable/workDocument';
-import type { AgentChange, ConversationView, SubmissionDraft } from '@earendil-works/pi-durable';
+import type {
+  AgentChange,
+  ConversationView,
+  SubmissionDraft,
+  SettledSubmissionRecord,
+} from '@earendil-works/pi-durable';
 import type { DurableWorkSnapshot } from '../../../../shared/durable/types';
 import { DurableSessionOwner, type DurableSession } from './sessionOwner';
 
 export interface DurableConversationObserver {
   documentChanged?(sessionId: string, document: WorkDocument): void;
   changed(sessionId: string, view: ConversationView): void;
-  settled(sessionId: string, success: boolean, reason?: string): void;
+  settled(sessionId: string, record: SettledSubmissionRecord): void;
+  failed?(sessionId: string, error: Error): void;
 }
 
 /** Application operations over native submissions; no task scheduler or replay policy lives here. */
@@ -76,19 +82,13 @@ export class DurableConversationRunner {
       .then(({ BACKGROUND_CONTEXT }) => submission.wait(BACKGROUND_CONTEXT))
       .then(
         record => {
-          if (!this.closing)
-            this.observer.settled(
-              sessionId,
-              record.status === 'done',
-              'reason' in record ? record.reason : undefined,
-            );
+          if (!this.closing) this.observer.settled(sessionId, record);
         },
         error => {
           if (!this.closing)
-            this.observer.settled(
+            this.observer.failed?.(
               sessionId,
-              false,
-              error instanceof Error ? error.message : String(error),
+              error instanceof Error ? error : new Error(String(error)),
             );
         },
       )

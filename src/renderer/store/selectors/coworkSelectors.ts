@@ -13,8 +13,6 @@ export const selectCurrentSessionId = (state: RootState) => state.cowork.current
 export const selectCurrentSession = (state: RootState) => state.cowork.currentSession;
 export const selectLoadingSessionId = (state: RootState) => state.cowork.loadingSessionId;
 export const selectStreamingSessionIds = (state: RootState) => state.cowork.streamingSessionIds;
-export const selectToolActivitiesBySession = (state: RootState) =>
-  state.cowork.toolActivitiesBySession;
 
 export const selectIsStreaming = (state: RootState) => {
   const session = state.cowork.currentSession;
@@ -58,17 +56,6 @@ export const selectCurrentMessages = createSelector(
 export const selectCurrentMessagesLength = createSelector(
   selectCurrentMessages,
   messages => messages?.length ?? 0,
-);
-
-export const selectCurrentToolActivities = createSelector(
-  selectCurrentSessionId,
-  selectToolActivitiesBySession,
-  (sessionId, activitiesBySession) => {
-    if (!sessionId) return [];
-    return Object.values(activitiesBySession[sessionId] ?? {}).sort(
-      (left, right) => left.updatedAt - right.updatedAt,
-    );
-  },
 );
 
 export const selectLastMessageContent = createSelector(selectCurrentMessages, messages => {

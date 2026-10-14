@@ -4,6 +4,23 @@ import { CoworkContentBuffer } from '../renderer/services/coworkContentBuffer';
 import { TextWorkerKind, runTextWorkerOperation } from './contentWorker/textWorkerOperations';
 import { CoworkContentProjection } from './coworkContentProjection';
 
+test('empty native tool content still transports revised arguments with a new revision', async () => {
+  const projection = new CoworkContentProjection(async input => runTextWorkerOperation(input));
+  const buffer = new CoworkContentBuffer(vi.fn());
+  for (const command of ['p', 'pwd']) {
+    const patches = await projection.project('s', 'tool', '', {
+      toolUseId: 'call',
+      toolName: 'bash',
+      toolInput: { command },
+      isStreaming: true,
+    });
+    expect(buffer.apply(patches[0])).toMatchObject({
+      content: '',
+      metadata: { toolUseId: 'call', toolInput: { command } },
+    });
+  }
+});
+
 test('keeps growing past the old IPC cap with bounded frames and exact final metadata', async () => {
   const projection = new CoworkContentProjection(async input => runTextWorkerOperation(input));
   const gap = vi.fn();

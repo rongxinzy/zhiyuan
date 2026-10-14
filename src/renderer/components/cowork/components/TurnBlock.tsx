@@ -13,7 +13,6 @@ import {
   CoworkInterruptionCause,
   type CoworkSessionInterruption,
 } from '../../../../shared/cowork/interruption';
-import type { CoworkToolActivity } from '../../../../shared/cowork/toolActivity';
 import { i18nService } from '../../../services/i18n';
 import { isCoworkTerminalErrorMessage } from '../../../services/coworkTerminalError';
 import { ArtifactRole, type Artifact } from '../../../types/artifact';
@@ -24,11 +23,7 @@ import type {
 } from '../../../types/cowork';
 import ArtifactPreviewCard from '../../artifacts/ArtifactPreviewCard';
 import { ExpertAvatar } from '../../expert/expertAvatars';
-import {
-  getExecutionStatusText,
-  getFinalAnswerIndex,
-  getToolActivityExecutionStatus,
-} from '../helpers/executionStatus';
+import { getFinalAnswerIndex } from '../helpers/executionStatus';
 import type { AssistantTurnItem, ConversationTurn } from '../helpers/messageGrouping';
 import { getVisibleAssistantItems } from '../helpers/messageGrouping';
 import { findToolGroupForPermission } from '../helpers/toolPermissionMatch';
@@ -70,38 +65,6 @@ export const getTurnPrimaryExpert = (
 export const isTerminalErrorItem = (item: AssistantTurnItem): boolean =>
   item.type === CoworkMessageType.System && isCoworkTerminalErrorMessage(item.message);
 
-/**
- * Live status line for a tool call whose arguments are still streaming in.
- * Ticks once per second (same approach as WorkingIndicator) so long argument
- * generation shows elapsed time instead of looking frozen.
- */
-const ToolActivityStatusLine: React.FC<{ activity: CoworkToolActivity }> = ({ activity }) => {
-  const [firstSeen, setFirstSeen] = React.useState({
-    toolCallId: activity.toolCallId,
-    at: activity.updatedAt,
-  });
-  if (firstSeen.toolCallId !== activity.toolCallId) {
-    setFirstSeen({ toolCallId: activity.toolCallId, at: activity.updatedAt });
-  }
-  const [now, setNow] = React.useState(() => Date.now());
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const statusText = getExecutionStatusText(getToolActivityExecutionStatus(activity));
-  const elapsedSeconds = Math.max(0, Math.floor((now - firstSeen.at) / 1000));
-
-  return (
-    <p role="status" className="text-sm text-muted-foreground">
-      {statusText}
-      {elapsedSeconds > 0 &&
-        ` · ${i18nService.t('coworkWorkingElapsed').replace('{seconds}', String(elapsedSeconds))}`}
-    </p>
-  );
-};
-
 const TurnBlockComponent: React.FC<{
   turn: ConversationTurn;
   artifacts?: Artifact[];
@@ -110,7 +73,6 @@ const TurnBlockComponent: React.FC<{
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
   isTurnComplete?: boolean;
-  toolActivities?: CoworkToolActivity[];
   hideDefaultAssistantHeader?: boolean;
   pendingPermission?: CoworkPermissionRequest | null;
   onRespondToPermission?: (result: CoworkPermissionResult) => void;
@@ -124,7 +86,6 @@ const TurnBlockComponent: React.FC<{
   showTypingIndicator = false,
   showCopyButtons = true,
   isTurnComplete = true,
-  toolActivities = [],
   hideDefaultAssistantHeader = false,
   pendingPermission = null,
   onRespondToPermission,
@@ -269,12 +230,6 @@ const TurnBlockComponent: React.FC<{
     return null;
   };
 
-  const latestActivity = toolActivities[toolActivities.length - 1];
-  // Tool owns its status once the call reaches the message stream.
-  const hasActiveTool = items.some(
-    item => item.type === CoworkDisplayItemType.ToolGroup && !item.group.toolResult,
-  );
-  const showTransportStatus = Boolean(!isTurnComplete && latestActivity && !hasActiveTool);
   const deliverables =
     artifacts?.filter(
       artifact => artifact.role === ArtifactRole.Deliverable && artifact.declared,
@@ -307,9 +262,6 @@ const TurnBlockComponent: React.FC<{
             <span className="text-sm font-semibold">{i18nService.t('cowork')}</span>
           ) : null}
           {items.map((item, index) => (detailIndexes.has(index) ? null : renderItem(item, index)))}
-          {showTransportStatus && latestActivity && (
-            <ToolActivityStatusLine activity={latestActivity} />
-          )}
           {showTypingIndicator && !isTurnComplete && <WorkingIndicator />}
           {(deliverables.length > 0 || copyContent) && (
             <div className="flex flex-col gap-1">

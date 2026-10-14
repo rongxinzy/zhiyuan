@@ -11,6 +11,9 @@ const fixture = vi.hoisted(() => ({
   python: false,
   hold: false,
   failFirst: false,
+  failMessage: 'Invalid request',
+  partialTool: false,
+  partialRelease: undefined as undefined | (() => void),
   release: undefined as undefined | (() => void),
 }));
 const pythonExecute = vi.hoisted(() => vi.fn());
@@ -56,7 +59,9 @@ vi.mock('./durable/provider', () => ({
             : [{ type: 'text', text: 'Native answer' }],
           stopReason:
             fixture.failFirst && fixture.calls === 1 ? 'error' : tool ? 'toolUse' : 'stop',
-          ...(fixture.failFirst && fixture.calls === 1 ? { errorMessage: 'Invalid request' } : {}),
+          ...(fixture.failFirst && fixture.calls === 1
+            ? { errorMessage: fixture.failMessage }
+            : {}),
           timestamp: Date.now(),
           usage: {
             input: 1,
@@ -78,6 +83,28 @@ vi.mock('./durable/provider', () => ({
             : Promise.resolve();
         return {
           async *[Symbol.asyncIterator]() {
+            if (tool && fixture.partialTool) {
+              const wait = () =>
+                new Promise<void>(resolve => {
+                  fixture.partialRelease = resolve;
+                  options.signal.addEventListener('abort', () => resolve(), { once: true });
+                });
+              yield {
+                type: 'toolcall_delta',
+                partial: {
+                  ...message,
+                  content: [
+                    {
+                      ...message.content[0],
+                      arguments: { path: join(fixture.directory, 'result.txt') },
+                    },
+                  ],
+                },
+              };
+              await wait();
+              yield { type: 'toolcall_delta', partial: message };
+              await wait();
+            }
             await ready;
             yield { type: 'done', reason: message.stopReason, message };
           },
@@ -89,7 +116,7 @@ vi.mock('./durable/provider', () => ({
   },
 }));
 import { PiRuntimeAdapter } from './piRuntimeAdapter';
-import { DurableWorkDetachedError } from './piRuntimeTypes';
+import { DurableWorkDetachedError, NativeStopCause } from './piRuntimeTypes';
 
 let runtime: PiRuntimeAdapter;
 const messages = new Map<string, CoworkMessage>();
@@ -104,6 +131,9 @@ beforeEach(async () => {
     .mockResolvedValue({ stdout: '6\n', stderr: '', exitCode: 0, environmentId: 'fixture-env' });
   fixture.hold = false;
   fixture.failFirst = false;
+  fixture.failMessage = 'Invalid request';
+  fixture.partialTool = false;
+  fixture.partialRelease = undefined;
   fixture.release = undefined;
   messages.clear();
   updates.length = 0;
@@ -259,10 +289,19 @@ test('a scheduled occurrence waits for native completion and reuses its saved re
 test('scheduled native work cannot auto-approve a workspace write', async () => {
   fixture.tools = true;
   runtime.on('error', () => {});
-  await runtime.runScheduledTask('scheduled-run:approval', 'Write', {
-    requestId: 'scheduled:approval',
-    workspaceRoot: fixture.directory,
-  });
+  const stopped = vi.fn();
+  const complete = vi.fn();
+  runtime.on('sessionStopped', stopped);
+  runtime.on('complete', complete);
+  await expect(
+    runtime.runScheduledTask('scheduled-run:approval', 'Write', {
+      requestId: 'scheduled:approval',
+      workspaceRoot: fixture.directory,
+    }),
+  ).rejects.toThrow('aborted');
+  await expect.poll(() => stopped.mock.calls.length).toBe(1);
+  expect(stopped.mock.calls[0][1].cause).toBe('approval_denied');
+  expect(complete).not.toHaveBeenCalled();
   expect(
     [...messages.values()].some(
       message => message.type === 'tool_result' && message.content.includes('requires approval'),
@@ -367,4 +406,271 @@ test('native cancellation failures reject the actual stop request and permit exp
   await expect(runtime.stopSession('stop-failure')).resolves.toBeUndefined();
   expect(abort).toHaveBeenCalledTimes(2);
   abort.mockRestore();
+});
+
+test('repeated denials are native cancellations and late replies cannot taint later work', async () => {
+  fixture.tools = true;
+  const permission = vi.fn();
+  const stopped = vi.fn();
+  const complete = vi.fn();
+  runtime.on('permissionRequest', permission);
+  runtime.on('sessionStopped', stopped);
+  runtime.on('complete', complete);
+  let oldRequest = '';
+  for (let turn = 0; turn < 2; turn++) {
+    fixture.calls = 0;
+    await runtime.continueSession('refused', 'Write', { workspaceRoot: fixture.directory });
+    await expect.poll(() => permission.mock.calls.length).toBe(turn + 1);
+    oldRequest = permission.mock.calls[turn][1].requestId;
+    expect(
+      runtime.respondToPermission(oldRequest, { behavior: 'deny', message: 'Do not write' }),
+    ).toBe(true);
+    expect(runtime.respondToPermission(oldRequest, { behavior: 'deny', message: 'Again' })).toBe(
+      false,
+    );
+    await expect.poll(() => stopped.mock.calls.length).toBe(turn + 1);
+    expect(stopped.mock.calls[turn][1]).toMatchObject({ cause: NativeStopCause.ApprovalDenied });
+    expect((await runtime.getDurableWork('refused'))?.latestInput).toMatchObject({
+      status: 'unanswered',
+      reason: 'aborted',
+    });
+    expect(fixture.calls).toBe(1);
+  }
+  expect(complete).not.toHaveBeenCalled();
+  await expect(readFile(join(fixture.directory, 'result.txt'), 'utf8')).rejects.toThrow();
+  fixture.tools = false;
+  fixture.hold = true;
+  fixture.calls = 0;
+  await runtime.continueSession('refused', 'New independent task');
+  await expect.poll(() => fixture.calls).toBe(1);
+  expect(runtime.respondToPermission(oldRequest, { behavior: 'allow' })).toBe(false);
+  await runtime.stopSession('refused');
+  await expect.poll(() => stopped.mock.calls.length).toBe(3);
+  expect(stopped.mock.calls[2][1]).toMatchObject({ cause: NativeStopCause.UserStop });
+  expect(complete).not.toHaveBeenCalled();
+});
+
+test('refusal text and native cancellation survive passive history reopen', async () => {
+  fixture.tools = true;
+  const stopped = vi.fn();
+  runtime.on('sessionStopped', stopped);
+  runtime.on('permissionRequest', (_id, request) => {
+    runtime.respondToPermission(request.requestId, {
+      behavior: 'deny',
+      message: 'Do not write my file',
+    });
+  });
+  await runtime.startSession('denial-history', 'Write');
+  await expect.poll(() => stopped.mock.calls.length).toBe(1);
+  const store = (runtime as unknown as { store: CoworkStore }).store;
+  await runtime.close();
+  runtime = new PiRuntimeAdapter();
+  runtime.setCoworkStore(store);
+  const history = await runtime.readHistory('denial-history', 100);
+  const results = history.items
+    .flatMap(entry => entry.model ?? [])
+    .filter(message => message.role === 'toolResult');
+  expect(results).toContainEqual(
+    expect.objectContaining({
+      isError: true,
+      content: expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('Do not write my file'),
+        }),
+      ]),
+      details: expect.objectContaining({
+        zhiyuanApprovalDenied: true,
+        submissionIds: expect.arrayContaining([stopped.mock.calls[0][1].submissionId]),
+      }),
+    }),
+  );
+  expect((await runtime.getDurableWork('denial-history'))?.latestInput).toMatchObject({
+    status: 'unanswered',
+    reason: 'aborted',
+  });
+  expect(fixture.calls).toBe(1);
+});
+
+test('ordinary tool errors remain model context and may be followed by a successful answer', async () => {
+  fixture.tools = true;
+  fixture.python = true;
+  pythonExecute.mockResolvedValue({
+    stdout: '',
+    stderr: 'recoverable tool failure',
+    exitCode: 1,
+    environmentId: 'fixture-env',
+  });
+  runtime.on('permissionRequest', (_id, request) => {
+    runtime.respondToPermission(request.requestId, { behavior: 'allow' });
+  });
+  const complete = vi.fn();
+  const stopped = vi.fn();
+  const failed = vi.fn();
+  runtime.on('complete', complete);
+  runtime.on('sessionStopped', stopped);
+  runtime.on('error', failed);
+  await runtime.startSession('tool-error', 'Try it');
+  await expect.poll(() => complete.mock.calls.length).toBe(1);
+  expect(fixture.calls).toBe(2);
+  expect(stopped).not.toHaveBeenCalled();
+  expect(failed).not.toHaveBeenCalled();
+  expect([...messages.values()]).toContainEqual(
+    expect.objectContaining({
+      type: 'tool_result',
+      metadata: expect.objectContaining({ isError: true }),
+    }),
+  );
+  expect((await runtime.getDurableWork('tool-error'))?.latestInput?.status).toBe('done');
+});
+
+test('real model failure emits the native failure detail and never completion', async () => {
+  fixture.failFirst = true;
+  fixture.failMessage = 'Invalid API key';
+  const failed = vi.fn();
+  const complete = vi.fn();
+  runtime.on('error', failed);
+  runtime.on('complete', complete);
+  await runtime.startSession('model-error', 'Hello');
+  await expect.poll(() => failed.mock.calls.length).toBe(1);
+  expect(complete).not.toHaveBeenCalled();
+  expect(failed.mock.calls[0][1].message).toBe('Invalid API key');
+  expect((await runtime.getDurableWork('model-error'))?.latestInput).toMatchObject({
+    status: 'unanswered',
+    reason: 'model_error',
+  });
+});
+
+test('close and passive reopen preserve paused native work without emitting a terminal event', async () => {
+  fixture.hold = true;
+  const complete = vi.fn();
+  const stopped = vi.fn();
+  const failed = vi.fn();
+  runtime.on('complete', complete);
+  runtime.on('sessionStopped', stopped);
+  runtime.on('error', failed);
+  await runtime.startSession('paused', 'Keep working');
+  await expect.poll(() => fixture.calls).toBe(1);
+  const store = (runtime as unknown as { store: CoworkStore }).store;
+  await runtime.close();
+  runtime = new PiRuntimeAdapter();
+  runtime.setCoworkStore(store);
+  runtime.on('complete', complete);
+  runtime.on('sessionStopped', stopped);
+  runtime.on('error', failed);
+  const paused = await runtime.getDurableWork('paused');
+  expect(paused?.scheduling).toBe('paused');
+  expect(paused?.pendingSubmissionCount).toBeGreaterThan(0);
+  expect(fixture.calls).toBe(1);
+  expect(complete).not.toHaveBeenCalled();
+  expect(stopped).not.toHaveBeenCalled();
+  expect(failed).not.toHaveBeenCalled();
+  await runtime.resumeDurableWork('paused');
+  await expect.poll(() => complete.mock.calls.length).toBe(1);
+  expect(fixture.calls).toBe(2);
+});
+
+test('native retry backoff is projected once while unrelated document commits do not repeat it', async () => {
+  fixture.failFirst = true;
+  fixture.failMessage = '503 Service unavailable';
+  const retry = vi.fn();
+  const complete = vi.fn();
+  const failed = vi.fn();
+  runtime.on('nativeRetry', retry);
+  runtime.on('complete', complete);
+  runtime.on('error', failed);
+  await runtime.startSession('retry-event', 'Hello');
+  await expect.poll(() => retry.mock.calls.length).toBe(1);
+  expect(retry.mock.calls[0][1]).toMatchObject({
+    attempt: 1,
+    message: '503 Service unavailable',
+    retryAt: expect.any(Number),
+  });
+  await runtime.updateWorkDocument('retry-event', { expectedRevision: 0, goal: 'Same work' });
+  expect(retry).toHaveBeenCalledTimes(1);
+  await expect.poll(() => complete.mock.calls.length, { timeout: 10000 }).toBe(1);
+  expect(failed).not.toHaveBeenCalled();
+  expect(retry).toHaveBeenCalledTimes(1);
+});
+
+test('native partial tool arguments use stable normal message identities through completion', async () => {
+  fixture.tools = true;
+  fixture.partialTool = true;
+  const updated = vi.fn();
+  const complete = vi.fn();
+  runtime.on('messageUpdate', updated);
+  runtime.on('complete', complete);
+  runtime.on('permissionRequest', (_id, request) => {
+    runtime.respondToPermission(request.requestId, { behavior: 'allow' });
+  });
+  await runtime.startSession('partial-tool', 'Write');
+  await expect
+    .poll(() => [...messages.values()].filter(message => message.type === 'tool_use').length)
+    .toBe(1);
+  const first = [...messages.values()].find(message => message.type === 'tool_use')!;
+  expect(first.metadata?.toolInput).not.toHaveProperty('content');
+  fixture.partialRelease!();
+  await expect
+    .poll(() =>
+      updated.mock.calls.some(
+        call => call[1] === first.id && call[3]?.toolInput?.content === 'approved',
+      ),
+    )
+    .toBe(true);
+  fixture.partialRelease!();
+  await expect.poll(() => complete.mock.calls.length).toBe(1);
+  expect([...messages.values()].filter(message => message.type === 'tool_use')).toHaveLength(1);
+  expect([...messages.values()].filter(message => message.type === 'tool_result')).toHaveLength(1);
+});
+
+test('a delayed old stop projection cannot overwrite a newer native input', async () => {
+  fixture.hold = true;
+  const stopped = vi.fn();
+  runtime.on('sessionStopped', stopped);
+  await runtime.startSession('stop-race', 'Old work');
+  await expect.poll(() => fixture.calls).toBe(1);
+  const host = (runtime as unknown as { host: import('./durable/runtimeHost').DurableRuntimeHost })
+    .host;
+  const session = await host.runner.owner.open('stop-race');
+  const nativeWatch = session.conversation.watch.bind(session.conversation);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  let entered = false;
+  const watchSpy = vi.spyOn(session.conversation, 'watch').mockImplementationOnce(async context => {
+    const watch = await nativeWatch(context);
+    const stop = watch.stop.bind(watch);
+    watch.stop = async () => {
+      entered = true;
+      await gate;
+      await stop();
+    };
+    return watch;
+  });
+  const settlement = host as unknown as { settle(...args: unknown[]): Promise<void> };
+  const settle = settlement.settle.bind(host);
+  let pending!: Promise<void>;
+  const settleSpy = vi.spyOn(settlement, 'settle').mockImplementation((...args) => {
+    pending = settle(...args);
+    return pending;
+  });
+  try {
+    await runtime.stopSession('stop-race');
+    await expect.poll(() => entered).toBe(true);
+    fixture.calls = 0;
+    await runtime.continueSession('stop-race', 'New work');
+    await expect.poll(() => fixture.calls).toBe(1);
+    const beforeRelease = updates.length;
+    release();
+    await pending;
+    expect(stopped).not.toHaveBeenCalled();
+    expect(updates.slice(beforeRelease)).not.toContainEqual({ status: 'idle' });
+    expect(runtime.isSessionRunning('stop-race')).toBe(true);
+    expect((await runtime.getDurableWork('stop-race'))?.pendingSubmissionCount).toBeGreaterThan(0);
+  } finally {
+    release();
+    watchSpy.mockRestore();
+    settleSpy.mockRestore();
+  }
 });

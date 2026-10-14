@@ -16,6 +16,7 @@ export type LanguageType = 'zh' | 'en';
 
 const translations: Record<LanguageType, Record<string, string>> = {
   zh: {
+    approvalRequestExpired: '该授权请求已结束，请查看当前工作状态。',
     durableNewWorkFromHistory:
       '已新建工作。原会话「{title}」的记录仍保留，本次输入将在新工作中继续。',
     webSearchToolLabel: '联网搜索',
@@ -377,6 +378,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     'update.activeTask': '有任务正在运行，请等任务完成或停止后再安装更新。',
   },
   en: {
+    approvalRequestExpired: 'This approval request has ended. Check the current work status.',
     durableNewWorkFromHistory:
       'A new work session has been created. Records from “{title}” remain available; this input continues in the new session.',
     webSearchToolLabel: 'Web search',

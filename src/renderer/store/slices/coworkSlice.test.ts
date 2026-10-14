@@ -6,10 +6,6 @@ import {
   CoworkPermissionOrigin,
   CoworkSessionSource,
 } from '../../../shared/cowork/constants';
-import {
-  CoworkToolActivityEventType,
-  CoworkToolActivityPhase,
-} from '../../../shared/cowork/toolActivity';
 import { CoworkSessionStatusValue, type CoworkSessionSummary } from '../../types/cowork';
 import coworkReducer, {
   addMessage,
@@ -28,7 +24,6 @@ import coworkReducer, {
   updateCurrentSessionModelOverride,
   updateConfig,
   updateMessageContents,
-  updateToolActivity,
   updateSessionStatus,
 } from './coworkSlice';
 
@@ -507,107 +502,6 @@ test('loaded older pages survive switching away from a running session', () => {
   state = coworkReducer(state, setCurrentSession(running));
   expect(state.currentSession?.messages).toEqual([older, recent]);
   expect(state.currentSession?.messagesOffset).toBe(0);
-});
-
-test('tracks parallel transient tool activities by session and call id', () => {
-  const runningState = coworkReducer(
-    undefined,
-    updateSessionStatus({ sessionId: 'session-1', status: CoworkSessionStatusValue.Running }),
-  );
-  const firstActivity = coworkReducer(
-    runningState,
-    updateToolActivity({
-      sessionId: 'session-1',
-      event: {
-        type: CoworkToolActivityEventType.Upsert,
-        activity: {
-          toolCallId: 'read-1',
-          phase: CoworkToolActivityPhase.Preparing,
-          toolName: 'Read',
-          updatedAt: 1,
-        },
-      },
-    }),
-  );
-  const parallelActivity = coworkReducer(
-    firstActivity,
-    updateToolActivity({
-      sessionId: 'session-1',
-      event: {
-        type: CoworkToolActivityEventType.Upsert,
-        activity: {
-          toolCallId: 'write-1',
-          phase: CoworkToolActivityPhase.Preparing,
-          toolName: 'Write',
-          updatedAt: 2,
-        },
-      },
-    }),
-  );
-
-  expect(Object.keys(parallelActivity.toolActivitiesBySession['session-1'])).toEqual([
-    'read-1',
-    'write-1',
-  ]);
-});
-
-test('replaces transient activity with the persisted tool use message', () => {
-  const activityState = coworkReducer(
-    undefined,
-    updateToolActivity({
-      sessionId: 'session-1',
-      event: {
-        type: CoworkToolActivityEventType.Upsert,
-        activity: {
-          toolCallId: 'write-1',
-          phase: CoworkToolActivityPhase.Preparing,
-          toolName: 'Write',
-          updatedAt: 1,
-        },
-      },
-    }),
-  );
-  const toolUseState = coworkReducer(
-    activityState,
-    addMessage({
-      sessionId: 'session-1',
-      message: {
-        id: 'tool-use-1',
-        type: 'tool_use',
-        content: 'Using tool: Write',
-        timestamp: 2,
-        metadata: { toolUseId: 'write-1', toolName: 'Write' },
-      },
-    }),
-  );
-
-  expect(toolUseState.toolActivitiesBySession['session-1']).toBeUndefined();
-});
-
-test('clears transient tool activities when a session stops running', () => {
-  const activityState = coworkReducer(
-    undefined,
-    updateToolActivity({
-      sessionId: 'session-1',
-      event: {
-        type: CoworkToolActivityEventType.Upsert,
-        activity: {
-          toolCallId: 'read-1',
-          phase: CoworkToolActivityPhase.Running,
-          updatedAt: 1,
-        },
-      },
-    }),
-  );
-  const completedState = coworkReducer(
-    activityState,
-    updateSessionStatus({
-      sessionId: 'session-1',
-      status: CoworkSessionStatusValue.Completed,
-    }),
-  );
-
-  expect(completedState.toolActivitiesBySession['session-1']).toBeUndefined();
 });
 
 test('applies a batched stream frame without touching summaries or unread state', () => {

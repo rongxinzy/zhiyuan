@@ -23,11 +23,10 @@ import { CodingRoomRepository } from './codingRoomRepository';
 import { CodingRoomService } from './codingRoomService';
 import { initializeCodingAgentSchema } from './schema';
 import { AcpSessionUpdateKind } from './acp/protocol';
-import { PiThinkingLevel } from '../libs/agentEngine/piRuntimeTypes';
+import { NativeStopCause, PiThinkingLevel } from '../libs/agentEngine/piRuntimeTypes';
 import { ToolApprovalMode } from '../../shared/cowork/approval';
 import { BuiltinCodingConfigId } from './drivers/builtinCodingDriver';
 import { BuiltinCodingControlCommand } from './drivers/builtinCodingCommands';
-import { CoworkInterruptionCause } from '../../shared/cowork/interruption';
 
 let db: Database.Database | undefined;
 const tempDirectories: string[] = [];
@@ -716,7 +715,7 @@ test('projects builtin permission requests into the coding room status', async (
 test('responds to builtin coding permissions through the in-process runtime', async () => {
   db = new Database(':memory:');
   initializeCodingAgentSchema(db);
-  const respondBuiltinPermission = vi.fn();
+  const respondBuiltinPermission = vi.fn(() => true);
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
     cancelBuiltinSession: async () => undefined,
@@ -748,7 +747,7 @@ test('responds to builtin coding permissions through the in-process runtime', as
   });
 });
 
-test('pauses a builtin lane when its runtime reports a recoverable interruption', async () => {
+test('a native approval-denied receipt leaves the builtin task needing review, never completed', async () => {
   db = new Database(':memory:');
   initializeCodingAgentSchema(db);
   const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
@@ -765,12 +764,9 @@ test('pauses a builtin lane when its runtime reports a recoverable interruption'
     requestId: 'approval',
   });
 
-  service.recordBuiltinInterruption({
-    sessionId: lane.localSessionId,
-    interruptionId: 'interruption-1',
-    cause: CoworkInterruptionCause.ApprovalDenied,
-    taskId: 'task',
-    recoverable: true,
+  service.recordBuiltinEvent(lane.localSessionId, CodingEventKind.TurnCancelled, {
+    submissionId: 12,
+    reason: NativeStopCause.ApprovalDenied,
   });
 
   const updated = service.bootstrap(workspaceRoot);
@@ -779,8 +775,50 @@ test('pauses a builtin lane when its runtime reports a recoverable interruption'
   expect(updated.assignments[0].status).toBe(CodingAssignmentStatus.Planned);
   expect(updated.events.at(-1)).toMatchObject({
     kind: CodingEventKind.TurnCancelled,
-    payload: { reason: CoworkInterruptionCause.ApprovalDenied },
+    payload: { reason: NativeStopCause.ApprovalDenied, submissionId: 12 },
   });
+  service.recordBuiltinEvent(lane.localSessionId, CodingEventKind.TurnCancelled, {
+    submissionId: 12,
+    reason: NativeStopCause.ApprovalDenied,
+  });
+  expect(
+    service
+      .bootstrap(workspaceRoot)
+      .events.filter(event => event.kind === CodingEventKind.TurnCancelled),
+  ).toHaveLength(1);
+});
+
+test('a delayed approval cannot revive a stopped builtin turn or mutate its audit', async () => {
+  db = new Database(':memory:');
+  initializeCodingAgentSchema(db);
+  const respond = vi.fn(() => false);
+  const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
+    startBuiltinSession: async () => undefined,
+    cancelBuiltinSession: async () => undefined,
+    respondBuiltinPermission: respond,
+  });
+  const workspaceRoot = '/workspace/project';
+  const created = await service.createMission({
+    workspaceRoot,
+    profileId: 'builtin-zhiyuan-coding',
+  });
+  const lane = created.lanes[0];
+  service.recordBuiltinEvent(lane.localSessionId, CodingEventKind.Permission, { requestId: 'old' });
+  service.recordBuiltinEvent(lane.localSessionId, CodingEventKind.TurnCancelled, {
+    submissionId: 1,
+    reason: NativeStopCause.UserStop,
+  });
+  const before = service.bootstrap(workspaceRoot);
+  await expect(
+    service.respondToPermission(workspaceRoot, {
+      requestId: 'old',
+      outcome: CodingPermissionOutcome.Selected,
+    }),
+  ).rejects.toThrow('permission request was not found');
+  const after = service.bootstrap(workspaceRoot);
+  expect(after.events).toEqual(before.events);
+  expect(after.lanes[0].status).toBe(CodingLaneStatus.Idle);
+  expect(after.missions[0].status).toBe(CodingMissionStatus.Cancelled);
 });
 
 test('cancels a running turn and retains the mission and lane', async () => {
@@ -836,6 +874,33 @@ test('cancel leaves a lane without an active turn untouched', async () => {
   expect(updated.events.filter(event => event.kind === CodingEventKind.TurnCancelled)).toHaveLength(
     0,
   );
+});
+
+test('native stop projected while cancel awaits does not append a second cancellation', async () => {
+  db = new Database(':memory:');
+  initializeCodingAgentSchema(db);
+  const service = createService(new CodingRoomRepository(db), new CodingAgentRegistry(), {
+    startBuiltinSession: async () => undefined,
+    cancelBuiltinSession: async sessionId => {
+      service.recordBuiltinEvent(sessionId, CodingEventKind.TurnCancelled, {
+        submissionId: 42,
+        reason: NativeStopCause.UserStop,
+      });
+    },
+  });
+  const workspaceRoot = '/workspace/project';
+  const created = await service.createMission({
+    workspaceRoot,
+    profileId: 'builtin-zhiyuan-coding',
+  });
+  const lane = created.lanes[0];
+  await service.prompt(workspaceRoot, { laneId: lane.id, prompt: 'Work on this.' });
+  const result = await service.cancel(workspaceRoot, lane.id);
+  expect(result.events.filter(event => event.kind === CodingEventKind.TurnCancelled)).toHaveLength(
+    1,
+  );
+  expect(result.missions[0].status).toBe(CodingMissionStatus.Cancelled);
+  expect(result.lanes[0].status).toBe(CodingLaneStatus.Idle);
 });
 
 test('reports a failed automatic collaboration stage without changing assignment state', async () => {

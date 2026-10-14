@@ -15,7 +15,6 @@ export function piUiLifecycleStatus(event: PiUiEvent): PiUiRuntimeSnapshot['stat
       return CoworkSessionStatus.Completed;
     case PiUiEventType.Error:
       return CoworkSessionStatus.Error;
-    case PiUiEventType.Interrupted:
     case PiUiEventType.Stopped:
       return CoworkSessionStatus.Idle;
     default:

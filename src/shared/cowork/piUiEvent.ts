@@ -1,7 +1,5 @@
 import type { CoworkError } from '../../common/coworkError';
 import type { CoworkPendingMessage } from './pendingMessageQueue';
-import type { CoworkSessionInterruption } from './interruption';
-import type { CoworkToolActivityEvent } from './toolActivity';
 import { CoworkContentPolicy, type CoworkContentPatch } from './contentProjection';
 
 export const PiUiEventType = {
@@ -9,10 +7,8 @@ export const PiUiEventType = {
   Message: 'message',
   MessageUpdate: 'message_update',
   ContentPatch: 'content_patch',
-  ToolActivity: 'tool_activity',
   PermissionRequest: 'permission_request',
   PermissionDismiss: 'permission_dismiss',
-  Interrupted: 'interrupted',
   Completed: 'completed',
   Error: 'error',
   QueueUpdated: 'queue_updated',
@@ -61,11 +57,6 @@ export type PiUiEvent =
       metadata?: Record<string, unknown>;
     })
   | (PiUiEventBase & {
-      type: typeof PiUiEventType.ToolActivity;
-      sessionId: string;
-      event: CoworkToolActivityEvent;
-    })
-  | (PiUiEventBase & {
       type: typeof PiUiEventType.PermissionRequest;
       sessionId: string;
       request: {
@@ -78,11 +69,6 @@ export type PiUiEvent =
   | (PiUiEventBase & {
       type: typeof PiUiEventType.PermissionDismiss;
       requestId: string;
-    })
-  | (PiUiEventBase & {
-      type: typeof PiUiEventType.Interrupted;
-      sessionId: string;
-      interruption: CoworkSessionInterruption;
     })
   | (PiUiEventBase & {
       type: typeof PiUiEventType.Completed;
@@ -185,29 +171,6 @@ const isPiUiMessage = (value: unknown): value is PiUiMessage => {
 const isCoworkError = (value: unknown): boolean =>
   isRecord(value) && isNonEmptyString(value.kind) && typeof value.message === 'string';
 
-const isToolActivityEvent = (value: unknown): boolean => {
-  if (!isRecord(value) || typeof value.type !== 'string') return false;
-  if (value.type === 'clear') return true;
-  if (value.type === 'remove') return isNonEmptyString(value.toolCallId);
-  if (value.type !== 'upsert' || !isRecord(value.activity)) return false;
-  return (
-    isNonEmptyString(value.activity.toolCallId) &&
-    (value.activity.phase === 'preparing' || value.activity.phase === 'running') &&
-    typeof value.activity.updatedAt === 'number' &&
-    Number.isFinite(value.activity.updatedAt)
-  );
-};
-
-const isInterruption = (value: unknown): boolean =>
-  isRecord(value) &&
-  isSessionId(value.sessionId) &&
-  isNonEmptyString(value.interruptionId) &&
-  (value.cause === 'user_stop' ||
-    value.cause === 'approval_denied' ||
-    value.cause === 'runtime_paused') &&
-  (value.taskId === null || isNonEmptyString(value.taskId)) &&
-  typeof value.recoverable === 'boolean';
-
 const isQueuedMessage = (value: unknown): boolean =>
   isRecord(value) &&
   isNonEmptyString(value.id) &&
@@ -262,8 +225,6 @@ export const isPiUiEvent = (value: unknown): value is PiUiEvent => {
         typeof candidate.content === 'string' &&
         (candidate.metadata === undefined || isRecord(candidate.metadata))
       );
-    case PiUiEventType.ToolActivity:
-      return isSessionId(candidate.sessionId) && isToolActivityEvent(candidate.event);
     case PiUiEventType.PermissionRequest: {
       const request = candidate.request;
       return (
@@ -279,8 +240,6 @@ export const isPiUiEvent = (value: unknown): value is PiUiEvent => {
     }
     case PiUiEventType.PermissionDismiss:
       return candidate.sessionId === null && isNonEmptyString(candidate.requestId);
-    case PiUiEventType.Interrupted:
-      return isSessionId(candidate.sessionId) && isInterruption(candidate.interruption);
     case PiUiEventType.Completed:
       return isSessionId(candidate.sessionId);
     case PiUiEventType.Error:

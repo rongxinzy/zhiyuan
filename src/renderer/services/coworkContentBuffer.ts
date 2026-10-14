@@ -10,6 +10,7 @@ type Entry = {
   complete: boolean;
   sessionId: string;
   metadata?: Record<string, unknown>;
+  truncated: boolean;
 };
 
 export class CoworkContentBuffer {
@@ -61,6 +62,7 @@ export class CoworkContentBuffer {
       complete: patch.complete,
       sessionId: patch.sessionId,
       metadata: patch.metadata,
+      truncated: patch.truncated,
     });
     let characters = 0;
     for (const entry of this.entries.values()) characters += entry.content.length;
@@ -84,8 +86,15 @@ export class CoworkContentBuffer {
       if (entry.sessionId === sessionId) this.entries.delete(id);
   }
 
-  latest(messageId: string): string | undefined {
+  latest(messageId: string): StreamMessageUpdate | undefined {
     const entry = this.entries.get(messageId);
-    return entry?.complete ? entry.content : undefined;
+    return entry?.complete
+      ? {
+          sessionId: entry.sessionId,
+          messageId,
+          content: entry.content,
+          metadata: { ...entry.metadata, contentTruncated: entry.truncated },
+        }
+      : undefined;
   }
 }

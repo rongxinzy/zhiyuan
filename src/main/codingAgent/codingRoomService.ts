@@ -77,7 +77,7 @@ import {
   type ParsedBuiltinCodingControlCommand,
 } from './drivers/builtinCodingCommands';
 import { CodingDriverFactory } from './drivers/driverFactory';
-import type { CoworkSessionInterruption } from '../../shared/cowork/interruption';
+import { NativeStopCause } from '../libs/agentEngine/piRuntimeTypes';
 import { ToolApprovalMode } from '../../shared/cowork/approval';
 import { inspectWorkspaceContentAsync } from '../contentWorker/contentWorkerPool';
 import type { CoworkPendingMessage } from '../../shared/cowork/pendingMessageQueue';
@@ -135,7 +135,7 @@ export interface CodingRoomRuntime {
   isBuiltinSessionRunning?(sessionId: string): boolean;
   /** Whether a live built-in Pi session exists for this lane in this process. */
   isBuiltinSessionActive?(sessionId: string): boolean;
-  respondBuiltinPermission?(requestId: string, approved: boolean): void;
+  respondBuiltinPermission?(requestId: string, approved: boolean): boolean;
   validateBuiltinModel?(): Promise<void>;
   createIsolatedWorkspace?(input: {
     workspaceRoot: string;
@@ -911,6 +911,10 @@ export class CodingRoomService extends EventEmitter {
       this.cancelledTurnGenerations.set(lane.id, activeTurnGeneration);
     }
     await driver.cancel(session.id);
+    // Native cancellation may already have projected its receipt while cancel awaited it.
+    if (this.repository.getLaneById(lane.id)?.status === CodingLaneStatus.Idle) {
+      return this.publish(workspaceRoot);
+    }
     if (this.requiresWriterLease(lane.sourceRoot, this.executionRoot(lane, workspaceRoot))) {
       this.repository.releaseWriterLease(snapshot.room.id, lane.sourceRoot, lane.id);
     }
@@ -1458,10 +1462,11 @@ export class CodingRoomService extends EventEmitter {
       if (!this.runtime.respondBuiltinPermission) {
         throw new Error(CodingErrorMessage.BuiltinPermissionUnsupported);
       }
-      this.runtime.respondBuiltinPermission(
+      const accepted = this.runtime.respondBuiltinPermission(
         response.requestId,
         response.outcome === CodingPermissionOutcome.Selected,
       );
+      if (!accepted) throw new Error(CodingErrorMessage.PermissionRequestNotFound);
       if (response.outcome === CodingPermissionOutcome.Selected) {
         this.repository.updateLaneStatus(lane.id, CodingLaneStatus.Running);
         this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.Running);
@@ -1578,6 +1583,31 @@ export class CodingRoomService extends EventEmitter {
     kind: (typeof CodingEventKind)[keyof typeof CodingEventKind],
     payload: Record<string, unknown>,
   ): void {
+    if (kind === CodingEventKind.TurnCancelled) {
+      // Repeated terminal receipts cannot overwrite a completed/failed/idle lane.
+      if (
+        lane.status !== CodingLaneStatus.Running &&
+        lane.status !== CodingLaneStatus.WaitingApproval
+      )
+        return;
+      this.repository.appendEvent(lane.id, kind, payload);
+      this.repository.updateLaneStatus(lane.id, CodingLaneStatus.Idle);
+      const denied = payload.reason === NativeStopCause.ApprovalDenied;
+      this.repository.updateMissionStatus(
+        lane.missionId,
+        denied ? CodingMissionStatus.NeedsReview : CodingMissionStatus.Cancelled,
+      );
+      const assignment = this.repository.getLatestAssignmentForLane(lane.id);
+      if (assignment)
+        this.repository.updateAssignmentStatus(
+          assignment.id,
+          denied ? CodingAssignmentStatus.Planned : CodingAssignmentStatus.Cancelled,
+        );
+      if (this.requiresWriterLease(lane.sourceRoot, this.executionRoot(lane, workspaceRoot)))
+        this.repository.releaseWriterLease(roomId, lane.sourceRoot, lane.id);
+      this.publish(workspaceRoot);
+      return;
+    }
     const event = this.repository.appendOrMergeStreamEvent(lane.id, kind, payload);
     if (kind === CodingEventKind.Permission) {
       this.repository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingApproval);
@@ -1604,25 +1634,6 @@ export class CodingRoomService extends EventEmitter {
   }
 
   private isDisposed = false;
-
-  recordBuiltinInterruption(interruption: CoworkSessionInterruption): void {
-    for (const workspaceRoot of this.knownRooms()) {
-      const snapshot = this.bootstrap(workspaceRoot);
-      const lane = snapshot.lanes.find(
-        candidate => candidate.localSessionId === interruption.sessionId,
-      );
-      if (!lane) continue;
-      this.repository.appendEvent(lane.id, CodingEventKind.TurnCancelled, {
-        reason: interruption.cause,
-        interruption,
-      });
-      this.repository.updateLaneStatus(lane.id, CodingLaneStatus.Idle);
-      this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.NeedsReview);
-      this.updateLaneAssignmentStatus(snapshot, lane.id, CodingAssignmentStatus.Planned);
-      this.publish(workspaceRoot);
-      return;
-    }
-  }
 
   async dispose(): Promise<void> {
     this.isDisposed = true;

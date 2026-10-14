@@ -5,11 +5,7 @@ import {
   CodingStreamUpdateMode,
   CodingToolCallStatus,
 } from '../../shared/codingAgent';
-import {
-  CoworkToolActivityEventType,
-  CoworkToolActivityPhase,
-} from '../../shared/cowork/toolActivity';
-import { normalizePiMessage, normalizePiToolActivity } from './piCodingEventAdapter';
+import { normalizePiMessage, normalizePiMessageUpdate } from './piCodingEventAdapter';
 
 describe('Pi coding event adapter', () => {
   test('maps tool messages to durable tool call events', () => {
@@ -51,36 +47,60 @@ describe('Pi coding event adapter', () => {
     });
   });
 
-  test('flattens transient tool activity updates', () => {
+  test('keeps native argument revisions on the same tool instead of assistant text', () => {
     expect(
-      normalizePiToolActivity({
-        type: CoworkToolActivityEventType.Upsert,
-        activity: {
-          toolCallId: 'call-1',
-          toolName: 'bash',
-          toolInput: { command: 'pwd' },
-          phase: CoworkToolActivityPhase.Preparing,
-          updatedAt: 1,
-        },
+      normalizePiMessageUpdate('message-1', '', {
+        toolUseId: 'call-1',
+        toolName: 'bash',
+        toolInput: { command: 'pwd' },
+        isStreaming: true,
+      }),
+    ).toEqual({
+      kind: CodingEventKind.ToolCall,
+      payload: {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        toolInput: { command: 'pwd' },
+        status: CodingToolCallStatus.Pending,
+        streamUpdateMode: CodingStreamUpdateMode.Replace,
+      },
+    });
+  });
+
+  test('a failed tool result stays failed without settling the whole turn', () => {
+    expect(
+      normalizePiMessageUpdate('message-2', 'permission denied', {
+        toolUseId: 'call-1',
+        isError: true,
+        isStreaming: false,
       }),
     ).toMatchObject({
       kind: CodingEventKind.ToolCall,
       payload: {
         toolCallId: 'call-1',
-        toolName: 'bash',
-        status: CodingToolCallStatus.Pending,
-        streamUpdateMode: CodingStreamUpdateMode.Replace,
+        output: 'permission denied',
+        status: CodingToolCallStatus.Failed,
       },
     });
     expect(
-      normalizePiToolActivity({
-        type: CoworkToolActivityEventType.Remove,
-        toolCallId: 'call-1',
-      }),
+      normalizePiMessage({ type: 'tool_result', id: 'r', metadata: { isError: true } }),
     ).toMatchObject({
       kind: CodingEventKind.ToolCall,
-      payload: { toolCallId: 'call-1', status: CodingToolCallStatus.Completed },
+      payload: { status: CodingToolCallStatus.Failed },
     });
-    expect(normalizePiToolActivity({ type: CoworkToolActivityEventType.Clear })).toBeNull();
+  });
+
+  test('preserves reasoning and assistant replacement semantics', () => {
+    expect(normalizePiMessageUpdate('m', 'answer')).toEqual({
+      kind: CodingEventKind.MessageDelta,
+      payload: {
+        messageId: 'm',
+        content: 'answer',
+        streamUpdateMode: CodingStreamUpdateMode.Replace,
+      },
+    });
+    expect(normalizePiMessageUpdate('m', 'thinking', { isThinking: true })).toMatchObject({
+      kind: CodingEventKind.Reasoning,
+    });
   });
 });

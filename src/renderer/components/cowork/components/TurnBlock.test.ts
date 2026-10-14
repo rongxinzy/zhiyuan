@@ -11,7 +11,6 @@ import {
   CoworkPermissionOrigin,
 } from '../../../../shared/cowork/constants';
 import { CoworkInterruptionCause } from '../../../../shared/cowork/interruption';
-import { CoworkToolActivityPhase } from '../../../../shared/cowork/toolActivity';
 import { CoworkArtifactRole, CoworkArtifactSource } from '../../../../shared/cowork/artifacts';
 import { i18nService } from '../../../services/i18n';
 import type {
@@ -255,22 +254,6 @@ test('keeps message-level states free of competing decorative animations', () =>
     container.querySelector('.bg-clip-text, .animate-pulse, .animate-message-in, img'),
   ).toBeNull();
   expect(screen.getByText(i18nService.t('codingAgentToolRunning'))).toBeVisible();
-});
-
-test('keeps a preparation status visible without an empty collapsible', () => {
-  renderTurn([], {
-    isTurnComplete: false,
-    toolActivities: [
-      {
-        toolCallId: 'preparing',
-        toolName: 'bash',
-        phase: CoworkToolActivityPhase.Preparing,
-        updatedAt: 1,
-      },
-    ],
-  });
-  expect(screen.getByRole('status')).toBeVisible();
-  expect(screen.queryByRole('button')).toBeNull();
 });
 
 test('renders historical interruption without a legacy execution button', () => {
