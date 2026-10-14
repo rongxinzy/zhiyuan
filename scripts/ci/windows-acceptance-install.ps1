@@ -3,27 +3,28 @@ $project = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $diagnostics = Join-Path $project 'acceptance-diagnostics'
 $output = Join-Path $project 'acceptance-output'
 $installRoot = Join-Path $env:RUNNER_TEMP 'zhiyuan-acceptance-installed'
-$homeRoot = Join-Path $env:RUNNER_TEMP 'zhiyuan-acceptance-installer-home'
-New-Item -ItemType Directory -Force $diagnostics,$installRoot,$homeRoot | Out-Null
+New-Item -ItemType Directory -Force $diagnostics,$installRoot | Out-Null
 $installers = @(Get-ChildItem -LiteralPath (Join-Path $project 'release') -Filter '*.exe' -File)
 if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)" }
 $installer = $installers[0]
 $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
 if ($signature.Status -ne 'NotSigned') { throw "Expected an explicitly unsigned acceptance installer: $($signature.Status)" }
-$env:HOME = $homeRoot
-$env:USERPROFILE = $homeRoot
-$env:APPDATA = Join-Path $homeRoot 'AppData/Roaming'
-$env:LOCALAPPDATA = Join-Path $homeRoot 'AppData/Local'
-New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
+# The installer uses Windows Known Folders and the disposable runner profile.
+# Do not override USERPROFILE/APPDATA independently of those OS APIs. The actual
+# application is launched with its own isolated profile by windows-app-smoke.
 Copy-Item -Path (Join-Path $project 'build-tar/windows-acceptance/*.json') -Destination $diagnostics
 $started = Get-Date
 # /D must be the final NSIS argument. This is a fresh, CI-owned destination.
-$process = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installRoot" -PassThru
-if (-not $process.WaitForExit(900000)) {
-  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-  throw 'Acceptance installation exceeded 15 minutes'
+try {
+  $process = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installRoot" -PassThru
+  if (-not $process.WaitForExit(900000)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw 'Acceptance installation exceeded 15 minutes'
+  }
+  if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
+} finally {
+  & (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -ProjectRoot $project -InstallRoot $installRoot -StartedAt $started
 }
-if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
 $app = Join-Path $installRoot '知远.exe'
 if (-not (Test-Path -LiteralPath $app)) { throw 'Installer did not create the application executable' }
 @{ exitCode=$process.ExitCode; elapsedSeconds=((Get-Date)-$started).TotalSeconds; installedExecutable=$app } |

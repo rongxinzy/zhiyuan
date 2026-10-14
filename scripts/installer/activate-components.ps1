@@ -1,7 +1,6 @@
 # Shared component-activation step (junction switching with the
-# component-switch-state.txt rollback protocol). Verbatim extraction of the
-# inline PowerShell that used to live in scripts/nsis-installer.nsh
-# ("Activating offline components"); behavior is intentionally unchanged.
+# component-switch-state.txt rollback protocol). The current component set is
+# checked against the bundled routing metadata before any junction is changed.
 # Both the NSIS installer and the WebView2 shell orchestrate via this script.
 #
 # Exit codes: 0 on success; non-zero on failure with the error detail on the
@@ -21,21 +20,28 @@ Set-StrictMode -Version Latest
 
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 $targets = @((Get-Content -LiteralPath $TargetsPath -Raw -ErrorAction Stop | ConvertFrom-Json))
+$expectedKeys = @('portable-git')
+$targetKeys = @($targets | ForEach-Object { [string]$_.key } | Sort-Object)
+$manifestKeys = @($manifest.components | ForEach-Object { [string]$_.key } | Sort-Object)
+if ($targets.Count -ne $expectedKeys.Count -or ($targetKeys -join ',') -cne ($expectedKeys -join ',') -or
+    @($manifest.components).Count -ne $expectedKeys.Count -or ($manifestKeys -join ',') -cne ($expectedKeys -join ',')) {
+  throw 'Invalid component manifest: expected exactly portable-git (no missing, duplicate or unknown components)'
+}
 $rows = @($targets | ForEach-Object {
   $targetRow = $_
   if ($targetRow.key -notmatch '^[a-z0-9-]+\z' -or $targetRow.prefix -notmatch '^[A-Za-z0-9-]+\z') { throw 'Invalid component target entry' }
+  if ($targetRow.prefix -cne 'mingit' -or ([string]$targetRow.sentinel).Replace('\', '/') -cne 'mingit/usr/bin/bash.exe') { throw 'Invalid component target paths' }
   $idPath = Join-Path $PluginDir ('component-' + $targetRow.key + '.version')
   $id = (Get-Content -LiteralPath $idPath -Raw -ErrorAction Stop).Trim()
   if ($id -notmatch '^[0-9a-f]{64}\z') { throw 'Invalid component content ID for ' + $targetRow.key }
   $manifestEntry = @($manifest.components | Where-Object { $_.key -eq $targetRow.key })
-  if ($manifestEntry.Count -ne 1 -or $manifestEntry[0].prefix -ne $targetRow.prefix -or $manifestEntry[0].contentId -ne $id) { throw "Component manifest mismatch: $($targetRow.key)" }
+  if ($manifestEntry.Count -ne 1 -or $manifestEntry[0].prefix -cne $targetRow.prefix -or $manifestEntry[0].contentId -cne $id) { throw "Component manifest mismatch: $($targetRow.key)" }
+  if (([string]$manifestEntry[0].sentinel).Replace('\', '/') -cne 'mingit/usr/bin/bash.exe') { throw 'Component manifest sentinel mismatch' }
   [pscustomobject]@{ Key = [string]$targetRow.key; Prefix = [string]$targetRow.prefix; Id = $id }
 })
 $prepared = @()
 $switched = @()
 try {
-  if ($rows.Count -ne 7) { throw "Invalid component manifest: expected 7 components, got $($rows.Count)" }
-  if (@($rows.Key | Sort-Object -Unique).Count -ne 7) { throw 'Invalid component manifest: duplicate component key' }
   foreach ($row in $rows) {
     $root = Join-Path $RuntimeRoot $row.Key
     $target = Join-Path $root $row.Id

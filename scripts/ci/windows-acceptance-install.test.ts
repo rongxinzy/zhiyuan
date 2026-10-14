@@ -15,6 +15,9 @@ describe('Windows acceptance delivery gate', () => {
     );
     expect(script).toContain('SHA256SUMS.txt');
     expect(script).toContain('commit=$env:GITHUB_SHA');
+    expect(script).toMatch(/finally\s*\{[\s\S]*windows-installer-diagnostics\.ps1/);
+    expect(script).toContain('-StartedAt $started');
+    expect(script).not.toMatch(/\$env:(?:USERPROFILE|APPDATA|LOCALAPPDATA|HOME)\s*=/);
     expect(script).not.toMatch(/Defender|Add-MpPreference|Set-MpPreference|package-windows\.ps1/);
   });
 

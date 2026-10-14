@@ -61,8 +61,11 @@ function Get-Components {
     throw "Component targets are missing: $ComponentTargetsPath"
   }
   $targets = @((Get-Content -LiteralPath $ComponentTargetsPath -Raw -ErrorAction Stop | ConvertFrom-Json))
-  if ($targets.Count -ne 7) {
-    throw "Invalid component targets: expected 7 components, got $($targets.Count)"
+  # Keep the installed set aligned with nsis-offline-components.json and the pack manifest.
+  $expectedKeys = @('portable-git')
+  $actualKeys = @($targets | ForEach-Object { [string]$_.key } | Sort-Object)
+  if ($targets.Count -ne $expectedKeys.Count -or ($actualKeys -join ',') -cne ($expectedKeys -join ',')) {
+    throw 'Invalid component targets: expected exactly portable-git (no missing, duplicate or unknown components)'
   }
 
   $components = @(
@@ -75,6 +78,9 @@ function Get-Components {
       }
       Test-SafeRelativePath $prefix 'component prefix' | Out-Null
       Test-SafeRelativePath $sentinel 'component sentinel' | Out-Null
+      if ($prefix -cne 'mingit' -or $sentinel.Replace('\', '/') -cne 'mingit/usr/bin/bash.exe') {
+        throw "Invalid component target paths: $key"
+      }
 
       $id = Read-ExpectedHash (Join-Path $PluginDir "component-$key.version") "component content ID for $key"
       $archiveHash = Read-ExpectedHash (Join-Path $PluginDir "component-$key.sha256") "component archive SHA-256 for $key"
@@ -89,7 +95,7 @@ function Get-Components {
       }
     }
   )
-  if (@($components.Key | Sort-Object -Unique).Count -ne 7) {
+  if (@($components.Key | Sort-Object -Unique).Count -ne $expectedKeys.Count) {
     throw 'Invalid component targets: duplicate component key'
   }
   return $components
@@ -174,6 +180,7 @@ function Test-ArchiveEntries([string]$ArchivePath, [string]$Prefix) {
   }
 }
 
+$modeStartedAt = Get-Date
 try {
   if (-not (Test-Path -LiteralPath $PluginDir -PathType Container)) {
     throw "Plugin directory is missing: $PluginDir"
@@ -182,7 +189,6 @@ try {
     throw "7za executable is missing: $SevenZipPath"
   }
   $components = Get-Components
-  $modeStartedAt = Get-Date
 
   if ($Mode -eq 'cache') {
     foreach ($component in $components) {
@@ -297,6 +303,7 @@ try {
   }
   Add-Timing "phase=component-batch-expand-complete elapsed_ms=$(Get-ElapsedMilliseconds $modeStartedAt)"
 } catch {
-  Add-Timing "phase=validator-failed mode=$Mode elapsed_ms=$(Get-ElapsedMilliseconds $modeStartedAt)"
-  Stop-WithCode 1 $_.Exception.Message
+  $message = $_.Exception.Message -replace '[\r\n]+', ' '
+  Add-Timing "phase=validator-failed mode=$Mode elapsed_ms=$(Get-ElapsedMilliseconds $modeStartedAt) reason=$message"
+  Stop-WithCode 1 $message
 }
