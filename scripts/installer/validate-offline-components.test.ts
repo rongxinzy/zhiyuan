@@ -265,7 +265,10 @@ describe.skipIf(process.platform !== 'win32')('offline component cache validator
     expect(result.status, result.stderr || result.stdout).toBe(0);
     const current = path.join(fixture.runtimeRoot, 'portable-git', 'current');
     expect(fs.lstatSync(current).isSymbolicLink()).toBe(true);
-    expect(fs.realpathSync(current)).toBe(fs.realpathSync(targetDir(fixture, 'portable-git')));
+    // Resolve 8.3 aliases as well as junctions before checking the exact target.
+    expect(fs.realpathSync.native(current)).toBe(
+      fs.realpathSync.native(targetDir(fixture, 'portable-git')),
+    );
   });
 
   test.each(['missing', 'duplicate', 'unknown', 'prefix', 'sentinel'])(
