@@ -1,5 +1,18 @@
 export const historyTranslations = {
   zh: {
+    historySearchLength: '请输入 2–256 个字符，或清空关键词浏览历史。',
+    historyDataSettings: '在设置中备份与恢复',
+    historySourceFilter: '历史来源',
+    historyAllSources: '全部来源',
+    historyTimeFilter: '历史时间',
+    historyAllTime: '不限时间',
+    historyLastWeek: '最近 7 天',
+    historyLastMonth: '最近 30 天',
+    historyListTimeHint: '按会话最近更新时间筛选；最近 7 / 30 天包含今天，以本地日期计算。',
+    historySearchTimeHint: '时间按匹配消息的记录时间筛选；最近 7 / 30 天包含今天，以本地日期计算。',
+    historySettingsLabel: '数据与历史',
+    historySettingsHint: '管理历史备份与恢复。浏览和搜索请使用侧栏中的历史记录。',
+
     historyMaintenanceTitle: '历史备份与恢复',
     historyBackup: '备份历史',
     historyRestore: '恢复历史',
@@ -59,6 +72,22 @@ export const historyTranslations = {
     historyIndexTime: '搜索索引更新于',
   },
   en: {
+    historySearchLength: 'Enter 2–256 characters, or clear the query to browse history.',
+    historyDataSettings: 'Backup and restore in settings',
+    historySourceFilter: 'History source',
+    historyAllSources: 'All sources',
+    historyTimeFilter: 'History time',
+    historyAllTime: 'Any time',
+    historyLastWeek: 'Last 7 days',
+    historyLastMonth: 'Last 30 days',
+    historyListTimeHint:
+      'Filter by the conversation’s last update. Date ranges use local calendar days, including today.',
+    historySearchTimeHint:
+      'Filter by the matched message’s recorded time. Date ranges use local calendar days, including today.',
+    historySettingsLabel: 'Data and history',
+    historySettingsHint:
+      'Manage history backups and restore. Browse and search using History in the sidebar.',
+
     historyMaintenanceTitle: 'History backup and restore',
     historyBackup: 'Back up history',
     historyRestore: 'Restore history',

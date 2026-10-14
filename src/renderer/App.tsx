@@ -906,6 +906,7 @@ const App: React.FC = () => {
                   ) : mainView === 'history' ? (
                     <HistoryBrowser
                       api={window.electron.history}
+                      onOpenDataSettings={() => handleShowSettings({ initialTab: 'data' })}
                       onClose={() => setMainView('cowork')}
                       onOpenConversation={handleOpenHistoryConversation}
                       isSidebarCollapsed={isSidebarCollapsed}

@@ -142,3 +142,30 @@ test('draft and no-result states do not fabricate a task, result or runnable ter
   await user.click(screen.getByRole('button', { name: 'codingWorkOutput' }));
   expect(callbacks.onOutput).not.toHaveBeenCalled();
 });
+
+test('keyboard users can expand and focus the independently scrolling saved result', async () => {
+  const user = userEvent.setup();
+  render(
+    <CodingTaskOverview
+      sourceRoot="/projects/很长的工作区/with spaces"
+      taskTitle={'Long task '.repeat(30)}
+      status={CodingLaneStatus.Completed}
+      turns={projectCodingEvents(completed('Long saved result\n'.repeat(100)))}
+      hasOutput
+      {...actions()}
+    />,
+  );
+  const toggle = screen.getByRole('button', { name: 'codingWorkLatestResult' });
+  toggle.focus();
+  await user.keyboard('{Enter}');
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await user.tab();
+  const result = screen.getByRole('region', { name: 'codingWorkLatestResult' });
+  expect(result).toHaveFocus();
+  expect(result).toHaveClass('overflow-y-auto', 'max-h-48');
+  expect(result).toHaveClass('focus-visible:outline-ring');
+  await user.tab({ shift: true });
+  expect(toggle).toHaveFocus();
+  await user.keyboard(' ');
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});

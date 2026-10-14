@@ -24,7 +24,14 @@ export interface HistoryPage<T> {
   items: T[];
   nextCursor?: string;
 }
-export interface HistoryListRequest {
+export interface HistoryFilters {
+  source?: 'cowork' | 'coding';
+  /** Inclusive UTC epoch milliseconds. List uses conversation updatedAt; search uses message timestamp. */
+  since?: number;
+  /** Inclusive UTC epoch milliseconds; must be at least since when both are provided. */
+  until?: number;
+}
+export interface HistoryListRequest extends HistoryFilters {
   limit?: number;
   cursor?: string;
   workspace?: string;
@@ -36,7 +43,7 @@ export interface HistoryReadRequest {
   /** Inclusive source entry anchor, as returned by search. Cannot accompany cursor. */
   anchor?: string;
 }
-export interface HistorySearchRequest {
+export interface HistorySearchRequest extends HistoryFilters {
   query: string;
   limit?: number;
   cursor?: string;

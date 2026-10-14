@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ArrowLeft, Search, X } from 'lucide-react';
+import { ArrowLeft, Search, Settings, X } from 'lucide-react';
 import type {
   HistoryApi,
   HistoryConversation,
@@ -8,6 +8,7 @@ import type {
 } from '@shared/history';
 import { Button } from '@shared/components/ui/button';
 import { Input } from '@shared/components/ui/input';
+import { FluidTabs } from '@shared/components/ui/fluid-tabs';
 import { Empty, EmptyDescription } from '@shared/components/ui/empty';
 import PageHeader from '../PageHeader';
 import { i18nService } from '../../services/i18n';
@@ -15,7 +16,7 @@ import { historyLocatorKey } from './historyBrowserModel';
 import { HISTORY_PAGE_SIZE, HistorySource } from './constants';
 import { useHistoryPage } from './useHistoryPage';
 import { HistoryMessageView } from './HistoryMessages';
-import { HistoryMaintenanceControls } from './HistoryMaintenanceControls';
+import { historyTimeFilter, type HistoryTimeRange } from './historyFilters';
 
 type HistoryRow = HistoryConversation | HistorySearchHit;
 interface Selection {
@@ -26,6 +27,7 @@ interface Selection {
 export interface HistoryBrowserProps {
   api: HistoryApi;
   onClose: () => void;
+  onOpenDataSettings?: () => void;
   /** Navigation only. The caller must not start or resume a run. */
   onOpenConversation?: (
     locator: HistoryLocator,
@@ -79,6 +81,7 @@ function PageState({
 export function HistoryBrowser({
   api,
   onClose,
+  onOpenDataSettings,
   onOpenConversation,
   isSidebarCollapsed,
   onToggleSidebar,
@@ -90,11 +93,21 @@ export function HistoryBrowser({
   const t = i18nService.t.bind(i18nService);
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
+  const [searchInvalid, setSearchInvalid] = useState(false);
+  const [source, setSource] = useState<'all' | 'cowork' | 'coding'>('all');
+  const [time, setTime] = useState<{ range: HistoryTimeRange; now: number }>({
+    range: 'all',
+    now: Date.now(),
+  });
+  const filters = {
+    ...(source === 'all' ? {} : { source }),
+    ...historyTimeFilter(time.range, time.now),
+  };
   const [selection, setSelection] = useState<Selection | null>(null);
-  const directory = useHistoryPage<HistoryRow>(query, cursor =>
+  const directory = useHistoryPage<HistoryRow>(JSON.stringify([query, filters]), cursor =>
     query
-      ? api.search({ query, cursor, limit: HISTORY_PAGE_SIZE })
-      : api.list({ cursor, limit: HISTORY_PAGE_SIZE }),
+      ? api.search({ query, cursor, limit: HISTORY_PAGE_SIZE, ...filters })
+      : api.list({ cursor, limit: HISTORY_PAGE_SIZE, ...filters }),
   );
   const sourceLabel = (locator: HistoryLocator) =>
     t(locator.source === HistorySource.Coding ? 'historySourceCoding' : 'historySourceCowork');
@@ -112,15 +125,61 @@ export function HistoryBrowser({
         }
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-        <p className="text-sm text-muted-foreground">{t('historyReadOnly')}</p>
-        <HistoryMaintenanceControls api={api} />
+        <p className="theme-home-caption">{t('historyReadOnly')}</p>
+        {onOpenDataSettings && (
+          <Button type="button" variant="ghost" className="self-start" onClick={onOpenDataSettings}>
+            <Settings className="size-4" />
+            {t('historyDataSettings')}
+          </Button>
+        )}
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="min-w-0 overflow-x-auto">
+            <FluidTabs
+              aria-label={t('historySourceFilter')}
+              value={source}
+              onValueChange={value => {
+                setSource(value);
+                setSelection(null);
+              }}
+              items={[
+                { value: 'all', label: t('historyAllSources') },
+                { value: 'cowork', label: t('historySourceCowork') },
+                { value: 'coding', label: t('historySourceCoding') },
+              ]}
+            />
+          </div>
+          <div className="min-w-0 overflow-x-auto">
+            <FluidTabs
+              aria-label={t('historyTimeFilter')}
+              value={time.range}
+              onValueChange={range => {
+                setTime({ range, now: Date.now() });
+                setSelection(null);
+              }}
+              items={[
+                { value: 'all', label: t('historyAllTime') },
+                { value: 'week', label: t('historyLastWeek') },
+                { value: 'month', label: t('historyLastMonth') },
+              ]}
+            />
+          </div>
+          <p className="theme-home-caption">
+            {t(query ? 'historySearchTimeHint' : 'historyListTimeHint')}
+          </p>
+        </div>
         <form
           className="flex flex-wrap items-center gap-2"
           role="search"
           onSubmit={event => {
             event.preventDefault();
+            const text = draft.trim();
+            if (text && (text.length < 2 || text.length > 256)) {
+              setSearchInvalid(true);
+              return;
+            }
+            setSearchInvalid(false);
             setSelection(null);
-            setQuery(draft.trim());
+            setQuery(text);
           }}
         >
           <Input
@@ -128,7 +187,13 @@ export function HistoryBrowser({
             aria-label={t('historySearch')}
             placeholder={t('historySearch')}
             value={draft}
-            onChange={event => setDraft(event.target.value)}
+            maxLength={256}
+            aria-invalid={searchInvalid || undefined}
+            aria-describedby={searchInvalid ? 'history-search-validation' : undefined}
+            onChange={event => {
+              setDraft(event.target.value);
+              setSearchInvalid(false);
+            }}
           />
           <Button type="submit" variant="outline">
             <Search className="size-4" />
@@ -140,6 +205,7 @@ export function HistoryBrowser({
               variant="ghost"
               onClick={() => {
                 setDraft('');
+                setSearchInvalid(false);
                 setQuery('');
                 setSelection(null);
               }}
@@ -148,6 +214,11 @@ export function HistoryBrowser({
             </Button>
           )}
         </form>
+        {searchInvalid && (
+          <p id="history-search-validation" role="alert" className="theme-home-caption">
+            {t('historySearchLength')}
+          </p>
+        )}
         {selection ? (
           <HistoryReader
             api={api}
@@ -174,6 +245,7 @@ export function HistoryBrowser({
                     key={`${historyLocatorKey(row.locator)}:${hit?.entryId ?? ''}`}
                   >
                     <Button
+                      title={row.title || t('historyUntitled')}
                       variant="navigation"
                       size="navigation"
                       className="gap-2"

@@ -99,7 +99,14 @@ export function CodingTaskOverview({
           </p>
         )}
         <CollapsibleContent>
-          <div className="flex max-h-48 min-w-0 flex-col gap-2 overflow-y-auto py-2">
+          <div
+            role="region"
+            aria-label={t(
+              context.previousTurn ? 'codingWorkPreviousResult' : 'codingWorkLatestResult',
+            )}
+            tabIndex={0}
+            className="flex max-h-48 min-w-0 flex-col gap-2 overflow-y-auto py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
             <p className="theme-home-caption">{t('codingWorkResultScope')}</p>
             {context.settledStatus && <p className="theme-home-status">{t(settledKey)}</p>}
             <p className="theme-home-caption whitespace-pre-wrap break-words">

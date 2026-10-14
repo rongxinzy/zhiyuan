@@ -1,12 +1,5 @@
 import { Badge } from '@shared/components/ui/badge';
 import { Button } from '@shared/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@shared/components/ui/select';
 import { useEffect, useRef, useState } from 'react';
 import type { MagpieModelCatalog } from '../../../../shared/magpie/types';
 import {
@@ -16,6 +9,7 @@ import {
 } from '../../../services/availableModels';
 import { i18nService } from '../../../services/i18n';
 import { MagpieSubscriptionControl } from './MagpieSubscriptionControl';
+import { ModelCatalogBrowser } from './ModelCatalogBrowser';
 
 export default function ModelSettingsPanel() {
   const [catalog, setCatalog] = useState<MagpieModelCatalog | null>(null);
@@ -26,10 +20,14 @@ export default function ModelSettingsPanel() {
   const mounted = useRef(false);
   const locked = useRef(false);
   const actionVersion = useRef(0);
-  const apply = (next: MagpieModelCatalog) => {
+  const apply = (next: MagpieModelCatalog, confirmed = false) => {
     if (!mounted.current) return;
     setCatalog(next);
-    setSelection(next.defaultModelId ?? '');
+    setSelection(previous =>
+      !confirmed && next.models.some(model => model.id === previous)
+        ? previous
+        : (next.defaultModelId ?? ''),
+    );
   };
   const run = async (action: () => Promise<void>) => {
     if (locked.current) return;
@@ -83,13 +81,14 @@ export default function ModelSettingsPanel() {
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-base font-semibold">{i18nService.t('magpieCatalogTitle')}</h2>
         {(catalog || starting) && (
-          <Badge variant="outline">
+          <Badge variant="outline" role="status">
             {i18nService.t(`magpieState_${starting ? 'starting' : catalog?.status.state}`)}
           </Badge>
         )}
       </div>
       <p className="text-sm text-muted-foreground">{i18nService.t('magpieCatalogHint')}</p>
       <p className="text-sm text-muted-foreground">{i18nService.t('magpieCatalogConsent')}</p>
+      {busy && !catalog && <p role="status">{i18nService.t('modelBrowseLoading')}</p>}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {i18nService.t('magpieActionFailed')}
@@ -143,30 +142,11 @@ export default function ModelSettingsPanel() {
           <div className="space-y-2">
             <p className="text-sm font-medium">{i18nService.t('magpieDefaultModel')}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={selected?.id ?? null}
-                onValueChange={value => setSelection(value ?? '')}
-                disabled={busy || !models.length}
-              >
-                <SelectTrigger
-                  className="min-w-0 flex-1"
-                  aria-label={i18nService.t('magpieDefaultModel')}
-                >
-                  <SelectValue placeholder={i18nService.t('magpieModelUnset')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map(model => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.display_name || model.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Button
                 type="button"
                 disabled={busy || !selected || selection === catalog.defaultModelId}
                 onClick={() =>
-                  void run(async () => apply(await selectMagpieDefaultModel(selection)))
+                  void run(async () => apply(await selectMagpieDefaultModel(selection), true))
                 }
               >
                 {i18nService.t('magpieSetDefault')}
@@ -176,22 +156,13 @@ export default function ModelSettingsPanel() {
           {!models.length && (
             <p className="text-sm text-muted-foreground">{i18nService.t('magpieCatalogEmpty')}</p>
           )}
-          <ul className="divide-y divide-border">
-            {models.map(model => (
-              <li key={model.id} className="space-y-1 py-3">
-                <p className="break-words text-sm font-medium">{model.display_name || model.id}</p>
-                <p className="break-all text-xs text-muted-foreground">
-                  {model.id}
-                  {model.owned_by ? ` · ${model.owned_by}` : ''}
-                </p>
-                {!!model.native_endpoints?.length && (
-                  <p className="text-xs text-muted-foreground">
-                    {model.native_endpoints.join(' · ')}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
+          <ModelCatalogBrowser
+            models={models}
+            defaultModelId={catalog.defaultModelId}
+            selection={selection}
+            disabled={busy}
+            onSelect={setSelection}
+          />
         </>
       )}
       {catalog && (

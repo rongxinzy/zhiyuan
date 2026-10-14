@@ -1,5 +1,6 @@
 import {
   Box,
+  Database,
   CircleHelp,
   Keyboard,
   Route,
@@ -16,6 +17,7 @@ export interface SettingsTabMeta {
 }
 
 export const SETTINGS_TAB_METAS: Record<TabType, SettingsTabMeta> = {
+  data: { labelKey: 'historySettingsLabel', icon: Database },
   general: { labelKey: 'general', icon: SlidersHorizontal },
   appearance: { labelKey: 'appearance', icon: SunMedium },
   shortcuts: { labelKey: 'shortcuts', icon: Keyboard },
@@ -36,7 +38,7 @@ export interface SettingsNavGroupDef {
  * (before `about`) by useSettingsTabs.
  */
 export const SETTINGS_NAV_GROUPS: SettingsNavGroupDef[] = [
-  { titleKey: 'settingsGroupGeneral', tabs: ['general', 'appearance', 'shortcuts'] },
+  { titleKey: 'settingsGroupGeneral', tabs: ['general', 'appearance', 'shortcuts', 'data'] },
   { titleKey: 'settingsGroupModel', tabs: ['model', 'triage'] },
   { titleKey: null, tabs: ['about'] },
 ];

@@ -16,7 +16,7 @@ import {
 } from './historyPreview';
 import { relocateHistoryAttachments } from './managedAttachments';
 import { projectDurableEntry } from '../libs/agentEngine/durable/messageProjection';
-import { decodeCursor, encodeCursor, locatorKey, pageLimit } from './cursor';
+import { decodeCursor, encodeCursor, locatorKey, pageLimit, historyFilters } from './cursor';
 
 export interface NativeHistoryReader {
   historyExists(id: string): Promise<boolean>;
@@ -76,13 +76,20 @@ export class HistoryReader {
     return this.describe(row);
   }
   async list(request: HistoryListRequest = {}): Promise<HistoryPage<HistoryConversation>> {
+    const filters = historyFilters(request);
     const limit = pageLimit(request.limit);
     if (
       request.workspace !== undefined &&
       (typeof request.workspace !== 'string' || request.workspace.length > 4096)
     )
       throw new Error('Invalid workspace filter');
-    const scope = `list:${request.workspace ?? ''}`;
+    const scope = JSON.stringify([
+      'list',
+      request.workspace ?? null,
+      filters.source ?? null,
+      filters.since ?? null,
+      filters.until ?? null,
+    ]);
     const cursor = decodeCursor<{ time: number; source: string; id: string }>(
       scope,
       request.cursor,
@@ -99,6 +106,18 @@ export class HistoryReader {
     if (request.workspace !== undefined) {
       clauses.push('workspace = ?');
       values.push(request.workspace);
+    }
+    if (filters.source !== undefined) {
+      clauses.push('source = ?');
+      values.push(filters.source);
+    }
+    if (filters.since !== undefined) {
+      clauses.push('updated_at >= ?');
+      values.push(filters.since);
+    }
+    if (filters.until !== undefined) {
+      clauses.push('updated_at <= ?');
+      values.push(filters.until);
     }
     if (cursor) {
       clauses.push(

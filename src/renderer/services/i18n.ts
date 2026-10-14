@@ -6,6 +6,7 @@ import { configService } from './config';
 import { briefingTranslations } from './briefingTranslations';
 import { durableTranslations } from './durableTranslations';
 import { magpieTranslations } from './magpieTranslations';
+import { modelBrowseTranslations } from './modelBrowseTranslations';
 import { workDocumentTranslations } from './workDocumentTranslations';
 
 // 支持的语言类型
@@ -21,6 +22,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     ...briefingTranslations.zh,
     ...durableTranslations.zh,
     ...magpieTranslations.zh,
+    ...modelBrowseTranslations.zh,
     ...workDocumentTranslations.zh,
     operationFailed: '操作失败',
     aboutViewOnGithub: '在 GitHub 上查看',
@@ -2604,6 +2606,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     ...briefingTranslations.en,
     ...durableTranslations.en,
     ...magpieTranslations.en,
+    ...modelBrowseTranslations.en,
     ...workDocumentTranslations.en,
     operationFailed: 'Operation failed',
     aboutViewOnGithub: 'View on GitHub',

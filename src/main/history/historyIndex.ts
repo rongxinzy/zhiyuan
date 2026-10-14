@@ -7,7 +7,7 @@ import type {
   HistorySearchPage,
   HistorySearchRequest,
 } from '../../shared/history';
-import { decodeCursor, encodeCursor, locatorKey, pageLimit } from './cursor';
+import { decodeCursor, encodeCursor, locatorKey, pageLimit, historyFilters } from './cursor';
 import { HistoryReader } from './historyReader';
 import { installHistoryRevisions, historyRevision } from './historyRevisions';
 
@@ -197,6 +197,7 @@ export class HistoryIndex {
     }
   }
   async search(request: HistorySearchRequest): Promise<HistorySearchPage> {
+    const filters = historyFilters(request);
     const limit = pageLimit(request.limit);
     if (
       typeof request.query !== 'string' ||
@@ -205,14 +206,20 @@ export class HistoryIndex {
     )
       throw new Error('Search requires 2–256 characters');
     const query = request.query.trim();
-    if (!request.cursor && (this.dirty || !this.indexedAt || this.sourceVersion !== this.version()))
-      await this.rebuild(false);
-    else if (this.refreshing) await this.refreshing;
-    const scope = `search:${query}`;
+    const scope = JSON.stringify([
+      'search',
+      query,
+      filters.source ?? null,
+      filters.since ?? null,
+      filters.until ?? null,
+    ]);
     const cursor = decodeCursor<{ timestamp: number; rowid: number; generation: string }>(
       scope,
       request.cursor,
     );
+    if (!request.cursor && (this.dirty || !this.indexedAt || this.sourceVersion !== this.version()))
+      await this.rebuild(false);
+    else if (this.refreshing) await this.refreshing;
     const current = { generation: this.indexRevision };
     if (
       cursor &&
@@ -229,12 +236,26 @@ export class HistoryIndex {
       ? ' AND (CAST(s.timestamp AS INTEGER) < ? OR (CAST(s.timestamp AS INTEGER)=? AND s.rowid < ?))'
       : '';
     const values: (string | number)[] = [needle];
+    const filterClauses: string[] = [];
+    if (filters.source !== undefined) {
+      filterClauses.push('c.source = ?');
+      values.push(filters.source);
+    }
+    if (filters.since !== undefined) {
+      filterClauses.push('CAST(s.timestamp AS INTEGER) >= ?');
+      values.push(filters.since);
+    }
+    if (filters.until !== undefined) {
+      filterClauses.push('CAST(s.timestamp AS INTEGER) <= ?');
+      values.push(filters.until);
+    }
+    const filterSql = filterClauses.length ? ` AND ${filterClauses.join(' AND ')}` : '';
     if (cursor) values.push(cursor.timestamp, cursor.timestamp, cursor.rowid);
     values.push(limit + 1);
     const rows = this.db
       .prepare(`SELECT s.rowid,s.content,s.entry_id,s.message_id,CAST(s.timestamp AS INTEGER) AS timestamp,c.*
       FROM history_search s JOIN history_index_catalog c ON c.conversation_key=s.conversation_key AND c.generation=s.generation
-      WHERE ${match}${bound} ORDER BY CAST(s.timestamp AS INTEGER) DESC,s.rowid DESC LIMIT ?`)
+      WHERE ${match}${filterSql}${bound} ORDER BY CAST(s.timestamp AS INTEGER) DESC,s.rowid DESC LIMIT ?`)
       .all(...values) as Array<Record<string, unknown>>;
     const selected = rows.slice(0, limit);
     const last = selected.at(-1);

@@ -1,4 +1,4 @@
-import type { HistoryLocator } from '../../shared/history';
+import type { HistoryFilters, HistoryLocator } from '../../shared/history';
 export function pageLimit(value: unknown): number {
   if (value === undefined) return 50;
   if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 100)
@@ -29,4 +29,23 @@ export function decodeCursor<T>(scope: string, cursor?: string): T | undefined {
   } catch {
     throw new Error('Invalid or foreign history cursor');
   }
+}
+
+/** Reject invalid filters before querying authority tables or refreshing the disposable index. */
+export function historyFilters(request: unknown): HistoryFilters {
+  if (!request || typeof request !== 'object' || Array.isArray(request))
+    throw new Error('Invalid history request');
+  const { source, since, until } = request as HistoryFilters;
+  if (source !== undefined && source !== 'cowork' && source !== 'coding')
+    throw new Error('Invalid history source filter');
+  for (const time of [since, until]) {
+    if (
+      time !== undefined &&
+      (!Number.isSafeInteger(time) || time < 0 || time > 8_640_000_000_000_000)
+    )
+      throw new Error('Invalid history time filter');
+  }
+  if (since !== undefined && until !== undefined && since > until)
+    throw new Error('History time range is reversed');
+  return { source, since, until };
 }

@@ -15,6 +15,7 @@ import ErrorMessage from '../ErrorMessage';
 import { EnterpriseSettingsPage } from '../enterprise/EnterpriseSettingsPage';
 import { localInferenceCompactButtonClass } from '../localInference/constants';
 import PageHeader from '../PageHeader';
+import { HistorySettingsPanel } from './data/HistorySettingsPanel';
 import AboutSettingsPanel from './about/AboutSettingsPanel';
 import { AppearanceSettingsPanel } from './appearance/AppearanceSettingsPanel';
 import GeneralSettingsPanel from './general/GeneralSettingsPanel';
@@ -170,6 +171,7 @@ export default function SettingsPage({
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (activeTab === 'data' || activeTab === 'model') return;
     setIsSaving(true);
     setError(null);
     let appConfigSaved = false;
@@ -267,6 +269,9 @@ export default function SettingsPage({
       return page ? <EnterpriseSettingsPage page={page} title={activeTabLabel} /> : null;
     }
     switch (activeTab) {
+      case 'data':
+        return <HistorySettingsPanel api={window.electron.history} />;
+
       case 'general':
         return (
           <GeneralSettingsPanel
@@ -325,16 +330,21 @@ export default function SettingsPage({
         onNewChat={onNewChat}
       />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         {/* Category sidebar */}
         <nav
           aria-label={i18nService.t('settings')}
-          className="theme-shell-sidebar flex w-[220px] shrink-0 flex-col gap-4 overflow-y-auto px-2 py-4"
+          className="theme-shell-sidebar flex shrink-0 flex-row gap-4 overflow-x-auto px-2 py-4 sm:w-[220px] sm:flex-col sm:overflow-y-auto"
         >
           {navGroups.map((group, groupIndex) => (
-            <div key={group.title ?? groupIndex} className="flex flex-col gap-1">
+            <div
+              key={group.title ?? groupIndex}
+              className="flex shrink-0 flex-row gap-1 sm:flex-col"
+            >
               {group.title ? (
-                <div className="theme-shell-sidebar-section flex items-center">{group.title}</div>
+                <div className="theme-shell-sidebar-section hidden items-center sm:flex">
+                  {group.title}
+                </div>
               ) : null}
               {group.tabs.map(tab => (
                 <Button
@@ -400,17 +410,20 @@ export default function SettingsPage({
                   onClick={onClose}
                   disabled={isSaving}
                 >
-                  {i18nService.t('cancel')}
+                  {i18nService.t(
+                    activeTab === 'data' || activeTab === 'model' ? 'close' : 'cancel',
+                  )}
                 </Button>
-                {/* 2026/09/17 lixiang  设置保存按钮使用主题色 default 风格 */}
-                <Button
-                  type="submit"
-                  variant="default"
-                  className={localInferenceCompactButtonClass}
-                  disabled={isSaving}
-                >
-                  {isSaving ? i18nService.t('saving') : i18nService.t('save')}
-                </Button>
+                {activeTab !== 'data' && activeTab !== 'model' && (
+                  <Button
+                    type="submit"
+                    variant="default"
+                    className={localInferenceCompactButtonClass}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? i18nService.t('saving') : i18nService.t('save')}
+                  </Button>
+                )}
               </div>
             )}
           </form>

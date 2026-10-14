@@ -209,3 +209,141 @@ test('native index reconciles a missed app invalidation after restart and append
   const rolledBack = new HistoryIndex(indexDb, reader);
   expect((await rolledBack.search({ query: '新增中文' })).items).toHaveLength(0);
 });
+
+test('source and inclusive conversation updatedAt filters run before catalog keyset pagination', async () => {
+  const historyExists = vi.fn(async () => false);
+  const readHistory = vi.fn(async () => ({ items: [] }));
+  const { db, reader } = fixture({ historyExists, readHistory });
+  db.exec(
+    `INSERT INTO cowork_sessions VALUES('earlier','Earlier','/workspace',99),('tie','Tie','/workspace',100),('later','Later','/workspace',101),('outside','Outside','/workspace',200);`,
+  );
+  const request = {
+    source: 'cowork' as const,
+    since: 100,
+    until: 101,
+    workspace: '/workspace',
+    limit: 1,
+  };
+  const first = await reader.list(request);
+  expect(first.items.map(item => item.locator.id)).toEqual(['later']);
+  const second = await reader.list({ ...request, cursor: first.nextCursor });
+  expect(second.items.map(item => item.locator.id)).toEqual(['old']);
+  const third = await reader.list({ ...request, cursor: second.nextCursor });
+  expect(third.items.map(item => item.locator.id)).toEqual(['tie']);
+  expect(third.nextCursor).toBeUndefined();
+  expect(historyExists).toHaveBeenCalledTimes(3);
+  expect(readHistory).not.toHaveBeenCalled();
+  expect(
+    (await reader.list({ source: 'coding', since: 100, until: 100, limit: 1 })).items.map(
+      item => item.locator.id,
+    ),
+  ).toEqual(['lane']);
+  expect((await reader.list({ since: 102, until: 199 })).items).toEqual([]);
+  for (const changed of [
+    { source: 'coding' as const },
+    { since: 99 },
+    { until: 102 },
+    { workspace: '/coding' },
+    { workspace: undefined },
+  ]) {
+    await expect(reader.list({ ...request, ...changed, cursor: first.nextCursor })).rejects.toThrow(
+      'foreign',
+    );
+  }
+  const unfiltered = await reader.list({ limit: 1 });
+  await expect(
+    reader.list({ workspace: '', limit: 1, cursor: unfiltered.nextCursor }),
+  ).rejects.toThrow('foreign');
+});
+
+test('search filters source and message timestamp before pagination without rebuilding unchanged text', async () => {
+  const { db, reader, index } = fixture();
+  db.exec(
+    `INSERT INTO cowork_messages VALUES('m4','old','assistant','中文搜索边界',NULL,5,4),('m5','old','assistant','中文搜索中间',NULL,6,5),('m6','old','assistant','中文搜索之外',NULL,7,6),('m0','old','assistant','中文搜索起点',NULL,0,0);`,
+  );
+  await index.rebuild();
+  const read = vi.spyOn(reader, 'readIndexPage');
+  const rebuild = vi.spyOn(index, 'rebuild');
+  const request = { query: '中文', source: 'cowork' as const, since: 5, until: 6, limit: 1 };
+  const first = await index.search(request);
+  expect(first.items.map(item => item.messageId)).toEqual(['m5']);
+  expect(first.nextCursor).toBeTruthy();
+  const second = await index.search({ ...request, cursor: first.nextCursor });
+  expect(second.items.map(item => item.messageId)).toEqual(['m4']);
+  expect(second.nextCursor).toBeUndefined();
+  expect(
+    (await index.search({ ...request, query: '中文搜', limit: 100 })).items.map(
+      item => item.messageId,
+    ),
+  ).toEqual(['m5', 'm4']);
+  expect(
+    (await index.search({ query: '中文', source: 'coding', since: 5, until: 5 })).items.map(
+      item => item.messageId,
+    ),
+  ).toEqual(['e1']);
+  expect(
+    (await index.search({ query: '中文', since: 5, until: 5 })).items
+      .map(item => item.messageId)
+      .sort(),
+  ).toEqual(['e1', 'm4']);
+  expect(
+    (await index.search({ query: '中文', source: 'cowork', since: 0, until: 0 })).items.map(
+      item => item.messageId,
+    ),
+  ).toEqual(['m0']);
+  expect((await index.search({ query: '中文', since: 8, until: 100 })).items).toEqual([]);
+  // Session updatedAt is 100, independent of the matching message timestamps 5 and 6.
+  expect((await reader.list({ source: 'cowork', since: 5, until: 6 })).items).toEqual([]);
+  for (const changed of [
+    { source: 'coding' as const },
+    { source: undefined },
+    { since: 4 },
+    { until: 7 },
+    { query: '中文搜' },
+  ]) {
+    await expect(
+      index.search({ ...request, ...changed, cursor: first.nextCursor }),
+    ).rejects.toThrow('foreign');
+  }
+  expect(read).not.toHaveBeenCalled();
+  expect(rebuild).not.toHaveBeenCalled();
+});
+
+test('invalid history filters are rejected before SQL reads or native/index work', async () => {
+  const historyExists = vi.fn(async () => false);
+  const readHistory = vi.fn(async () => ({ items: [] }));
+  const { reader, index } = fixture({ historyExists, readHistory });
+  const rebuild = vi.spyOn(index, 'rebuild');
+  const read = vi.spyOn(reader, 'readIndexPage');
+  const invalid = [
+    { source: 'all' },
+    { source: null },
+    { source: 0 },
+    { since: null },
+    { since: '100' },
+    { since: -1 },
+    { since: 0.5 },
+    { since: NaN },
+    { since: Infinity },
+    { until: Infinity },
+    { until: -1 },
+    { until: 8_640_000_000_000_001 },
+    { since: 10, until: 9 },
+  ];
+  for (const filters of invalid) {
+    await expect(reader.list(filters as never)).rejects.toThrow(/filter|range/);
+    await expect(index.search({ query: '中文', ...filters } as never)).rejects.toThrow(
+      /filter|range/,
+    );
+  }
+  for (const invalidRequest of [null, [], false, 'history']) {
+    await expect(reader.list(invalidRequest as never)).rejects.toThrow('request');
+    await expect(index.search(invalidRequest as never)).rejects.toThrow('request');
+  }
+  await expect(index.search({ query: '中文', cursor: 'invalid' })).rejects.toThrow('cursor');
+  expect(rebuild).not.toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+  expect(historyExists).not.toHaveBeenCalled();
+  expect(readHistory).not.toHaveBeenCalled();
+  expect((await reader.list({ since: 0, until: 8_640_000_000_000_000 })).items).toHaveLength(2);
+});
