@@ -53,7 +53,7 @@ jobs:
       - name: Test history indexing, managed attachments and maintenance recovery
         run: bun x --no-install vitest run src/main/history --maxWorkers=2
       - name: Test local CLI manager lifecycle and packaging contracts
-        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts tests/nativePhotonPackaging.test.ts tests/retiredPackagingResources.test.ts tests/runtimePackagingConfig.test.ts scripts/ci/check-electron-runtime-dependencies.test.ts --maxWorkers=2
+        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts scripts/magpie-archive.test.ts tests/electron-builder-hooks.test.ts tests/nativePhotonPackaging.test.ts tests/retiredPackagingResources.test.ts tests/runtimePackagingConfig.test.ts scripts/ci/check-electron-runtime-dependencies.test.ts --maxWorkers=2
       - name: Build source outputs and verify desktop runtime dependencies
         run: bun run build
       - name: Verify renderer bundle budget

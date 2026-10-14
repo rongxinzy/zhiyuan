@@ -3,7 +3,6 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseArgs } = require('node:util');
@@ -106,7 +105,7 @@ function buildArguments(output) {
   ];
 }
 
-function archiveArguments(repository, output, commit = upstream.commit) {
+function archiveArguments(repository, output, emptyAttributes, commit = upstream.commit) {
   // git archive applies checkout conversions and host configuration to stored blobs.
   // Match the pinned LF tar bytes without changing repository or global settings.
   return [
@@ -119,7 +118,7 @@ function archiveArguments(repository, output, commit = upstream.commit) {
     '-c',
     'tar.umask=0002',
     '-c',
-    `core.attributesFile=${os.devNull}`,
+    `core.attributesFile=${emptyAttributes}`,
     'archive',
     '--format=tar',
     `--output=${output}`,
@@ -162,7 +161,10 @@ function build(options = {}) {
     if (options.source && git(['status', '--porcelain', '--untracked-files=all'])) {
       throw new Error('The provided source checkout must be clean; no local patches are accepted');
     }
-    run('git', archiveArguments(repository, archive));
+    // A real empty file also works with Git for Windows, which rejects Node's \\.\nul path.
+    const emptyAttributes = path.join(work, 'empty.attributes');
+    fs.writeFileSync(emptyAttributes, '');
+    run('git', archiveArguments(repository, archive, emptyAttributes));
     const archiveSha256 = sha256File(archive);
     if (archiveSha256 !== upstream.archiveSha256)
       throw new Error(
