@@ -165,17 +165,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     const init = async () => {
       await coworkService.init();
       await agentService.loadAgents();
-      try {
-        const catalog = await refreshMagpieModels();
-        if (catalog.status.state !== 'running' || catalog.models.length === 0) {
-          onRequestAppSettings?.({
-            initialTab: 'model',
-            noticeI18nKey: 'magpieCatalogEmpty',
-          });
-        }
-      } catch (error) {
-        console.error('Failed to check cowork API config:', error);
-      }
+      // Browsing home and existing work must not require a configured model.
+      // Validate the catalog only when the user explicitly submits new work.
       setIsInitialized(true);
     };
     init();
@@ -236,6 +227,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         }
       } catch (error) {
         console.error('Failed to check cowork API config:', error);
+        showAppErrorToast(i18nService.t('magpieActionFailed'));
+        return false;
       }
 
       // Create a temporary session with user message to show immediately
