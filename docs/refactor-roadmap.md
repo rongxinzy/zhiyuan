@@ -114,16 +114,26 @@
 - 验收清单：共享控件 / 单浅深 token 归属、无新增动画、键盘操作、查询竞态、空 / 加载 / 错误状态的组件回归通过；未改 token / recipe，重新生成主题不适用。真实 light / dark 尺寸、窄窗像素溢出、portal 和滚动视觉仍未验收，不以结构检查代替。
 - 本地 renderer/shared 261 套 / 1436 项通过；后续本地日历边界在 UTC / 纽约夏令时场景验证，历史 SQL 筛选 10 项通过。双类型、lint / 主题审计、格式、build:vite 的 renderer + Electron 产物构建与包预算通过。[代码已发布](https://github.com/rongxinzy/zhiyuan/commit/000275d514837bfc513dacd94713f00ea1d3efae)，[现行 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38546535752)：最终 renderer/shared 262 套 / 1438 项、原生 55 项、历史 25 项、侧车与打包契约 78 项通过，5 项平台 / opt-in 跳过。本轮官方云浏览器可用，但 0.0.0.0 devserver 接口枚举 EPERM，127.0.0.1 服务页面 ERR_CONNECTION_REFUSED；未绕过限制，实际页面截图 / 视觉验收仍未完成。第 11 项列明的 8 项旧打包基线失败仍保留。
 
-- 额外架构审查已复现总 build 的后置门禁失败：check:electron-runtime-dependencies 的生产依赖 allowlist 未纳入已实际使用的 @earendil-works/chord / pi-durable。本轮仅 build:vite 产物与轻量 CI 构建通过，不代表总 build、安装包或发行通过；该问题另行记录，不以删除真实依赖绕过。
+- 额外架构审查已复现总 build 的后置门禁失败：check:electron-runtime-dependencies 的生产依赖 allowlist 未纳入已实际使用的 @earendil-works/chord / pi-durable。本轮仅 build:vite 产物与轻量 CI 构建通过，不代表总 build、安装包或发行通过；该问题已在第 13 项修复并由总 build 与生产依赖独立安装验证，不以删除真实依赖绕过。
 
-## 13. 原生迁移后的恢复链与构建收口 — 首批已发布，验证中
+## 13. 原生迁移后的恢复链与构建收口 — 已发布并通过 CI
 
 - 用户已批准按只读审查清理：恢复入口迁到现有原生 UI 恢复，保留请求水位与长消息内容投影；删除无生产者的旧 RunSnapshot 协议，不删除活跃会话消息缓存。
 - 构建保持严格部署清单，明确保留真实 Durable / chord 运行依赖；移除无消费者 AnyDoc。门禁同时检查主入口与 Worker 外部依赖，并验证部署根目录解析，不以开发依赖兜底。
 - 删除 Office 截图孤岛 / 专属交付策略 / 旧 WSL 脚本，保留正常 DOCX / XLSX 产物预览；内置 Coding plan / elicitation 能力按实际实现收口，外部 ACP 协议保留。
 - 本地 renderer/shared 260 套 / 1444 项、原生执行 / 内容投影 / 保留 Coding 合同 144 项、恢复专项 26 项、依赖 / 清理契约 14 项通过；计数包含重叠，不合计为总数。双类型、lint / 格式、清洁总 build、严格运行依赖解析和 bundle budget 通过，干净产物没有旧 Office 截图入口。
 - 首批[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/e8f8a96115cd237aebd4bd52a7c9b5ea45a8a69c)。二次扫描追加删除无生产消费者的 ToolActivityTracker、七组旧运行选项 / 历史 DTO 和已移除包的测试转译配置；不删除仍使用的共享工具状态契约。
-- 新 CI 将运行总 build（先清理生成目录）、严格依赖门禁、预算与独立 production-only 依赖解析。本地独立目录 Native 导出与外部模块解析通过，但安装进程最终回执被工具取消，完整安装终态交 CI 复证。二次扫描补丁待发布，不运行安装包 / 签名 / 发行或清除用户历史。
+- 二次扫描[已发布](https://github.com/rongxinzy/zhiyuan/commit/e59fba1a1017b022798996338342c67ff40ad7fc)。本项两个代码批次合计删除 22 个文件，净减少 2337 行（含实现、契约、测试与文档），保留正常工具卡、ACP 与历史内容。
+- [首批 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38548949644)，包括清洁总 build、严格依赖门禁、预算及独立 production-only 安装与运行依赖解析；本地安装回执不确定已由此独立验证补足。[最终代码 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38549446447)；未运行安装包 / 签名 / 发行，不清除用户历史。
+
+
+### 保留的旧事件迁移边界
+
+以下是已核实的调用关系与待验证行为，不计为本轮已完成的功能迁移，也不恢复独立 tracker：
+
+- 工具活动增强：旧 `toolActivity` 监听经 Main 分别进入 Coding 事件记录 / 投影，以及 Cowork slice / TurnBlock 的参数生成与活动行；当前原生 host 不生产该旧事件。正常 `tool_use` / `tool_result` 经原生消息投影仍产生工具卡与结果，外部 ACP 另有独立工具更新。仅确认旧瞬时增强链断开，尚未实机验证参数流式进度是否存在视觉缺口；共享 ACP / 历史字段保留。
+- 重试提示：旧 `retryNotice` 经 Main、RuntimeNotice IPC 与 renderer 服务显示顶部提示，不持久化，也无 ACP 消费者。原生 generation retry / auto-retry 事实尚未映射到此提示链；最终错误与任务终态仍正常投影。这是旧提示通路未接，不代表重试执行失效，实际失败重试体验尚未验收。
+- 中断原因：旧 `sessionInterrupted` 在 Cowork 清审批与置闲，在 Coding 写取消事件 / NeedsReview；历史消息也读取旧中断原因。当前原生取消回执、停止、完成、错误与暂停状态仍有投影，但审批拒绝走原生工具错误 / terminate，没有旧 cause / recoverable 元数据。正常停止保留；拒绝后 Coding 是否需要 NeedsReview 须专项行为验证，不能凭旧字段直接改终态。
 
 ## 六阶段基线验证与剩余验收
 
