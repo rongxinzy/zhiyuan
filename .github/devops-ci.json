@@ -14,5 +14,12 @@
         "main"
       ]
     }
+  ],
+  "optionalWorkflows": [
+    {
+      "name": "Windows x64 unsigned acceptance",
+      "path": ".github/workflows/windows-acceptance.yml",
+      "reason": "Explicit unsigned Windows acceptance build; manual or acceptance-path push only, no PR requirement or public release."
+    }
   ]
 }

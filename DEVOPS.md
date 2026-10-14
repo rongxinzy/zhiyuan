@@ -19,8 +19,12 @@
 `.github/archived-workflows/`，不再触发。原 `ci-gate` 不再运行。
 `Lightweight CI` 使用 Node 24、Bun 1.4.0，检查 renderer/shared 与主进程类型、原生恢复 / 档案 / 历史与 Coding 契约，执行清洁总 build、严格生产依赖门禁及 renderer 包预算。另在临时目录只安装 production 依赖，验证所有生成 bundle 的外部模块解析及原生执行导出，防止开发依赖掩盖遗漏。
 
-现有 `Python runtime process containment` 保留针对 Python 相关路径的 Windows / Linux 专项测试。两个工作流均不使用发布 secrets，不签名、不发布；轻量源码构建不下载 Electron 二进制，Python 专项会验证固定的官方 Python / uv 运行时。触发范围同步于 `.github/devops-ci.json`。
+现有 `Python runtime process containment` 保留针对 Python 相关路径的 Windows / Linux 专项测试。上述两个工作流均不使用发布 secrets，不签名、不发布；轻量源码构建不下载 Electron 二进制，Python 专项会验证固定的官方 Python / uv 运行时。触发范围同步于 `.github/devops-ci.json`。
 
 本次调整不修改 GitHub 分支保护或 rulesets，也不把新检查设置为必需门禁。
 是否允许直接推送以所有者对具体工作的授权及服务器实际规则为准；禁止强推和删除。
 恢复旧工作流前须重新审查触发器、权限及发布目标，不能直接假定旧凭据可用。
+
+## Windows x64 验收构建
+
+按所有者明确要求新增 `Windows x64 unsigned acceptance`：手动或仅验收 workflow / 脚本路径变更触发。它安装官方 Electron、构建固定原样 Magpie 和 Windows Job Object helper，使用独立无签名 overlay，`--publish never`，不读取签名秘密、不创建公开 Release。安装后真实 UI / Magpie / Python smoke 全部通过才上传 exe 与证据，失败只保留诊断；CI artifact 保留 14 天。Python 首次使用仍需网络下载并校验固定官方 PBS / uv。验收构建不属于 PR 必需检查，清单记录为 optional。

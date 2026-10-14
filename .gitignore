@@ -120,3 +120,7 @@ reasonix.toml
 /scripts/installer-shell/out/
 /scripts/installer-shell/app/bin/
 /scripts/installer-shell/app/obj/
+
+# Disposable Windows acceptance evidence / installer copies
+/acceptance-output/
+/acceptance-diagnostics/

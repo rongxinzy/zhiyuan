@@ -1,0 +1,95 @@
+name: Windows x64 unsigned acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-acceptance.yml'
+      - 'electron-builder.windows-acceptance.cjs'
+      - 'scripts/ci/windows-acceptance*'
+      - 'scripts/ci/windows-app-smoke*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      HUSKY: '0'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install locked dependencies without application setup
+        run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run apply:patches
+      - name: Verify acceptance safeguards
+        run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts --maxWorkers=1
+      - name: Download official Electron for packaging
+        run: node node_modules/electron/install.js
+      - name: Clean total source build and runtime gate
+        run: bun run build
+      - name: Resolve generated runtime against isolated production dependencies
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'zhiyuan-production-probe'
+          New-Item -ItemType Directory -Force $probe | Out-Null
+          Copy-Item package.json,bun.lock $probe
+          Push-Location $probe
+          try {
+            bun install --frozen-lockfile --production --ignore-scripts
+            if ($LASTEXITCODE -ne 0) { throw 'Production-only dependency installation failed' }
+          } finally { Pop-Location }
+          Copy-Item -Recurse dist-electron $probe
+          $env:RUNTIME_PROBE_ROOT = $probe
+          node --input-type=module -e "import { checkElectronRuntimeDependencies } from './scripts/ci/check-electron-runtime-dependencies.mjs'; checkElectronRuntimeDependencies(process.env.RUNTIME_PROBE_ROOT, { resolve: true });"
+          if ($LASTEXITCODE -ne 0) { throw 'Production-only runtime resolution failed' }
+      - name: Prepare pinned official Windows resources
+        shell: pwsh
+        run: ./scripts/ci/windows-acceptance-resources.ps1
+      - name: Build Electron ABI native modules
+        run: bun run rebuild:electron-native
+      - name: Verify resources before packaging
+        run: node scripts/ci/windows-acceptance-resources.cjs verify-inputs
+      - name: Build unsigned NSIS acceptance installer
+        run: bun x --no-install electron-builder --win nsis --x64 --config electron-builder.windows-acceptance.cjs --publish never
+      - name: Verify packaged resources and record hashes
+        run: node scripts/ci/windows-acceptance-resources.cjs verify-package release/win-unpacked
+      - name: Execute packaged native SQLite and WASM probes
+        run: node scripts/ci/windows-acceptance-resources.cjs probe-runtime release/win-unpacked
+      - name: Install and validate the actual application
+        shell: pwsh
+        run: ./scripts/ci/windows-acceptance-install.ps1
+      - name: Upload verified unsigned installer and acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhiyuan-windows-x64-unsigned-${{ github.sha }}
+          path: acceptance-output/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Upload diagnostics when acceptance fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-acceptance-diagnostics-${{ github.run_id }}
+          path: |
+            acceptance-diagnostics/
+            release/builder-debug.yml
+          if-no-files-found: warn
+          retention-days: 14

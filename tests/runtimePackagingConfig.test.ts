@@ -259,31 +259,52 @@ test('supply-chain validation covers committed npm locks and CI installs the fro
   }
 });
 
-test('active source and Python workflows have read-only permissions without signing or publishing', () => {
+test('active workflows keep read-only permissions and isolate explicitly requested unsigned acceptance', () => {
   const files = readdirSync(path.join(root, '.github/workflows'))
     .filter(file => /\.ya?ml$/.test(file))
     .sort();
-  assert.deepEqual(files, ['lightweight-ci.yml', 'python-runtime.yml']);
-  const policy = readJson<{ workflows: Array<{ path: string }> }>('.github/devops-ci.json');
-  assert.deepEqual(policy.workflows.map(item => path.basename(item.path)).sort(), files);
+  assert.deepEqual(files, ['lightweight-ci.yml', 'python-runtime.yml', 'windows-acceptance.yml']);
+  const policy = readJson<{
+    workflows: Array<{ path: string }>;
+    optionalWorkflows?: Array<{ path: string }>;
+  }>('.github/devops-ci.json');
+  assert.deepEqual(
+    [...policy.workflows, ...(policy.optionalWorkflows ?? [])]
+      .map(item => path.basename(item.path))
+      .sort(),
+    files,
+  );
   for (const file of files) {
     const config = workflow(file);
     assert.deepEqual(config.permissions, { contents: 'read' });
     assert.deepEqual(config.on.push?.branches, ['main']);
     assert.equal(config.on.push?.tags, undefined);
-    assert.ok(Object.hasOwn(config.on, 'pull_request'));
+    if (file === 'windows-acceptance.yml') {
+      assert.ok(!Object.hasOwn(config.on, 'pull_request'));
+      assert.match(read(`.github/workflows/${file}`), /paths:/);
+    } else assert.ok(Object.hasOwn(config.on, 'pull_request'));
     assert.ok(Object.hasOwn(config.on, 'workflow_dispatch'));
     assert.ok(!Object.hasOwn(config.on, 'schedule'));
     assert.doesNotMatch(
       read(`.github/workflows/${file}`),
       /secrets\.|CSC_LINK|CERTUM_CERT_THUMBPRINT|APPLE_ID|R2_ACCESS_KEY/,
     );
+    if (file === 'windows-acceptance.yml') {
+      const source = read(`.github/workflows/${file}`);
+      assert.match(source, /--config electron-builder\.windows-acceptance\.cjs --publish never/);
+      assert.match(source, /windows-acceptance-install\.ps1/);
+      assert.match(source, /retention-days: 14/);
+      assert.doesNotMatch(
+        source,
+        /secrets\.|package-windows\.ps1|publish-update|upload-update|softprops|gh release/,
+      );
+    }
     for (const job of Object.values(config.jobs)) {
       if (job.permissions) assert.deepEqual(job.permissions, { contents: 'read' });
       for (const step of job.steps) {
         assert.doesNotMatch(step.uses ?? '', /signing|publish|release/i);
         assert.doesNotMatch(
-          step.run ?? '',
+          file === 'windows-acceptance.yml' ? '' : (step.run ?? ''),
           /\belectron-builder(?:\s|$)|\brun\s+dist(?::|\s|$)|(?:^|\s)(?:\S*\/)?(?:package-windows\.ps1|publish-update-manifest\.mjs|upload-update-artifacts\.mjs)(?:\s|$)|\baws\s+s3\b/,
         );
       }

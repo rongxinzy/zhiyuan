@@ -146,6 +146,13 @@
 - 本地完整 renderer/shared 260 套 / 1439 项通过；综合原生 / 内容回放 / Coding / 当前打包契约 22 套 / 194 项通过。双类型、lint / 格式、清洁总 build、生产-only 目录解析与包预算通过。原 8 项过时打包失败已迁为 14 项当前合同并通过，纳入现行 CI；不再作为未解决失败保留。
 - [代码已发布](https://github.com/rongxinzy/zhiyuan/commit/bcf948b7e4870c786ebd0394ec1d535d6db29b3b)，[本批 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38553560618)：renderer/shared 1439 项、原生执行 67 项、内容回放 / Coding 113 项、历史 25 项、侧车与当前打包契约 106 项通过，5 项平台 / opt-in 跳过；总 build、包预算与隔离 production-only 安装解析通过。云端缺少真实 Magpie 平台产物、Windows Job helper 和 Electron 可执行文件，未进行完整安装包解包 / 启动验收；已有安全限制不绕过，视觉 / 安装包手工验收仍未完成。
 
+## 15. Windows x64 可验收安装包 — 实施中
+
+- 用户要求准备好后提供 CI 中的 exe 下载，不以源码构建成功替代安装验收。新增独立按需 Windows CI：手动触发或验收脚本变更时运行，不恢复旧签名 / 发布自动化。
+- 无签名 NSIS 安装包；固定原样 Magpie 与 MIT / 哈希、Windows Job Object、包内 Runner / SQLite / WASM 需实际检查。Python 继续现有首次使用联网下载固定 PBS / uv 并校验的路径，不宣称离线预装。
+- 计划验收：清洁总 build、隔离生产依赖解析、安装到 CI 临时目录、真实 Electron 窗口及预加载接口、包内 Magpie 启停、包内 Python 最小执行；使用临时用户数据，不登录真实账号或调用付费模型。
+- 完整验收通过后才上传 exe、SHA-256、源提交与日志 / 截图，保留 14 天；失败只上传诊断。完成前不提供可验收下载链接。实际 Windows 结果待本批 CI，不沿用源码测试冒充。
+
 ## 六阶段基线验证与剩余验收
 
 六阶段代码均已发布。六阶段代码版本：[9abb416](https://github.com/rongxinzy/zhiyuan/commit/9abb41682d1949b9296e0daffc1f8d2a5183ddc2)。后续用户追加需求单独列项；上述版本的验证证据仍保留。
