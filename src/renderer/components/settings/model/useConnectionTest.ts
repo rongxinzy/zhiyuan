@@ -214,6 +214,7 @@ export function useConnectionTest({
       failureKind?: ProviderModelConnectionFailureKind;
     }>,
     signature: string,
+    testedAt: number,
     isCurrent: () => boolean,
   ): Promise<void> => {
     try {
@@ -221,6 +222,7 @@ export function useConnectionTest({
         { models: [{ ...model }] },
         outcomes,
         signature,
+        testedAt,
       );
       await persistTestedProviderModels(provider, testedProviderConfig.models ?? [], isCurrent);
       if (!isCurrent()) return;
@@ -375,6 +377,7 @@ export function useConnectionTest({
         firstModel,
         outcomes,
         connectionSignature,
+        testedAt,
         isCurrent,
       );
     } else {

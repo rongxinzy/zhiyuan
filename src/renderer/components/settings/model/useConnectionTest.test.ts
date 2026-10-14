@@ -372,6 +372,8 @@ test('single failures persist their classification without enabling a provider',
 test.each(['single', 'batch'] as const)(
   '%s merges verdicts into the latest saved draft without touching other stored fields',
   async mode => {
+    let clock = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => ++clock);
     const single = deferred<ProviderModelConnectionTestResult>();
     const batch = deferred<ProviderModelConnectionTestEntry[]>();
     mocks.single.mockReturnValue(single.promise);
