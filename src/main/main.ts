@@ -5134,6 +5134,11 @@ if (!gotTheLock) {
     const appConfig = getStore().get<AppConfigSettings>('app_config');
     await applyProxyPreference(getUseSystemProxyFromConfig(appConfig));
     profiler.measure('applyProxyPreference');
+    if (getStore().get<boolean>('magpie_service_enabled') === true) {
+      await magpieManager?.ensureRunning().catch(error => {
+        console.warn('[Magpie] Previously enabled model service could not start:', error);
+      });
+    }
 
     try {
       getCronJobService().startPolling();

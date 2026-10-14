@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   isManagedModelPreference,
@@ -50,4 +51,16 @@ it('reserves model consent and validated selection for dedicated IPC', () => {
   expect(isManagedModelPreference('magpie_service_enabled')).toBe(true);
   expect(isManagedModelPreference('magpie_default_model_id')).toBe(true);
   expect(isManagedModelPreference('app_config')).toBe(false);
+});
+
+it('only restarts the model service after persistent explicit consent and keeps catalog reads passive', () => {
+  const main = readFileSync(new URL('./main.ts', import.meta.url), 'utf8');
+  const startup = main.slice(main.indexOf('const initApp = async'));
+  expect(startup).toContain("if (getStore().get<boolean>('magpie_service_enabled') === true)");
+  expect(startup.indexOf('await magpieManager?.ensureRunning()')).toBeGreaterThan(
+    startup.indexOf('await initStore()'),
+  );
+  expect(startup.indexOf('await magpieManager?.ensureRunning()')).toBeLessThan(
+    startup.indexOf('getCronJobService().startPolling()'),
+  );
 });
