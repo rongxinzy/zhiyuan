@@ -526,7 +526,6 @@ public sealed class InstallerEngine
         foreach (var sentinel in new[]
         {
             Path.Combine(resources, "mingit", "usr", "bin", "bash.exe"),
-            Path.Combine(resources, "channel-runtime", "cc-connect-sidecar.exe"),
         })
         {
             if (!File.Exists(sentinel))

@@ -53,7 +53,6 @@ vi.mock('./CoworkModelPicker', () => ({ CoworkModelPicker: () => null }));
 vi.mock('./FolderSelectorPopover', () => ({ default: () => null }));
 vi.mock('./PermissionModeMenu', () => ({ default: () => null }));
 vi.mock('./PromptPlusMenu', () => ({ default: () => null }));
-vi.mock('./ResumeTaskContextBadge', () => ({ ResumeTaskContextBadge: () => null }));
 
 beforeEach(() => {
   fixture.dispatch.mockClear();
@@ -240,12 +239,11 @@ test.each(['', ' \t', '\u200b'])(
   },
 );
 
-test('keeps the explicit task-resume action available without an amendment', async () => {
+test('does not submit empty legacy resume amendments', async () => {
   const onSubmit = vi.fn();
-  const view = render(<CoworkPromptInput onSubmit={onSubmit} resumeTaskActive />);
+  const view = render(<CoworkPromptInput onSubmit={onSubmit} />);
   await submit(view.container.querySelector('form')!, 2);
-  expect(onSubmit).toHaveBeenCalledOnce();
-  expect(onSubmit.mock.calls[0]?.[0]).toBe('');
+  expect(onSubmit).not.toHaveBeenCalled();
 });
 
 test('keeps ordinary slash text as text without activating removed capabilities', async () => {

@@ -151,13 +151,11 @@ $installer = $installers[0].FullName
 $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\zhiyuan-agent'
 $runtimeRoot = Join-Path $env:LOCALAPPDATA 'ZhiYuanAgent\runtimes'
 $timingLog = Join-Path $env:APPDATA 'ZhiYuanAgent\install-timing.log'
-$componentKeys = @('channel-runtime', 'portable-git')
+$componentKeys = @('portable-git')
 
 try {
   Invoke-Installer $installer 'cold installation' 2700 $timingLog
   Assert-Path $installRoot 'installation root'
-  Assert-Path (Join-Path $installRoot 'resources\channel-runtime\cc-connect-sidecar.exe') 'installed channel runtime'
-  Assert-Path (Join-Path $installRoot 'resources\memory\engram.exe') 'installed memory runtime'
   $applicationExecutables = @(Get-ChildItem -LiteralPath $installRoot -Filter '*.exe' -File |
     Where-Object { $_.Name -notlike 'Uninstall*' })
   if ($applicationExecutables.Count -ne 1) {
@@ -171,8 +169,8 @@ try {
   Assert-Path $timingLog 'cold installation timing log'
 
   $coldLog = Get-LatestRunLog $timingLog
-  if (($coldLog | Select-String -AllMatches 'phase=component-cache-miss ').Matches.Count -ne 2) {
-    throw 'Cold installation did not expand exactly two offline components'
+  if (($coldLog | Select-String -AllMatches 'phase=component-cache-miss ').Matches.Count -ne $componentKeys.Count) {
+    throw 'Cold installation did not expand the expected offline component set'
   }
   if ($coldLog -notmatch 'phase=custom-install-start ') {
     throw 'Cold installation did not record the application-files phase marker'
@@ -192,12 +190,10 @@ try {
   }
 
   Invoke-Installer $installer 'cache-hit upgrade' 600 $timingLog
-  Assert-Path (Join-Path $installRoot 'resources\channel-runtime\cc-connect-sidecar.exe') 'upgraded channel runtime'
-  Assert-Path (Join-Path $installRoot 'resources\memory\engram.exe') 'upgraded memory runtime'
   Assert-Path $timingLog 'upgrade timing log'
   $upgradeLog = Get-LatestRunLog $timingLog
-  if (($upgradeLog | Select-String -AllMatches 'phase=component-cache-hit ').Matches.Count -ne 2) {
-    throw 'Repeated installation did not reuse exactly two offline components'
+  if (($upgradeLog | Select-String -AllMatches 'phase=component-cache-hit ').Matches.Count -ne $componentKeys.Count) {
+    throw 'Repeated installation did not reuse the expected offline component set'
   }
   if ($upgradeLog -match 'phase=component-cache-miss ') {
     throw 'Repeated installation unexpectedly expanded an offline component'

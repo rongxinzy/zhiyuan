@@ -1,6 +1,5 @@
 import type {
   ScheduledTask,
-  ScheduledTaskDeliveryRecord,
   ScheduledTaskInput,
   ScheduledTaskRun,
   ScheduledTaskRunWithName,
@@ -16,13 +15,13 @@ export interface ScheduledTaskService {
   getJob(id: string): Promise<ScheduledTask | null>;
   toggleJob(id: string, enabled: boolean): Promise<ScheduledTask>;
   runJob(id: string): Promise<void>;
+  stopJob(id: string): Promise<boolean>;
   listRuns(
     taskId: string,
     limit?: number,
     offset?: number,
     filter?: RunFilter,
   ): Promise<ScheduledTaskRun[]>;
-  listDeliveries(runId: string): Promise<ScheduledTaskDeliveryRecord[]>;
   countRuns(taskId: string): Promise<number>;
   listAllRuns(
     limit?: number,

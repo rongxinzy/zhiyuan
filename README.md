@@ -39,7 +39,6 @@ ZhiYuan Agent is a desktop AI workspace from Beijing Rongxin Zhiyuan, maintained
 | Text and data | Create and edit files using the tools available on your machine |
 | Code | Select a project directory, explore a repository, edit code, run commands, and inspect artifacts |
 | Everyday work | Track work in Todos and schedule briefings, reports, and other recurring tasks |
-| Messaging | Connect WeChat, WeCom, DingTalk, Feishu/Lark, or QQ to use the agent through configured channels |
 
 The previous bundled skills, MCP integrations, and managed tool environments have been removed for a clean redesign. Their setup pages and task templates are no longer available. Existing conversations, provider configuration, and local model management remain available.
 
@@ -56,7 +55,7 @@ The free model requires a network connection; availability and usage limits are 
 
 Open the local inference workspace, browse the model marketplace, and choose a GGUF model and quantization suited to your hardware. Install the model and start its service. Adjust context length, GPU allocation, threads, and other options, then use a running local model for agent tasks.
 
-Local models reduce reliance on cloud inference. Model downloads and messaging channels still require their respective network services.
+Local models reduce reliance on cloud inference. Model downloads still require network access.
 
 ### Data and permissions
 
@@ -66,18 +65,9 @@ Tool execution follows the selected permission mode. Operations requiring approv
 
 ## Choose your workspace appearance
 
-ZhiYuan includes **Codex**, **Daming Fenghua**, **Changan Fengwu**, and **Weiyang Jinshi** themes. Codex uses neutral surfaces and compact controls. Daming Fenghua combines paper white, cinnabar, and ink. Changan Fengwu adds silk white, peacock green, warm bronze, rounder controls, and a deep green night appearance. Weiyang Jinshi combines lacquer black, stone white, antique gold, and static cloud-scroll corner ornament.
+ZhiYuan uses one default visual design. In **Settings → Appearance**, choose light, dark, or system mode. Shared component recipes keep controls consistent; there are no theme packages to manage or import.
 
-In **Settings → Appearance**, select a theme preview card and choose light, dark, or system mode. Every card updates with the selected mode. Backgrounds, textures, typography, shapes, controls, and interaction states belong to the complete theme package.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/theme-previews/appearance-settings-dark.png">
-    <img src="docs/theme-previews/appearance-settings-light.png" alt="Appearance settings component: theme preview cards above a shared light, dark, and system selector; Chinese UI shown" width="760">
-  </picture>
-</p>
-
-To create a theme, start with the [theme authoring guide](src/renderer/theme/README.md) and [design specification](DESIGN.md). Packages supply presentation data; shared components retain interaction and state ownership.
+See the [appearance and recipe guide](src/renderer/theme/README.md) and [design specification](DESIGN.md).
 
 ## Developer quick start
 
@@ -90,7 +80,7 @@ bun install
 bun run electron:dev
 ```
 
-The development command prepares the channel and memory runtimes, then starts Vite and Electron. Initial runtime preparation requires network access. To use local inference, download the inference runtime for your host separately:
+The development command starts Vite and Electron. To use local inference, download the inference runtime for your host separately:
 
 ```bash
 bun run llamacpp:runtime:download
@@ -105,7 +95,7 @@ bun run llamacpp:runtime:download
 | `bun run lint` | Check code, generated theme consistency, and style ownership |
 | `bun run format:check` | Check formatting |
 | `bun run test:bundle-budget` | Check the built renderer's bundle size |
-| `bun run theme:generate` | Regenerate CSS after changing theme definitions |
+| `bun run theme:generate` | Regenerate CSS after changing default tokens or recipes |
 | `bun run compile:electron` | Compile the Electron main process, including native dependency preparation |
 
 Release packaging uses `bun run dist:mac`, `bun run dist:win`, or `bun run dist:linux`. These also involve platform runtimes, resources, and signing configuration; see [CONTRIBUTING.md](CONTRIBUTING.md) and [`package.json`](package.json).
@@ -118,7 +108,7 @@ Release packaging uses `bun run dist:mac`, `bun run dist:win`, or `bun run dist:
 | [`src/shared`](src/shared) | Shared UI, types, and communication contracts |
 | [`src/main`](src/main) | Desktop lifecycle, task execution, storage, and system services |
 | [`src/main/preload.ts`](src/main/preload.ts) | Controlled IPC through `contextBridge` |
-| [`src/renderer/theme`](src/renderer/theme) | Theme contracts, component appearance, backgrounds, and generation |
+| [`src/renderer/theme`](src/renderer/theme) | Default appearance tokens, component recipes, and CSS generation |
 | [`.github/workflows`](.github/workflows) | Tests, installer validation, and releases |
 
 The stack includes Electron, React, TypeScript, Vite, Tailwind CSS, Redux Toolkit, and SQLite. Refer to [`package.json`](package.json) and [`bun.lock`](bun.lock) for dependency versions.
@@ -130,7 +120,7 @@ The stack includes Electron, React, TypeScript, Vite, Tailwind CSS, Redux Toolki
   <img src="public/readme/zhiyuan_agent_architecture_en.svg" alt="ZhiYuan desktop architecture and module relationships" width="760">
 </p>
 
-The renderer owns the UI, preload provides the communication boundary, and the main process owns sessions, execution, data, and service lifecycles. Task messages, tool status, and approval requests stream back to the UI. Dedicated services manage local inference and messaging channels.
+The renderer owns the UI, preload provides the communication boundary, and the main process owns sessions, execution, data, and service lifecycles. Task messages, tool status, and approval requests stream back to the UI. Dedicated services manage local inference.
 
 </details>
 

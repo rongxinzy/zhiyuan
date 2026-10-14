@@ -1,10 +1,5 @@
 [
   {
-    "key": "channel-runtime",
-    "prefix": "channel-runtime",
-    "sentinel": "channel-runtime\\cc-connect-sidecar.exe"
-  },
-  {
     "key": "portable-git",
     "prefix": "mingit",
     "sentinel": "mingit\\usr\\bin\\bash.exe"

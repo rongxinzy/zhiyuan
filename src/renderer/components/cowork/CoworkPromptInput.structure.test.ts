@@ -42,7 +42,7 @@ test('keeps the session permission selector available during an active run', () 
 
 test('keeps model and permission controls reachable in compact toolbars', () => {
   const compactControlsStart = source.indexOf(
-    '{isPlusToolbar && (showModelSelector || (isCompactToolbar && isWorkVariant))',
+    '{(showModelSelector || (isCompactToolbar && isWorkVariant))',
   );
   const compactControls = source.slice(compactControlsStart);
 
@@ -88,7 +88,8 @@ test('keeps text editing mounted while a target session context is pending', () 
   expect(source).toContain('sessionContextPending ||');
 });
 
-test('allows an empty amendment only while an explicit task resume context is active', () => {
-  expect(source).toContain('!trimmedValue && attachments.length === 0 && !resumeTaskActive');
-  expect(source).toContain('<ResumeTaskContextBadge onCancel={onCancelTaskResume} />');
+test('requires real input without a legacy task-resume bypass', () => {
+  expect(source).toContain('!trimmedValue && attachments.length === 0');
+  expect(source).not.toContain('ResumeTaskContextBadge');
+  expect(source).not.toContain('resumeTaskActive');
 });

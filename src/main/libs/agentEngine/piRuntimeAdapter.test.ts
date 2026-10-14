@@ -82,6 +82,7 @@ vi.mock('./durable/provider', () => ({
   },
 }));
 import { PiRuntimeAdapter } from './piRuntimeAdapter';
+import { DurableWorkDetachedError } from './piRuntimeTypes';
 
 let runtime: PiRuntimeAdapter;
 const messages = new Map<string, CoworkMessage>();
@@ -225,4 +226,73 @@ test('explicit follow-up releases input retained after a failed native run witho
       .filter(message => message.type === 'user')
       .map(message => message.content),
   ).toEqual(['First', 'Still needed']);
+});
+
+test('a scheduled occurrence waits for native completion and reuses its saved request after reopening', async () => {
+  const first = await runtime.runScheduledTask('scheduled-run:one', 'Report', {
+    requestId: 'scheduled:one',
+  });
+  expect(first.submissionId).toBeGreaterThan(0);
+  expect(fixture.calls).toBe(1);
+  await runtime.close();
+  const reopened = new PiRuntimeAdapter();
+  reopened.setCoworkStore((runtime as unknown as { store: CoworkStore }).store);
+  runtime = reopened;
+  const retry = await runtime.runScheduledTask('scheduled-run:one', 'Report', {
+    requestId: 'scheduled:one',
+  });
+  expect(retry).toEqual(first);
+  expect(fixture.calls).toBe(1);
+});
+
+test('scheduled native work cannot auto-approve a workspace write', async () => {
+  fixture.tools = true;
+  runtime.on('error', () => {});
+  await runtime.runScheduledTask('scheduled-run:approval', 'Write', {
+    requestId: 'scheduled:approval',
+    workspaceRoot: fixture.directory,
+  });
+  expect(
+    [...messages.values()].some(
+      message => message.type === 'tool_result' && message.content.includes('requires approval'),
+    ),
+  ).toBe(true);
+  await expect(readFile(join(fixture.directory, 'result.txt'), 'utf8')).rejects.toThrow();
+});
+
+test('cancelling scheduled work aborts the native task and releases its waiter', async () => {
+  fixture.hold = true;
+  runtime.on('error', () => {});
+  const pending = runtime.runScheduledTask('scheduled-run:cancel', 'Hold', {
+    requestId: 'scheduled:cancel',
+  });
+  const rejected = expect(pending).rejects.toThrow();
+  await expect.poll(() => fixture.calls).toBe(1);
+  await runtime.cancelScheduledTask('scheduled-run:cancel');
+  await rejected;
+});
+
+test('immediate scheduled cancellation waits for admission then aborts the native work', async () => {
+  fixture.hold = true;
+  runtime.on('error', () => {});
+  const pending = runtime.runScheduledTask('scheduled-run:early-stop', 'Hold', {
+    requestId: 'scheduled:early-stop',
+  });
+  const rejected = expect(pending).rejects.toThrow();
+  await runtime.cancelScheduledTask('scheduled-run:early-stop');
+  await rejected;
+  expect((await runtime.getDurableWork('scheduled-run:early-stop'))?.pendingSubmissionCount).toBe(
+    0,
+  );
+});
+
+test('closing the app detaches a scheduled waiter without declaring durable failure', async () => {
+  fixture.hold = true;
+  const pending = runtime.runScheduledTask('scheduled-run:close', 'Hold', {
+    requestId: 'scheduled:close',
+  });
+  const detached = expect(pending).rejects.toBeInstanceOf(DurableWorkDetachedError);
+  await expect.poll(() => fixture.calls).toBe(1);
+  await runtime.close();
+  await detached;
 });

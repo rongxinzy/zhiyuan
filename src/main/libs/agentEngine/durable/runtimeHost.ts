@@ -39,6 +39,8 @@ export class DurableRuntimeHost {
       async sessionId => (await this.configuration(sessionId)).harness,
     );
     this.runner = new DurableConversationRunner(owner, {
+      documentChanged: (sessionId, document) =>
+        this.emit('workDocumentChanged', { sessionId, document }),
       changed: (sessionId, view) => this.project(sessionId, view),
       settled: (sessionId, success, reason) => {
         void this.settle(sessionId, success, reason).catch(error =>

@@ -3,8 +3,6 @@ import path from 'node:path';
 import process from 'node:process';
 
 const root = process.cwd();
-const expectedSidecarVersion = 'zhiyuan-sidecar-v4';
-const expectedSidecarRevision = 'ecf720f875e31b3df3464d820e6c485775719abe';
 const forbiddenRuntimePattern = /openclaw|cfmind/i;
 const forbiddenStoragePattern =
   /(?:\.openclaw|openclaw\.json|im_session_mappings|openclaw_session_key|telegramOpenClaw|feishuOpenClaw|dingtalkOpenClaw)/i;
@@ -19,12 +17,7 @@ const productionRoots = [
 ];
 
 const buildRoots = ['scripts', 'resources'];
-const workflowFiles = [
-  '.github/workflows/build-platforms.yml',
-  '.github/workflows/linux-install-pr.yml',
-  '.github/workflows/online-update-release.yml',
-  '.github/workflows/windows-installer-pr.yml',
-];
+const workflowFiles = ['.github/workflows/lightweight-ci.yml'];
 
 const forbiddenPaths = [
   '.github/workflows/openclaw-check.yml',
@@ -89,22 +82,6 @@ for (const buildRoot of buildRoots) {
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 if ('openclaw' in packageJson) failures.push('package.json contains retired runtime metadata');
-const channelRuntime = packageJson.channelRuntime;
-if (
-  channelRuntime?.version !== expectedSidecarVersion ||
-  channelRuntime?.sourceRevision !== expectedSidecarRevision ||
-  channelRuntime?.repo !== 'rongxinzy/pi-connect'
-) {
-  failures.push('package.json must pin the immutable pi-connect sidecar release');
-}
-for (const targetId of ['mac-x64', 'mac-arm64', 'win-x64', 'linux-x64']) {
-  if (!channelRuntime?.runtimeAssets?.[targetId]) {
-    failures.push(`package.json is missing the channel runtime asset for ${targetId}`);
-  }
-  if (!/^[a-f0-9]{64}$/.test(channelRuntime?.runtimeChecksums?.[targetId] ?? '')) {
-    failures.push(`package.json is missing the finalized channel runtime checksum for ${targetId}`);
-  }
-}
 for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
   if (name === 'check:openclaw-decoupling') continue;
   if (forbiddenRuntimePattern.test(`${name} ${command}`)) {
@@ -124,13 +101,6 @@ checkFile('vite.config.ts', [forbiddenRuntimePattern, forbiddenStoragePattern]);
 
 for (const workflowFile of workflowFiles) {
   const content = fs.readFileSync(path.join(root, workflowFile), 'utf8');
-  if (
-    /repository:\s*rongxinzy\/pi-connect|actions\/setup-go|ZHIYUAN_CC_CONNECT_SOURCE/.test(content)
-  ) {
-    failures.push(
-      `${workflowFile} must consume the published channel runtime, not pi-connect source`,
-    );
-  }
   const contentWithoutGateCommand = content
     .split(/\r?\n/)
     .filter(line => !line.includes('check-openclaw-decoupling'))
@@ -146,6 +116,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(
-  '[DecouplingCheck] Pi execution, cc-connect transport, and SQLite ownership boundaries are intact.',
-);
+console.log('[DecouplingCheck] Pi execution and SQLite ownership boundaries are intact.');

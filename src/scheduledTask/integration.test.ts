@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { expect, test } from 'vitest';
 
-import { BindingKind, DeliveryMode, OriginKind, PayloadKind, ScheduleKind } from './constants';
+import { BindingKind, OriginKind, PayloadKind, ScheduleKind } from './constants';
 import { makeModel, makeTask } from './fixtures';
 import { ScheduledTaskMetaStore } from './metaStore';
 import { TaskModelMapper } from './modelMapper';
@@ -13,70 +13,6 @@ function createMetaStore() {
   const db = new Database(':memory:');
   return new ScheduledTaskMetaStore(db);
 }
-
-test('integration: manual create -> edit delivery to IM -> binding auto-updates', () => {
-  const metaStore = createMetaStore();
-  const origin = { kind: OriginKind.Manual };
-  const policy = taskPolicyRegistry.get(origin);
-
-  // 1. Create draft
-  const draft = mapper.createDraft(origin, policy.getCreateDefaults(origin));
-  draft.name = 'Daily Reminder';
-  draft.schedule = { kind: ScheduleKind.Cron, expr: '0 9 * * *' };
-  draft.payload = { kind: PayloadKind.SystemEvent, text: 'Good morning' };
-  expect(draft.binding.kind).toBe(BindingKind.NewSession);
-
-  // 2. Normalize
-  const normalized = policy.normalizeDraft(draft);
-
-  // 3. Edit delivery -> IM
-  const edited = policy.onDeliveryChanged(normalized, {
-    mode: DeliveryMode.Announce,
-    channel: 'telegram',
-  });
-  expect(edited.binding.kind).toBe(BindingKind.IMSession);
-  expect((edited.binding as any).platform).toBe('telegram');
-
-  // 4. Save meta
-  metaStore.set('task-int-1', edited.origin, edited.binding);
-  const savedMeta = metaStore.get('task-int-1');
-  expect(savedMeta).toBeTruthy();
-  expect(JSON.parse(savedMeta!.binding).kind).toBe(BindingKind.IMSession);
-});
-
-test('integration: IM task -> switch to different IM platform -> binding platform updates', () => {
-  const origin = { kind: OriginKind.IM, platform: 'telegram', conversationId: 'c1' };
-  const policy = taskPolicyRegistry.get(origin);
-  const defaults = policy.getCreateDefaults(origin);
-  const draft = mapper.createDraft(origin, defaults);
-  draft.binding = {
-    kind: BindingKind.IMSession,
-    platform: 'telegram',
-    conversationId: 'c1',
-    sessionId: 'sess-1',
-  };
-
-  const edited = policy.onDeliveryChanged(draft, {
-    mode: DeliveryMode.Announce,
-    channel: 'discord',
-  });
-  expect(edited.binding.kind).toBe(BindingKind.IMSession);
-  expect((edited.binding as any).platform).toBe('discord');
-});
-
-test('integration: cowork task -> delivery change to webhook -> binding stays', () => {
-  const origin = { kind: OriginKind.Cowork, sessionId: 'sess-99' };
-  const policy = taskPolicyRegistry.get(origin);
-  const model = makeModel({
-    origin,
-    binding: { kind: BindingKind.UISession, sessionId: 'sess-99' },
-    delivery: { mode: DeliveryMode.None },
-  });
-
-  const edited = policy.onDeliveryChanged(model, { mode: DeliveryMode.Webhook });
-  expect(edited.binding).toEqual(model.binding);
-  expect(edited.delivery.mode).toBe(DeliveryMode.Webhook);
-});
 
 test('integration: infer -> persist -> reload uses stored meta (not re-infer)', () => {
   const metaStore = createMetaStore();
@@ -103,7 +39,6 @@ test('integration: wire roundtrip preserves all fields', () => {
     description: 'Desc with "quotes" & special chars',
     schedule: { kind: ScheduleKind.Cron, expr: '*/5 * * * *' },
     payload: { kind: PayloadKind.AgentTurn, message: 'Do work', timeoutSeconds: 120 },
-    delivery: { mode: DeliveryMode.Announce, channel: 'feishu', to: 'user-1' },
     origin: { kind: OriginKind.Manual },
     binding: { kind: BindingKind.NewSession },
   });
@@ -121,19 +56,4 @@ test('integration: wire roundtrip preserves all fields', () => {
   expect(restored.schedule).toEqual({ kind: ScheduleKind.Cron, expr: '*/5 * * * *' });
   expect((restored.payload as any).message).toBe('Do work');
   expect((restored.payload as any).timeoutSeconds).toBe(120);
-  expect((restored.delivery as any).channel).toBe('feishu');
-});
-
-test('integration: legacy task with IM announce -> normalizeDraft links binding', () => {
-  const origin = { kind: OriginKind.Legacy };
-  const policy = taskPolicyRegistry.get(origin);
-  const model = makeModel({
-    origin,
-    binding: { kind: BindingKind.NewSession },
-    delivery: { mode: DeliveryMode.Announce, channel: 'feishu' },
-  });
-
-  const normalized = policy.normalizeDraft(model);
-  expect(normalized.binding.kind).toBe(BindingKind.IMSession);
-  expect((normalized.binding as any).platform).toBe('feishu');
 });

@@ -1,129 +1,98 @@
 import Database from 'better-sqlite3';
-import { expect, test } from 'vitest';
-
-import {
-  DeliveryMode,
-  DeliveryStatus,
-  PayloadKind,
-  ScheduleKind,
-  SessionTarget,
-  TaskStatus,
-  WakeMode,
-} from './constants';
+import { afterEach, expect, test } from 'vitest';
+import { PayloadKind, ScheduleKind, SessionTarget, TaskStatus, WakeMode } from './constants';
 import { SqliteScheduledTaskStore } from './sqliteScheduledTaskStore';
 
-function createTask(store: SqliteScheduledTaskStore) {
-  return store.create({
-    name: '提醒',
+const databases: Database.Database[] = [];
+afterEach(() => databases.splice(0).forEach(db => db.close()));
+function setup() {
+  const db = new Database(':memory:');
+  databases.push(db);
+  const store = new SqliteScheduledTaskStore(db);
+  const task = store.create({
+    name: 'task',
     description: '',
     enabled: true,
     schedule: { kind: ScheduleKind.Cron, expr: '0 9 * * *', tz: 'Asia/Shanghai' },
     sessionTarget: SessionTarget.Isolated,
-    wakeMode: WakeMode.NextHeartbeat,
+    wakeMode: WakeMode.Now,
     payload: { kind: PayloadKind.AgentTurn, message: 'hello' },
-    delivery: { mode: DeliveryMode.None },
-    workspaceId: 'workspace-1',
+    workspaceId: 'workspace',
   });
+  const trigger = {
+    taskId: task.id,
+    scheduleVersion: task.scheduleVersion!,
+    scheduledAt: '2026-10-14T00:00:00Z',
+  };
+  return { db, store, task, trigger };
 }
 
-test('SQLite is the canonical task source and changes schedule version on projection changes', () => {
-  const store = new SqliteScheduledTaskStore(new Database(':memory:'));
-  const task = createTask(store);
-  expect(store.list()).toEqual([task]);
+test('schedule edits reset next-run projection and change the schedule version', () => {
+  const { store, task } = setup();
+  store.setNextRunAt(task.id, Date.now() + 1000);
   const updated = store.update(task.id, { enabled: false });
   expect(updated.scheduleVersion).not.toBe(task.scheduleVersion);
-  expect(store.get(task.id)?.enabled).toBe(false);
+  expect(updated.state.nextRunAtMs).toBeNull();
 });
 
-test('claims each scheduled trigger once and persists its completed Run', () => {
-  const store = new SqliteScheduledTaskStore(new Database(':memory:'));
-  const task = createTask(store);
-  const trigger = {
-    taskId: task.id,
-    scheduleVersion: task.scheduleVersion!,
-    scheduledAt: '2026-08-11T06:00:00.000Z',
-  };
-  const run = store.claimTrigger(trigger);
-  expect(run?.status).toBe('running');
+test('occurrence projection is unique while completed native results remain recorded', () => {
+  const { store, task, trigger } = setup();
+  const run = store.claimTrigger(trigger)!;
   expect(store.claimTrigger(trigger)).toBeNull();
-  const complete = store.finishRun(run!.id, {
-    status: TaskStatus.Success,
-    sessionId: 'pi-session',
-  });
-  expect(complete).toMatchObject({ status: 'success', sessionId: 'pi-session' });
-  expect(store.listRuns(task.id)).toHaveLength(1);
+  store.setRunSession(run.id, `scheduled-run:${run.id}`);
+  expect(store.listPendingRuns()).toMatchObject([
+    { id: run.id, sessionId: `scheduled-run:${run.id}` },
+  ]);
+  const finished = store.finishRun(run.id, { status: TaskStatus.Success });
+  expect(finished.sessionId).toBe(`scheduled-run:${run.id}`);
+  expect(store.listPendingRuns()).toEqual([]);
+  expect(store.hasTrigger(task.id, task.scheduleVersion!, trigger.scheduledAt)).toBe(true);
 });
 
-test('lets a manual invocation run a paused task exactly once', () => {
-  const store = new SqliteScheduledTaskStore(new Database(':memory:'));
-  const task = createTask(store);
+test('paused tasks reject timer occurrences but still allow explicit manual execution', () => {
+  const { store, task, trigger } = setup();
   const paused = store.update(task.id, { enabled: false });
-  const trigger = {
-    taskId: task.id,
-    scheduleVersion: paused.scheduleVersion!,
-    scheduledAt: '2026-08-11T06:00:00.000Z',
-  };
-
-  expect(store.claimTrigger(trigger)).toBeNull();
-  expect(store.claimTrigger(trigger, { allowDisabled: true })?.status).toBe(TaskStatus.Running);
-  expect(store.claimTrigger(trigger, { allowDisabled: true })).toBeNull();
+  const input = { ...trigger, scheduleVersion: paused.scheduleVersion! };
+  expect(store.claimTrigger(input)).toBeNull();
+  expect(store.claimTrigger(input, { allowDisabled: true })?.status).toBe(TaskStatus.Running);
 });
 
-test('persists Delivery attempts beside the canonical Run', () => {
-  const store = new SqliteScheduledTaskStore(new Database(':memory:'));
-  const task = createTask(store);
-  const run = store.claimTrigger({
-    taskId: task.id,
-    scheduleVersion: task.scheduleVersion!,
-    scheduledAt: '2026-08-11T06:00:00.000Z',
-  })!;
-  const delivery = store.createDelivery({
-    runId: run.id,
-    taskId: task.id,
-    mode: DeliveryMode.Announce,
-    channel: 'telegram',
-    to: '42',
-    accountId: 'telegram-work',
-    status: DeliveryStatus.Success,
-    deliveredAt: '2026-08-11T06:00:01.000Z',
-    receiptId: 'delivery-42',
-    error: null,
-  });
-  expect(store.listDeliveries(run.id)).toEqual([delivery]);
-  store.remove(task.id);
-  expect(store.listDeliveries(run.id)).toEqual([delivery]);
-});
-
-test('keeps a legacy id stable when importing canonical task records', () => {
-  const store = new SqliteScheduledTaskStore(new Database(':memory:'));
-  const input = {
-    name: 'legacy',
-    description: '',
-    enabled: false,
-    schedule: { kind: ScheduleKind.At, at: '2020-01-01T00:00:00.000Z' },
-    sessionTarget: SessionTarget.Isolated,
-    wakeMode: WakeMode.NextHeartbeat,
-    payload: { kind: PayloadKind.AgentTurn, message: 'saved' },
-    delivery: { mode: DeliveryMode.None },
-    workspaceId: 'workspace-1',
-  } as const;
-  expect(store.importLegacy('legacy-id', input).id).toBe('legacy-id');
-  expect(store.importLegacy('legacy-id', { ...input, name: 'ignored' }).name).toBe('legacy');
-});
-
-test('recovers interrupted running Runs as visible errors', () => {
-  const store = new SqliteScheduledTaskStore(new Database(':memory:'));
-  const task = createTask(store);
-  const run = store.claimTrigger({
-    taskId: task.id,
-    scheduleVersion: task.scheduleVersion!,
-    scheduledAt: '2026-08-11T06:00:00.000Z',
-  })!;
-  expect(store.recoverInterruptedRuns()).toBe(1);
-  expect(store.listRuns(task.id)[0]).toMatchObject({
-    id: run.id,
-    status: 'error',
-    error: 'Scheduler interrupted before Pi completion',
-  });
+test('ending one run does not hide another active native submission', () => {
+  const { store, task, trigger } = setup();
+  const first = store.claimTrigger(trigger)!;
+  const second = store.claimTrigger({ ...trigger, scheduledAt: '2026-10-14T00:01:00Z' })!;
+  store.finishRun(first.id, { status: TaskStatus.Success });
+  expect(store.get(task.id)?.state.runningAtMs).not.toBeNull();
+  store.finishRun(second.id, { status: TaskStatus.Error, error: 'aborted' });
   expect(store.get(task.id)?.state.runningAtMs).toBeNull();
+});
+
+test('removed channel routing is neither returned nor given an active delivery table', () => {
+  const { db, store, task } = setup();
+  db.prepare('UPDATE zhiyuan_scheduled_tasks SET delivery_json = ? WHERE id = ?').run(
+    '{invalid retired data',
+    task.id,
+  );
+  expect(store.get(task.id)).not.toHaveProperty('delivery');
+  store.update(task.id, { name: 'changed' });
+  expect(
+    db.prepare('SELECT delivery_json FROM zhiyuan_scheduled_tasks WHERE id = ?').get(task.id),
+  ).toEqual({ delivery_json: '{invalid retired data' });
+  expect(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE name = 'zhiyuan_scheduled_task_deliveries'")
+      .get(),
+  ).toBeUndefined();
+});
+
+test('editing a task timeout never changes the original run cancellation deadline', () => {
+  const { store, task, trigger } = setup();
+  const run = store.claimTrigger(trigger)!;
+  expect(run.deadlineAtMs).toBe(Date.parse(run.startedAt) + 300_000);
+  store.update(task.id, {
+    payload: { kind: PayloadKind.AgentTurn, message: 'updated', timeoutSeconds: 3600 },
+  });
+  expect(store.listPendingRuns()[0].deadlineAtMs).toBe(run.deadlineAtMs);
+  const next = store.claimTrigger({ ...trigger, scheduledAt: '2026-10-14T00:01:00Z' })!;
+  expect(next.deadlineAtMs).toBe(Date.parse(next.startedAt) + 3_600_000);
 });

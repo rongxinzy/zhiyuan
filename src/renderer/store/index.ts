@@ -5,7 +5,6 @@ import artifactReducer from './slices/artifactSlice';
 import activityReducer from './slices/activitySlice';
 import coworkReducer from './slices/coworkSlice';
 import coworkRunReducer from './slices/coworkRunSlice';
-import imReducer from './slices/imSlice';
 import modelReducer from './slices/modelSlice';
 import scheduledTaskReducer from './slices/scheduledTaskSlice';
 import workspaceReducer from './slices/workspaceSlice';
@@ -16,7 +15,6 @@ export const store = configureStore({
     model: modelReducer,
     cowork: coworkReducer,
     coworkRun: coworkRunReducer,
-    im: imReducer,
     scheduledTask: scheduledTaskReducer,
     agent: agentReducer,
     artifact: artifactReducer,

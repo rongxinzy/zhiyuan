@@ -43,8 +43,8 @@ Var /GLOBAL zyDeleteRealAppData
 !define /ifndef UNINSTALL_REGISTRY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}"
 
 ; electron-builder's CHECK_APP_RUNNING treats any process whose image path
-; starts with $INSTDIR as "app still running". Sidecars (cc-connect,
-; llama-server, git) survive a force-killed main process, so kill by
+; starts with $INSTDIR as "app still running". Helper processes such as
+; llama-server and git survive a force-killed main process, so kill by
 ; install-root/runtime-cache path prefix instead of by process name; otherwise
 ; orphaned sidecars keep the "cannot be closed" retry dialog up forever.
 ; The caller itself is excluded: an in-place uninstaller runs from $INSTDIR.
@@ -561,7 +561,6 @@ Var /GLOBAL zyDeleteRealAppData
 
   ; Stage the per-component metadata before deciding which archives to queue.
   !insertmacro ZY_ProgressPhase STAGING "$(ZY_PHASE_STAGING)"
-  !insertmacro StageOfflineComponentMetadata "channel-runtime"
   !insertmacro StageOfflineComponentMetadata "portable-git"
 
   ; Verify all reusable cache entries in one PowerShell process before deciding
@@ -574,7 +573,6 @@ Var /GLOBAL zyDeleteRealAppData
     Goto OfflineComponentInstallFailed
   ComponentCacheValidated:
 
-  !insertmacro QueueOfflineComponent CHANNEL_RUNTIME "channel-runtime" "频道运行环境"
   !insertmacro QueueOfflineComponent PORTABLE_GIT "portable-git" "PortableGit"
 
   ; The changed archives are now present in $PLUGINSDIR. Validate their entries
@@ -607,7 +605,6 @@ Var /GLOBAL zyDeleteRealAppData
     Goto OfflineComponentInstallFailed
   ComponentBatchExpanded:
 
-  !insertmacro RecordOfflineComponentReady "channel-runtime"
   !insertmacro RecordOfflineComponentReady "portable-git"
 
   DetailPrint "[Installer] Activating offline components"
@@ -637,7 +634,6 @@ Var /GLOBAL zyDeleteRealAppData
   DetailPrint "[Installer] Verifying bundled runtimes"
   !insertmacro ZY_ProgressPhase VERIFYING "$(ZY_PHASE_VERIFYING)"
   IfFileExists "$INSTDIR\resources\mingit\usr\bin\bash.exe" 0 InstalledRuntimeVerificationFailed
-  IfFileExists "$INSTDIR\resources\channel-runtime\cc-connect-sidecar.exe" 0 InstalledRuntimeVerificationFailed
   Goto OfflineComponentsReady
   InstalledRuntimeVerificationFailed:
     StrCpy $R9 "离线运行环境连接校验失败。请重新运行安装器。"

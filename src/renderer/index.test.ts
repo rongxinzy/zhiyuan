@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { classicDark } from './theme/themes/classic-dark';
 import { classicLight } from './theme/themes/classic-light';
-import { generateThemeCSS } from './theme/engine/css-generator';
+import { generateAppearanceCSS } from './theme/scripts/appearance-css';
 
 test('Codex switches retain their dimensions and the sidebar uses a neutral compact thumb', () => {
   expect(classicLight.tokens['style-work-chat-thumb']).toBe('var(--zy-background)');
@@ -27,7 +27,7 @@ test('Codex switches retain their dimensions and the sidebar uses a neutral comp
     expect(c['switch-fluid-checked'].hover['background-color']).toBe(
       'var(--zy-switch-track-checked-hover)',
     );
-    const css = generateThemeCSS(theme);
+    const css = generateAppearanceCSS(theme);
     expect(css.indexOf(':where(.theme-switch[data-checked]) {')).toBeLessThan(
       css.indexOf(':where(.theme-switch[data-fluid-switch][data-checked]):where('),
     );

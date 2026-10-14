@@ -3,7 +3,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { ContextMenuAction, ContextMenuOpenEvent } from '../shared/contextMenu';
 import type { ApiRequestPurpose } from '../shared/ipc/apiRequest';
 import { IpcChannel as ScheduledTaskIpc } from '../scheduledTask/constants';
-import { MemoryIpcChannel } from '../shared/memory';
 import { AgentIpcChannel } from '../shared/agent/constants';
 import { AppUpdateIpc } from '../shared/appUpdate/constants';
 import { ActivityIpc } from '../shared/activity/constants';
@@ -20,13 +19,9 @@ import {
   CoworkSessionIpc,
   CoworkStreamIpc,
   DialogIpc,
-  DingTalkInstallIpc,
   EnterpriseIpc,
-  FeishuInstallIpc,
   GitHubCopilotIpc,
   HardwareIpc,
-  ImInstanceIpc,
-  ImIpc,
   LogIpc,
   ManagedProviderIpc,
   ModelPoolIpc,
@@ -38,7 +33,6 @@ import {
   ShellIpc,
   StoreIpc,
   WindowIpc,
-  WeixinInstallIpc,
 } from '../shared/ipc/channels';
 import type {
   CoworkExecutionMode,
@@ -51,7 +45,6 @@ import { LlamaCppIpcChannel } from '../shared/llamacpp/constants';
 import { MarketplaceIpcChannel } from '../shared/marketplace/constants';
 import type { MarketplaceSearchRequest } from '../shared/marketplace/types';
 import { OllamaIpcChannel } from '../shared/ollama/constants';
-import type { Platform } from '../shared/platform';
 import { EnterpriseSessionIpc } from '../shared/enterpriseSession';
 import { EnterpriseRendererIpc } from '../shared/enterpriseRenderer';
 import type {
@@ -375,6 +368,15 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   cowork: {
+    getWorkDocument: (sessionId: string) =>
+      ipcRenderer.invoke('cowork:workDocument:get', sessionId),
+    updateWorkDocument: (
+      sessionId: string,
+      patch: import('../shared/durable/workDocument').WorkDocumentPatch,
+    ) => ipcRenderer.invoke('cowork:workDocument:update', sessionId, patch),
+    onWorkDocumentChanged: (
+      callback: (change: import('../shared/durable/workDocument').WorkDocumentChanged) => void,
+    ) => onPush('cowork:workDocument:changed', callback),
     getDurableWork: (sessionId: string) => ipcRenderer.invoke('cowork:getDurableWork', sessionId),
     resumeDurableWork: (sessionId: string) =>
       ipcRenderer.invoke('cowork:resumeDurableWork', sessionId),
@@ -479,8 +481,6 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(CoworkSessionIpc.Get, sessionId, options),
     getRuntimeSnapshots: (sessionId?: string) =>
       ipcRenderer.invoke(CoworkStreamIpc.RuntimeSnapshots, sessionId),
-    remoteManaged: (sessionId: string) =>
-      ipcRenderer.invoke(CoworkSessionIpc.RemoteManaged, sessionId),
     listSessions: (options?: {
       limit?: number;
       offset?: number;
@@ -541,9 +541,6 @@ contextBridge.exposeInMainWorld('electron', {
     listForSession: (sessionId: string) =>
       ipcRenderer.invoke(WorkbenchTaskIpc.ListForSession, sessionId),
     exportAudit: (taskId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.ExportAudit, taskId),
-    resume: (input: import('../shared/workbenchTask').WorkbenchTaskResumeInput) =>
-      ipcRenderer.invoke(WorkbenchTaskIpc.Resume, input),
-    retry: (taskId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.Retry, taskId),
     accept: (taskId: string) => ipcRenderer.invoke(WorkbenchTaskIpc.Accept, taskId),
     respondToApproval: (input: WorkbenchApprovalResponseInput) =>
       ipcRenderer.invoke(WorkbenchTaskIpc.RespondToApproval, input),
@@ -828,101 +825,6 @@ contextBridge.exposeInMainWorld('electron', {
       onPush(RuntimeNoticeIpc.Notice, callback),
   },
 
-  im: {
-    getConfig: () => ipcRenderer.invoke(ImIpc.ConfigGet),
-    setConfig: (config: unknown, options?: { syncGateway?: boolean }) =>
-      ipcRenderer.invoke(ImIpc.ConfigSet, config, options),
-    syncConfig: () => ipcRenderer.invoke(ImIpc.ConfigSync),
-
-    startGateway: (platform: Platform) => ipcRenderer.invoke(ImIpc.GatewayStart, platform),
-    stopGateway: (platform: Platform) => ipcRenderer.invoke(ImIpc.GatewayStop, platform),
-    testGateway: (platform: Platform, configOverride?: unknown, accountId?: string) =>
-      ipcRenderer.invoke(ImIpc.GatewayTest, platform, configOverride, accountId),
-
-    getStatus: () => ipcRenderer.invoke(ImIpc.StatusGet),
-    getLocalIp: () => ipcRenderer.invoke(ImIpc.GetLocalIp) as Promise<string>,
-    weixinLoginStart: () => ipcRenderer.invoke(WeixinInstallIpc.Start),
-    weixinLoginPoll: (qrcode: string) => ipcRenderer.invoke(WeixinInstallIpc.Poll, qrcode),
-    // Multi-Instance
-    addDingTalkInstance: (name: string, workspaceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.dingtalkAdd, name, workspaceId),
-    deleteDingTalkInstance: (instanceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.dingtalkDelete, instanceId),
-    setDingTalkInstanceConfig: (
-      instanceId: string,
-      config: unknown,
-      options?: { syncGateway?: boolean },
-    ) => ipcRenderer.invoke(ImInstanceIpc.dingtalkSetConfig, instanceId, config, options),
-
-    addQQInstance: (name: string, workspaceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.qqAdd, name, workspaceId),
-    deleteQQInstance: (instanceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.qqDelete, instanceId),
-    setQQInstanceConfig: (
-      instanceId: string,
-      config: unknown,
-      options?: { syncGateway?: boolean },
-    ) => ipcRenderer.invoke(ImInstanceIpc.qqSetConfig, instanceId, config, options),
-
-    addFeishuInstance: (name: string, workspaceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.feishuAdd, name, workspaceId),
-    deleteFeishuInstance: (instanceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.feishuDelete, instanceId),
-    setFeishuInstanceConfig: (
-      instanceId: string,
-      config: unknown,
-      options?: { syncGateway?: boolean },
-    ) => ipcRenderer.invoke(ImInstanceIpc.feishuSetConfig, instanceId, config, options),
-
-    addWecomInstance: (name: string, workspaceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.wecomAdd, name, workspaceId),
-    deleteWecomInstance: (instanceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.wecomDelete, instanceId),
-    setWecomInstanceConfig: (
-      instanceId: string,
-      config: unknown,
-      options?: { syncGateway?: boolean },
-    ) => ipcRenderer.invoke(ImInstanceIpc.wecomSetConfig, instanceId, config, options),
-
-    addTelegramInstance: (name: string, workspaceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.telegramAdd, name, workspaceId),
-    deleteTelegramInstance: (instanceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.telegramDelete, instanceId),
-    setTelegramInstanceConfig: (
-      instanceId: string,
-      config: unknown,
-      options?: { syncGateway?: boolean },
-    ) => ipcRenderer.invoke(ImInstanceIpc.telegramSetConfig, instanceId, config, options),
-
-    addDiscordInstance: (name: string, workspaceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.discordAdd, name, workspaceId),
-    deleteDiscordInstance: (instanceId: string) =>
-      ipcRenderer.invoke(ImInstanceIpc.discordDelete, instanceId),
-    setDiscordInstanceConfig: (
-      instanceId: string,
-      config: unknown,
-      options?: { syncGateway?: boolean },
-    ) => ipcRenderer.invoke(ImInstanceIpc.discordSetConfig, instanceId, config, options),
-
-    onStatusChange: (callback: (status: unknown) => void) => onPush(ImIpc.StatusChange, callback),
-    onMessageReceived: (callback: (message: unknown) => void) =>
-      onPush(ImIpc.MessageReceived, callback),
-  },
-
-  memory: {
-    list: (input?: unknown) => ipcRenderer.invoke(MemoryIpcChannel.List, input),
-    resolveSessionTitles: (input: unknown) =>
-      ipcRenderer.invoke(MemoryIpcChannel.ResolveSessionTitles, input),
-    createManual: (input: unknown) => ipcRenderer.invoke(MemoryIpcChannel.CreateManual, input),
-    updateManual: (input: unknown) => ipcRenderer.invoke(MemoryIpcChannel.UpdateManual, input),
-    confirmCandidate: (id: string) => ipcRenderer.invoke(MemoryIpcChannel.ConfirmCandidate, id),
-    archive: (id: string) => ipcRenderer.invoke(MemoryIpcChannel.Archive, id),
-    restore: (id: string) => ipcRenderer.invoke(MemoryIpcChannel.Restore, id),
-    forget: (id: string, hardDelete: boolean) =>
-      ipcRenderer.invoke(MemoryIpcChannel.Forget, id, hardDelete),
-    drainOutbox: () => ipcRenderer.invoke(MemoryIpcChannel.DrainOutbox),
-  },
-
   scheduledTasks: {
     list: () => ipcRenderer.invoke(ScheduledTaskIpc.List),
     get: (id: string) => ipcRenderer.invoke(ScheduledTaskIpc.Get, id),
@@ -934,25 +836,14 @@ contextBridge.exposeInMainWorld('electron', {
 
     runManually: (id: string) => ipcRenderer.invoke(ScheduledTaskIpc.RunManually, id),
     stop: (id: string) => ipcRenderer.invoke(ScheduledTaskIpc.Stop, id),
-    preflight: (id: string) => ipcRenderer.invoke(ScheduledTaskIpc.Preflight, id),
 
     listRuns: (taskId: string, limit?: number, offset?: number, filter?: unknown) =>
       ipcRenderer.invoke(ScheduledTaskIpc.ListRuns, taskId, limit, offset, filter),
-    listDeliveries: (runId: string) => ipcRenderer.invoke(ScheduledTaskIpc.ListDeliveries, runId),
     countRuns: (taskId: string) => ipcRenderer.invoke(ScheduledTaskIpc.CountRuns, taskId),
     listAllRuns: (limit?: number, offset?: number, filter?: unknown) =>
       ipcRenderer.invoke(ScheduledTaskIpc.ListAllRuns, limit, offset, filter),
     resolveSession: (sessionKey: string) =>
       ipcRenderer.invoke(ScheduledTaskIpc.ResolveSession, sessionKey),
-
-    listChannels: () => ipcRenderer.invoke(ScheduledTaskIpc.ListChannels),
-    listChannelConversations: (channel: string, accountId?: string, filterAccountId?: string) =>
-      ipcRenderer.invoke(
-        ScheduledTaskIpc.ListChannelConversations,
-        channel,
-        accountId,
-        filterAccountId,
-      ),
 
     onStatusUpdate: (callback: (data: unknown) => void) =>
       onPush(ScheduledTaskIpc.StatusUpdate, callback),
@@ -997,22 +888,6 @@ contextBridge.exposeInMainWorld('electron', {
       onPush(ModelPoolIpc.streamError(requestId), callback),
     onStreamAbort: (requestId: string, callback: () => void) =>
       onPushVoid(ModelPoolIpc.streamAbort(requestId), callback),
-  },
-
-  feishu: {
-    install: {
-      verify: (appId: string, appSecret: string) =>
-        ipcRenderer.invoke(FeishuInstallIpc.Verify, { appId, appSecret }),
-    },
-  },
-
-  dingtalk: {
-    install: {
-      qrcode: () => ipcRenderer.invoke(DingTalkInstallIpc.Qrcode),
-      poll: (deviceCode: string) => ipcRenderer.invoke(DingTalkInstallIpc.Poll, { deviceCode }),
-      verify: (clientId: string, clientSecret: string) =>
-        ipcRenderer.invoke(DingTalkInstallIpc.Verify, { clientId, clientSecret }),
-    },
   },
 
   githubCopilot: {

@@ -65,7 +65,6 @@ import { useCoworkSlashMenu } from './useCoworkSlashMenu';
 import { PromptWorkspaceSelector } from './PromptWorkspaceSelector';
 import PermissionModeMenu from './PermissionModeMenu';
 import PromptPlusMenu from './PromptPlusMenu';
-import { ResumeTaskContextBadge } from './ResumeTaskContextBadge';
 import { usePromptSubmissionLock } from './usePromptSubmissionLock';
 import { resolveInitialSelectedExpertIds } from './resolveInitialSelectedExpertIds';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
@@ -155,10 +154,7 @@ interface CoworkPromptInputProps {
   onPermissionModeChange?: (mode: CoworkPermissionMode) => void;
   sessionId?: string;
   /** When true, hides attachment buttons but keeps the input box visible (disabled) */
-  remoteManaged?: boolean;
   topAccessory?: React.ReactNode;
-  resumeTaskActive?: boolean;
-  onCancelTaskResume?: () => void;
 }
 
 const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkPromptInputProps>(
@@ -183,10 +179,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       permissionMode,
       onPermissionModeChange,
       sessionId,
-      remoteManaged = false,
       topAccessory,
-      resumeTaskActive = false,
-      onCancelTaskResume,
     } = props;
     const dispatch = useDispatch();
     const controller = usePromptInputController();
@@ -472,7 +465,6 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
     const slashMenu = useCoworkSlashMenu({
       value,
       disabled,
-      remoteManaged,
       sessionId,
       setValue,
       focusEditor: () => textareaRef.current?.focus(),
@@ -507,7 +499,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       }
 
       if (
-        (!trimmedValue && attachments.length === 0 && !resumeTaskActive) ||
+        (!trimmedValue && attachments.length === 0) ||
         (isStreaming && !canQueueWhileStreaming) ||
         disabled ||
         sessionContextPending ||
@@ -635,10 +627,7 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
           : promptText
         : attachmentLines;
 
-      if (
-        !resumeTaskActive &&
-        !hasCoworkSubmissionContent({ prompt: finalPrompt, imageAttachments: imageAtts })
-      ) {
+      if (!hasCoworkSubmissionContent({ prompt: finalPrompt, imageAttachments: imageAtts })) {
         // 2026/09/28 之前这里是静默 return：按钮看起来可用，点下去却什么都不发生。
         const unusableImage = attachments.some(a => a.isImage || isImagePath(a.path));
         window.dispatchEvent(
@@ -706,7 +695,6 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       modelSupportsImage,
       selectedExpertIds,
       canQueueWhileStreaming,
-      resumeTaskActive,
       sessionId,
       runSlashCompact,
     ]);
@@ -1149,13 +1137,10 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
       return () => window.removeEventListener('config-updated', syncFromConfig);
     }, []);
     // Unified Kimi-style toolbar: "+" menu (+ permission selector in work mode)
-    // on the left, model picker + submit on the right. remoteManaged sessions
     // keep the minimal read-only layout with the model picker.
-    const isPlusToolbar = !remoteManaged;
     const isWorkVariant = showFolderSelector || showPermissionModeSelector;
     // 2026/09/15 lixiang  Empty prompt: dim submit, not-allowed cursor, and ask-user tip
-    const isSubmitEmpty =
-      !hasVisiblePromptContent(value) && attachments.length === 0 && !resumeTaskActive;
+    const isSubmitEmpty = !hasVisiblePromptContent(value) && attachments.length === 0;
     const showEmptySubmitHint = isSubmitEmpty && !isStreaming;
     return (
       <div ref={promptRootRef} className="relative">
@@ -1201,11 +1186,8 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
               {i18nService.t('coworkDropFileHint')}
             </div>
           )}
-          {(resumeTaskActive || attachments.length > 0) && (
+          {attachments.length > 0 && (
             <PromptInputHeader className="max-h-[136px] items-start gap-2 overflow-y-auto px-2.5 pt-2">
-              {resumeTaskActive && onCancelTaskResume && (
-                <ResumeTaskContextBadge onCancel={onCancelTaskResume} />
-              )}
               <CoworkInlineAttachments
                 attachments={attachments}
                 className="max-w-full"
@@ -1245,42 +1227,15 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
               aria-disabled={sessionContextPending}
               inert={sessionContextPending ? true : undefined}
             >
-              {!isCompactToolbar && !isPlusToolbar && showModelSelector && (
-                <>
-                  <ContextUsageIndicator
-                    usage={contextUsage}
-                    messageUsage={contextMessage?.metadata?.usage}
-                    modelId={contextMessage?.metadata?.model}
-                    modelProviderKey={contextMessage?.metadata?.modelProviderKey}
-                    selectedModelId={effectiveSelectedModel?.id}
-                    selectedModelProviderKey={effectiveSelectedModel?.providerKey}
-                    messages={currentSession?.messages}
-                    systemPrompt={currentSession?.systemPrompt}
-                  />
-                  <CoworkModelPicker
-                    models={availableModels}
-                    selectedModel={effectiveSelectedModel}
-                    open={modelSelectorOpen}
-                    onOpenChange={setModelSelectorOpen}
-                    onSelect={model => {
-                      void handleModelSelect(model);
-                    }}
-                  />
-                </>
-              )}
-              {isPlusToolbar && (
-                <PromptPlusMenu
-                  onAddFile={() => {
-                    void handleAddFile();
-                  }}
-                  experts={
-                    isWorkVariant
-                      ? { selectedExpertIds, onChange: setSelectedExpertIds }
-                      : undefined
-                  }
-                  disabled={disabled || isStreaming || isAddingFile}
-                />
-              )}
+              <PromptPlusMenu
+                onAddFile={() => {
+                  void handleAddFile();
+                }}
+                experts={
+                  isWorkVariant ? { selectedExpertIds, onChange: setSelectedExpertIds } : undefined
+                }
+                disabled={disabled || isStreaming || isAddingFile}
+              />
               {showFolderSelector && (
                 <PromptWorkspaceSelector
                   onSelectFolder={handleFolderSelect}
@@ -1294,31 +1249,29 @@ const CoworkPromptInputInner = React.forwardRef<CoworkPromptInputRef, CoworkProm
                   disabled={disabled || sessionContextPending}
                 />
               )}
-              {isPlusToolbar && (
-                <>
-                  {!isCompactToolbar && isWorkVariant && (
-                    <PermissionModeMenu
-                      value={permissionMode ?? DEFAULT_COWORK_PERMISSION_MODE}
-                      onChange={mode => onPermissionModeChange?.(mode)}
-                      disabled={disabled}
-                    />
-                  )}
-                  {isWorkVariant && (
-                    <ActiveExpertBadge
-                      expertId={selectedExpertIds[0]}
-                      expertName={
-                        currentSession?.experts?.find(
-                          expert => expert.expertId === selectedExpertIds[0],
-                        )?.expertName
-                      }
-                      onRemove={() => setSelectedExpertIds([])}
-                      compact={isTightToolbar}
-                    />
-                  )}
-                </>
-              )}
+              <>
+                {!isCompactToolbar && isWorkVariant && (
+                  <PermissionModeMenu
+                    value={permissionMode ?? DEFAULT_COWORK_PERMISSION_MODE}
+                    onChange={mode => onPermissionModeChange?.(mode)}
+                    disabled={disabled}
+                  />
+                )}
+                {isWorkVariant && (
+                  <ActiveExpertBadge
+                    expertId={selectedExpertIds[0]}
+                    expertName={
+                      currentSession?.experts?.find(
+                        expert => expert.expertId === selectedExpertIds[0],
+                      )?.expertName
+                    }
+                    onRemove={() => setSelectedExpertIds([])}
+                    compact={isTightToolbar}
+                  />
+                )}
+              </>
             </PromptInputTools>
-            {isPlusToolbar && (showModelSelector || (isCompactToolbar && isWorkVariant)) && (
+            {(showModelSelector || (isCompactToolbar && isWorkVariant)) && (
               <div className="flex min-w-0 shrink-0 items-center gap-1.5">
                 {showModelSelector && (
                   <>

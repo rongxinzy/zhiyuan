@@ -1,18 +1,9 @@
-import type { DeliveryMode, SessionTarget, WakeMode } from '../constants';
+import type { SessionTarget, WakeMode } from '../constants';
 import type { ExecutionBinding, TaskOrigin } from '../origin';
 
 export interface WireBinding {
   sessionTarget: SessionTarget;
   sessionKey: string | null;
-}
-
-/** Minimal delivery shape (avoids importing renderer types) */
-export interface PolicyDelivery {
-  mode: DeliveryMode;
-  channel?: string;
-  to?: string;
-  accountId?: string;
-  bestEffort?: boolean;
 }
 
 /** Minimal ScheduledTaskModel shape for policy operations */
@@ -25,7 +16,6 @@ export interface PolicyTaskModel {
   sessionTarget: SessionTarget;
   wakeMode: WakeMode;
   payload: unknown;
-  delivery: PolicyDelivery;
   workspaceId: string | null;
   sessionKey: string | null;
   state: unknown;
@@ -44,7 +34,6 @@ export interface PolicyTaskInput {
   sessionTarget?: SessionTarget;
   wakeMode?: WakeMode;
   payload?: unknown;
-  delivery?: PolicyDelivery;
   workspaceId?: string | null;
   sessionKey?: string | null;
 }
@@ -57,9 +46,6 @@ export interface TaskPolicy {
 
   /** Normalize draft before save (validate + auto-fill + binding consistency) */
   normalizeDraft(draft: PolicyTaskModel): PolicyTaskModel;
-
-  /** Update binding when delivery changes */
-  onDeliveryChanged(draft: PolicyTaskModel, newDelivery: PolicyDelivery): PolicyTaskModel;
 
   /** Map ExecutionBinding → wire format sessionTarget/sessionKey */
   toWireBinding(binding: ExecutionBinding): WireBinding;

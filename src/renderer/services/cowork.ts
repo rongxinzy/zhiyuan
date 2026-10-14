@@ -32,7 +32,6 @@ import {
   setChatSessions,
   setCurrentSession,
   setHasMoreSessions,
-  setRemoteManaged,
   setSessions,
   updateMessageContents,
   updateToolActivity,
@@ -723,11 +722,6 @@ class CoworkService {
       // loadSession can be called reactively (onSessionsChanged) while a task
       // is still executing; the backend may report a transitional 'idle' status
       // that would prematurely hide the stop button.
-
-      const imResult = await cowork.remoteManaged(sessionId);
-      if (requestId === this.latestLoadSessionRequestId) {
-        store.dispatch(setRemoteManaged(imResult?.remoteManaged ?? false));
-      }
 
       return result.session;
     }

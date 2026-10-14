@@ -19,11 +19,9 @@ test('metaStore: ensureTable is idempotent (no error on double init)', () => {
 
 test('metaStore: set + get roundtrip preserves origin and binding', () => {
   const store = createMetaStore();
-  const origin = { kind: OriginKind.IM, platform: 'telegram', conversationId: 'chat-123' };
+  const origin = { kind: OriginKind.Cowork, sessionId: 'chat-123' };
   const binding = {
-    kind: BindingKind.IMSession,
-    platform: 'telegram',
-    conversationId: 'chat-123',
+    kind: BindingKind.UISession,
     sessionId: 'sess-1',
   };
 
@@ -69,7 +67,7 @@ test('metaStore: list returns all records', () => {
   store.set('task-2', { kind: OriginKind.Legacy }, { kind: BindingKind.NewSession });
   const all = store.list();
   expect(all.length).toBe(2);
-  const ids = all.map((m: any) => m.taskId).sort();
+  const ids = all.map(m => m.taskId).sort();
   expect(ids).toEqual(['task-1', 'task-2']);
 });
 
@@ -81,14 +79,12 @@ test('metaStore: list on empty table returns empty array', () => {
 test('metaStore: origin/binding with special characters survives JSON roundtrip', () => {
   const store = createMetaStore();
   const origin = {
-    kind: OriginKind.IM,
-    platform: 'dingtalk',
-    conversationId: 'acct:user:"peer&1"',
+    kind: OriginKind.Cowork,
+    sessionId: 'session:"peer&1"',
   };
   const binding = {
-    kind: BindingKind.IMSession,
-    platform: 'dingtalk',
-    conversationId: 'acct:user:"peer&1"',
+    kind: BindingKind.UISession,
+    sessionId: 'session:"peer&1"',
   };
 
   store.set('task-special', origin, binding);

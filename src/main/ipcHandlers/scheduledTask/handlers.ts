@@ -1,88 +1,15 @@
 import { ipcMain } from 'electron';
 
-import {
-  DeliveryMode as STDeliveryMode,
-  IpcChannel as ScheduledTaskIpc,
-  PayloadKind as STPayloadKind,
-} from '../../../scheduledTask/constants';
+import { IpcChannel as ScheduledTaskIpc } from '../../../scheduledTask/constants';
 import type { ScheduledTaskService } from '../../../scheduledTask/scheduledTaskService';
-import { PlatformRegistry } from '../../../shared/platform';
-import { tryParseCcConnectScopedConversationId } from '../../im/ccConnectConversationId';
-import { t } from '../../i18n';
-import { listScheduledTaskChannels } from './helpers';
+import type { ScheduledTaskInput } from '../../../scheduledTask/types';
 
 export interface ScheduledTaskHandlerDeps {
   getCronJobService: () => ScheduledTaskService;
-  getIMGatewayManager: () => {
-    getIMStore: () =>
-      | {
-          getSessionMapping: (
-            conversationId: string,
-            platform: string,
-          ) =>
-            | {
-                coworkSessionId: string;
-              }
-            | undefined;
-          listSessionMappings: (
-            platform: string,
-            accountId?: string,
-          ) => Array<{
-            imConversationId: string;
-            platform: string;
-            coworkSessionId: string;
-            lastActiveAt: number;
-          }>;
-        }
-      | undefined;
-  } | null;
-}
-
-/**
- * Normalizes an announce-mode delivery payload for local channel delivery.
- * Mutates `normalizedInput` in place: converts SystemEvent payloads to AgentTurn
- * and restores native pi-connect conversation IDs. Execution binding stays
- * independent from the delivery route.
- */
-async function applyAnnounceDeliveryNormalization(
-  normalizedInput: Record<string, any>,
-): Promise<void> {
-  const delivery = normalizedInput.delivery;
-  if (!(delivery && delivery.mode === STDeliveryMode.Announce && delivery.channel && delivery.to)) {
-    return;
-  }
-  const platform = PlatformRegistry.platformOfChannel(delivery.channel);
-  if (!platform) return;
-
-  if (normalizedInput.payload?.kind === STPayloadKind.SystemEvent) {
-    normalizedInput.payload = {
-      kind: STPayloadKind.AgentTurn,
-      message: normalizedInput.payload.text || '',
-    };
-  }
-
-  const scopedConversation = tryParseCcConnectScopedConversationId(delivery.to);
-  if (scopedConversation) {
-    const [accountId, conversationId] = scopedConversation;
-    if (delivery.accountId && delivery.accountId !== accountId) {
-      throw new Error(t('scheduledTaskDeliveryAccountMismatch'));
-    }
-    delivery.accountId = delivery.accountId ?? accountId;
-    delivery.to = conversationId;
-  }
-}
-
-function cloneScheduledTaskInput<T extends Record<string, any>>(input: T): T {
-  if (!input || typeof input !== 'object') return {} as T;
-  const normalized: Record<string, any> = { ...input };
-  if (Object.hasOwn(normalized, 'delivery') && normalized.delivery) {
-    normalized.delivery = { ...normalized.delivery };
-  }
-  return normalized as T;
 }
 
 export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): void {
-  const { getCronJobService, getIMGatewayManager } = deps;
+  const { getCronJobService } = deps;
 
   ipcMain.handle(ScheduledTaskIpc.List, async () => {
     try {
@@ -108,12 +35,9 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
     }
   });
 
-  ipcMain.handle(ScheduledTaskIpc.Create, async (_event, input: any) => {
+  ipcMain.handle(ScheduledTaskIpc.Create, async (_event, input: ScheduledTaskInput) => {
     try {
-      const normalizedInput = cloneScheduledTaskInput(input);
-      await applyAnnounceDeliveryNormalization(normalizedInput);
-
-      const task = await getCronJobService().addJob(normalizedInput);
+      const task = await getCronJobService().addJob(input);
       console.log(`[ScheduledTask] created task ${task.id}`);
       return { success: true, task };
     } catch (error) {
@@ -124,21 +48,21 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
     }
   });
 
-  ipcMain.handle(ScheduledTaskIpc.Update, async (_event, id: string, input: any) => {
-    try {
-      const normalizedInput = cloneScheduledTaskInput(input);
-      await applyAnnounceDeliveryNormalization(normalizedInput);
-
-      const task = await getCronJobService().updateJob(id, normalizedInput);
-      console.log(`[ScheduledTask] updated task ${task.id}`);
-      return { success: true, task };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to update task',
-      };
-    }
-  });
+  ipcMain.handle(
+    ScheduledTaskIpc.Update,
+    async (_event, id: string, input: Partial<ScheduledTaskInput>) => {
+      try {
+        const task = await getCronJobService().updateJob(id, input);
+        console.log(`[ScheduledTask] updated task ${task.id}`);
+        return { success: true, task };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to update task',
+        };
+      }
+    },
+  );
 
   ipcMain.handle(ScheduledTaskIpc.Delete, async (_event, id: string) => {
     try {
@@ -175,9 +99,15 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
     }
   });
 
-  ipcMain.handle(ScheduledTaskIpc.Stop, async (_event, _id: string) => {
-    // A claimed Pi Run is allowed to finish or time out on its own.
-    return { success: true, result: false };
+  ipcMain.handle(ScheduledTaskIpc.Stop, async (_event, id: string) => {
+    try {
+      return { success: true, result: await getCronJobService().stopJob(id) };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to stop task',
+      };
+    }
   });
 
   ipcMain.handle(
@@ -200,18 +130,6 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
       }
     },
   );
-
-  ipcMain.handle(ScheduledTaskIpc.ListDeliveries, async (_event, runId: string) => {
-    try {
-      const deliveries = await getCronJobService().listDeliveries(runId);
-      return { success: true, deliveries };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to list deliveries',
-      };
-    }
-  });
 
   ipcMain.handle(ScheduledTaskIpc.CountRuns, async (_event, taskId: string) => {
     try {
@@ -258,73 +176,4 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
       };
     }
   });
-
-  ipcMain.handle(ScheduledTaskIpc.ListChannels, async () => {
-    try {
-      return { success: true, channels: listScheduledTaskChannels() };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to list channels',
-      };
-    }
-  });
-
-  ipcMain.handle(ScheduledTaskIpc.Preflight, async (_event, taskId: string) => {
-    try {
-      const task = await getCronJobService().getJob(taskId);
-      if (!task) return { success: false, error: 'Task not found' };
-
-      // Only relevant for tasks with IM channel delivery.
-      const channel = task.delivery?.channel;
-      if (!channel || task.delivery?.mode === 'none') {
-        return { success: true, preflight: { hasChannel: false } };
-      }
-
-      const [latestRun] = await getCronJobService().listRuns(taskId, 1);
-      const [latestDelivery] = latestRun
-        ? await getCronJobService().listDeliveries(latestRun.id)
-        : [];
-
-      return {
-        success: true,
-        preflight: {
-          hasChannel: true,
-          channel,
-          latestDelivery: latestDelivery ?? null,
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Preflight failed',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    ScheduledTaskIpc.ListChannelConversations,
-    async (_event, channel: string, accountId?: string, filterAccountId?: string) => {
-      try {
-        const platform = PlatformRegistry.platformOfChannel(channel);
-        if (!platform) return { success: true, conversations: [] };
-        const imStore = getIMGatewayManager()?.getIMStore();
-        if (!imStore) return { success: true, conversations: [] };
-        const mappings = imStore.listSessionMappings(platform, filterAccountId ?? accountId);
-        const conversations = mappings.map(m => ({
-          conversationId:
-            tryParseCcConnectScopedConversationId(m.imConversationId)?.[1] ?? m.imConversationId,
-          platform: m.platform,
-          coworkSessionId: m.coworkSessionId,
-          lastActiveAt: m.lastActiveAt,
-        }));
-        return { success: true, conversations };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to list conversations',
-        };
-      }
-    },
-  );
 }

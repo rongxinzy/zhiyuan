@@ -3,23 +3,14 @@ import { writeFile } from 'fs/promises';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 
 import {
-  WorkbenchRunTrigger,
   WorkbenchTaskIpc,
   type WorkbenchApprovalResponseInput,
-  type WorkbenchRun,
-  type WorkbenchTask,
   type WorkbenchTaskChangedEvent,
-  type WorkbenchTaskResumeInput,
 } from '../../shared/workbenchTask';
 import type { WorkbenchTaskService } from './taskService';
 
 export function registerWorkbenchTaskIpcHandlers(options: {
   getService: () => WorkbenchTaskService;
-  startPreparedRun: (
-    task: WorkbenchTask,
-    run: WorkbenchRun,
-    resumeInput?: WorkbenchTaskResumeInput,
-  ) => Promise<void>;
 }): void {
   const service = options.getService();
   service.on('changed', (event: WorkbenchTaskChangedEvent) => {
@@ -81,39 +72,6 @@ export function registerWorkbenchTaskIpcHandlers(options: {
       };
     }
   });
-
-  const startRun = async (
-    taskId: string,
-    trigger: WorkbenchRunTrigger,
-    resumeInput?: WorkbenchTaskResumeInput,
-  ) => {
-    try {
-      const prepared = service.prepareRun(taskId, trigger);
-      await options.startPreparedRun(prepared.task, prepared.run, resumeInput);
-      return { success: true, detail: service.getDetail(taskId) ?? undefined };
-    } catch (error) {
-      const task = service.getDetail(taskId)?.task;
-      if (task) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (trigger === WorkbenchRunTrigger.Resume) {
-          service.pauseRun(task.sessionId, message);
-        } else {
-          service.failRun(task.sessionId, { message });
-        }
-      }
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  };
-
-  ipcMain.handle(WorkbenchTaskIpc.Resume, (_event, input: WorkbenchTaskResumeInput) =>
-    startRun(input.taskId, WorkbenchRunTrigger.Resume, input),
-  );
-  ipcMain.handle(WorkbenchTaskIpc.Retry, (_event, taskId: string) =>
-    startRun(taskId, WorkbenchRunTrigger.Retry),
-  );
 
   ipcMain.handle(WorkbenchTaskIpc.Accept, (_event, taskId: string) => {
     try {

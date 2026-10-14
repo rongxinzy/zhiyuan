@@ -133,9 +133,7 @@ try {
   }
   check(
     fs.existsSync(path.join(installDir, '知远.exe')) &&
-      fs.existsSync(
-        path.join(installDir, 'resources', 'channel-runtime', 'cc-connect-sidecar.exe'),
-      ),
+      fs.existsSync(path.join(installDir, 'resources', 'mingit', 'usr', 'bin', 'bash.exe')),
     'fake app + sentinels installed',
   );
   const marker = path.join(appDataRoot, 'pending-local-inference-install');

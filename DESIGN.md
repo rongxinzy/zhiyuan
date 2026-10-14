@@ -5,9 +5,9 @@
 > **定位**：项目级强制约束。所有新增和修改的前端界面必须遵守，与 `AGENTS.md` 的工程规则配套使用。
 > **设计基准**：参考 Codex、Kimi、Raycast、Cursor 的现代桌面客户端设计语言：极简克制、内容优先、层次明确、对齐精确。
 
-本版将设计诊断转化为色彩、排版、几何、组件和交互的可验收标准。具体色值与尺寸是内置 Codex 主题的新版目标；其他已注册主题保留各自完整的视觉语言，共同遵守组件归属、可访问性、状态保留和性能约束。
+本版将设计诊断转化为色彩、排版、几何、组件和交互的可验收标准。具体色值与尺寸是内置 Codex 主题的新版目标；产品只保留这一套默认浅深外观，并遵守组件归属、可访问性、状态保留和性能约束。
 
-**规范目标与实现状态分开记录。** 本文件更新不代表界面已完成改造。现有 token、recipe 或控件与新版目标不一致时，后续实现须同步修改主题契约、共享组件及所有主题，完成验证后才能声明落地；不得在页面局部补样式。本文件中的模型名、运行指标、导航名称和布局示例也不构成已有能力声明。
+**规范目标与实现状态分开记录。** 本文件更新不代表界面已完成改造。现有 token、recipe 或控件与新版目标不一致时，后续实现须同步修改主题契约、共享组件及默认浅深外观，完成验证后才能声明落地；不得在页面局部补样式。本文件中的模型名、运行指标、导航名称和布局示例也不构成已有能力声明。
 
 ## 一、诊断与修订目标
 
@@ -27,7 +27,7 @@
 1. **界面退后，内容向前。** Codex 主题骨架采用中性冷石墨色阶，品牌蓝为唯一主强调色；红、绿、黄只表达状态。禁止装饰性高饱和色、发光与多色卡片。
 2. **留白与字重建立层级。** 分组优先靠间距，强调使用 500/600 字重；表面按 `background`、`surface`、`surface-raised`、`surface-overlay` 分工，避免厚边框与层层套卡片。
 3. **工作首页以真实进展为中心，对话以输入为中心。** 工作首页展示工作简报，输入区常驻底部作为辅助入口；对话、项目和会话保留同一输入流程，模式、权限、模型与上下文状态就近呈现。功能页保持自己的操作层级，不重复堆叠 Hero。
-4. **整套主题同时设计明暗。** 浅色、深色与跟随系统共用 DOM 和业务逻辑，不为某个主题复制页面，不提供独立颜色、字体、背景、圆角或透明度设置。
+4. **默认外观同时设计明暗。** 浅色、深色与跟随系统共用 DOM 和业务逻辑，不为某个主题复制页面，不提供独立颜色、字体、背景、圆角或透明度设置。
 
 整体设计语言为 **Modern Agent Studio**。微质感来自冷白/石墨表面的微小层级差、精确对齐、细边界与一致的字阶；蓝色保持单一强调角色，不另加 Indigo 等第二套主色。留白优先解决密度，阴影仅服务真实层级，不用霓虹光晕掩盖信息组织问题。
 
@@ -36,15 +36,15 @@
 | 层级 | 负责内容 | 代码入口 |
 | --- | --- | --- |
 | 设计规范 | 视觉角色、目标刻度、组件装配与验收规则 | 本文件 |
-| 主题包 | token 值、固定控件尺寸、内边距、字体、边框、圆角、阴影、状态外观与背景 | `src/renderer/theme/themes/`、`src/renderer/theme/components/` |
+| 默认外观 | token 值、固定控件尺寸、内边距、字体、边框、圆角、阴影、状态外观与背景 | `src/renderer/theme/themes/`、`src/renderer/theme/components/` |
 | 共享组件 | DOM、语义 variant/size、状态、键盘、焦点、禁用行为、交互流程与测量 | `src/shared/components/ui/`、`src/shared/components/ai-elements/` |
 | 页面与业务 | 排列、响应式列数、父容器填充、滚动、视口约束、业务数据与事件 | `src/renderer/` |
-| 主题引擎 | 固定 hook、状态选择器、属性校验、portal 适配、规则原位替换与减少动效 | `src/renderer/theme/engine/`、`src/renderer/theme/components/css.ts` |
+| 外观生成器 | 固定 hook、状态选择器、属性校验、portal 适配、规则原位替换与减少动效 | `src/renderer/theme/scripts/appearance-css.ts`、`src/renderer/theme/components/css.ts` |
 
-- 注册入口为 `themes/plugins.ts`，定义为 `themes/types.ts`；变量契约为 `tokens/contract.ts`，组件 hook、状态及属性白名单为 `components/contract.ts`（均相对 `src/renderer/theme/`）。
+- 默认浅深外观入口为 `themes/index.ts`，定义为 `themes/types.ts`；变量契约为 `tokens/contract.ts`，组件 hook、状态及属性白名单为 `components/contract.ts`（均相对 `src/renderer/theme/`）。
 - `css/themes.css` 只能由 `bun run theme:generate` 生成，禁止手改、全局覆盖修补、提高选择器权重或使用 `!important`。
 - 下文的 Tailwind 名称用于标识刻度及映射，**不是在调用点写控件外观类的许可**。颜色、字号、圆角、阴影、高度、内边距和视觉状态全部由 recipe 提供，语义色 utility 也不能绕过此规则。
-- 新视觉需求先更新本文件与契约，再扩展共享 variant/size 或稳定 hook，补齐所有主题。布局类继续使用 Tailwind 与 `cn()`；`h-full`、`min-h-0`、视口限制等布局关系留在组件中。
+- 新视觉需求先更新本文件与契约，再扩展共享 variant/size 或稳定 hook，补齐默认浅深外观。布局类继续使用 Tailwind 与 `cn()`；`h-full`、`min-h-0`、视口限制等布局关系留在组件中。
 
 ### 组件与技能参考
 
@@ -76,7 +76,7 @@ UI 实现前先查现成组件，并参考 `shadcn`、`ai-elements`、`rongxinai
 | 品牌强调 | `--zy-primary` / `--zy-primary-strong` | `#0F6BF2` | 主动作、激活链接及焦点反馈 |
 | 品牌微背景 | `--zy-primary-muted` | `#EFF6FF` | 已定义强调语义的轻背景；不普遍铺满选中项 |
 
-`primary-hover`、`destructive`、`success`、`warning` 及对应前景色继续由主题包完整定义。`primary-strong` 与 `primary` 保持独立角色：深色可以提亮链接/图标，同时保留适合浅色按钮文字的实色背景。`text-muted-foreground` 等 shadcn 映射跟随相应语义角色。
+`primary-hover`、`destructive`、`success`、`warning` 及对应前景色继续由默认明暗 token 完整定义。`primary-strong` 与 `primary` 保持独立角色：深色可以提亮链接/图标，同时保留适合浅色按钮文字的实色背景。`text-muted-foreground` 等 shadcn 映射跟随相应语义角色。
 
 ### 使用规则
 
@@ -281,7 +281,7 @@ Codex 基准 `--zy-radius` 为 10px；各派生 token 按下表确定，不依�
 ### Button 使用纪律
 
 1. 所有按钮使用 `Button` 或工具栏的 `PromptInputButton`。确实无法表达的复合交互才使用原生控件，且必须绑定注册 hook、真实状态与完整可访问性。
-2. `className` 只允许 `w-full`、`justify-start`、`gap-*`、`mt-*` 等布局类；禁止颜色、圆角、阴影、字重、字号、高度和内边距覆写。新规格先扩展共享 variant/size 及全部主题 recipe。
+2. `className` 只允许 `w-full`、`justify-start`、`gap-*`、`mt-*` 等布局类；禁止颜色、圆角、阴影、字重、字号、高度和内边距覆写。新规格先扩展共享 variant/size 及默认浅深外观 recipe。
 3. 行级/卡片级可点区域优先使用适当的语义按钮或链接；复合内容不能嵌套按钮。自定义可点区域必须具备正确 role、tabIndex、Enter/Space 键盘行为及 hover/pressed/focus/disabled 状态，禁止裸 `div onClick`。
 4. 按钮与可点卡片保留 1px 按压反馈，由 recipe 实现；内嵌操作只响应自己的交互，不能连带移动父卡片或抹掉父卡片的独立按压反馈。disabled 不响应按压。
 5. 不可撤销删除统一 `DestructiveConfirmDialog`。确认用专用危险填充，取消用无边框 ghost；说明简短，长名称截断并可查看完整值。不得手搓确认框。
@@ -339,20 +339,15 @@ Codex 基准 `--zy-radius` 为 10px；各派生 token 按下表确定，不依�
 - 显式 `isError` / `isSuccess` 优先于文案启发式，顺序为 isError → isSuccess → 文案判断；`isSuccess: false` 是明确中性汇报。已归一化文案用 `showAppErrorToast`，不重复加“操作失败”前缀。
 - 批量全部成功用成功，部分成功用信息，全部失败用错误。只读探测失败且未改状态时用信息提示并给出下一步；已保存配置整体不可用仍需错误提示。
 
-## 九、主题包实现与验证边界
+## 九、默认外观与 recipe 验证边界
 
-- 每套主题同时提供 light/dark 完整 token、组件 recipe 及可选背景；主题仅为展示数据，不含 React 分支、脚本、事件、IPC、权限判断或持久化逻辑。
-- 所有 hook 声明 `COMPONENT_STATES` 全部状态，无独立外观时由 `recipe()` 补空对象继承。空对象不豁免交互语义、键盘或错误反馈。
-- hook 使用稳定标识，不依赖包装层可能替换的 `data-slot`。属性只能来自契约白名单；状态优先级、portal 和第三方控件适配放在引擎固定入口。
-- 基础规则先输出，状态规则统一后输出，避免 variant 遮盖焦点或错误；禁用控件的 hover、pressed、focus 保护由引擎管理。
-- 主题动画通过 `motionStart` / `motionEnd` 与隔离 keyframe 定义，帧限 opacity、scale、translate、加载旋转；静态渐变仅用于已登记的状态反馈，不允许 `url()`、外部请求或任意选择器。
-- 分段指示器测量真实标签 x/y/宽高，不假定主题内边距；开关几何、形变和时长由主题变量提供，滑块不能越出轨道。工作/对话滑块背景与前景保持独立角色，不借用主按钮前景造成同色。
-- 主题切换原位更新样式和背景，覆盖 portal 与动态内容，不修改 React key、草稿、焦点、滚动、选中、弹层或持久化行为。
-- 主画布背景可使用纯色、打包图片或内置静态纹理；图层位于内容之后，不捕获事件、不改变滚动，透明度不作用于文字和控件。没有背景的主题清除之前的背景。
-- 用户设置只选择整套主题与浅色/深色/跟随系统。预览卡消费各主题真实 token/背景，选中用描边与勾选，全部预览随当前明暗模式变化。
-- 已有大明风华、长安风物、未央金石沿用各自色板。长安风物的绢白/墨青与静态绢纹、未央金石的玄金/石白与静态云气纹属于完整主题定义；不将 Codex 色板强套到这些主题，也不新增背景单独设置。
+- 产品仅提供默认浅色、深色、跟随系统；不再注册多主题包，不提供包导入、导出或背景定制。
+- 保留 token、共享组件 recipe、稳定 hook、全部交互状态及属性白名单；只编译默认浅深两套 CSS。
+- 明暗切换只更新根元素，不修改 React key、草稿、焦点、滚动、选中或弹层。
+- 动效遵守 reduced-motion；验证键盘、portal、禁用和错误状态以及窄窗口。
+- 旧主题配置或文件保留，不加载、不删除。修改 recipe 后运行生成、审计及对应回归测试。
 
-实施顺序：规范与契约 → 主题 token/recipe → 共享组件语义 → 业务装配 → 生成、审计、构建与实际渲染验证。代码事实入口与更多边界见 `src/renderer/theme/README.md`。
+代码入口见 `src/renderer/theme/README.md`。
 
 ## 十、落地检查清单
 

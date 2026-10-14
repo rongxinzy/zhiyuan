@@ -273,8 +273,7 @@ test('keeps a preparation status visible without an empty collapsible', () => {
   expect(screen.queryByRole('button')).toBeNull();
 });
 
-test('only exposes resume for the recoverable task and honors disabled state', () => {
-  const onResumeTask = vi.fn();
+test('renders historical interruption without a legacy execution button', () => {
   const interruption = {
     sessionId: 'session',
     interruptionId: 'interruption',
@@ -286,24 +285,11 @@ test('only exposes resume for the recoverable task and honors disabled state', (
     type: CoworkMessageType.System,
     message: message(CoworkMessageType.System, '', { interruption }),
   };
-  const { rerender } = renderTurn([item], {
-    recoverableTaskId: 'task',
-    onResumeTask,
-    resumeDisabled: true,
-  });
+  renderTurn([item]);
   expect(
-    screen.getByRole('button', { name: i18nService.t('coworkResumeTaskAction') }),
-  ).toBeDisabled();
-  rerender(
-    createElement(TurnBlock, {
-      turn: { id: 'resumed', userMessage: null, assistantItems: [item] },
-      recoverableTaskId: 'task',
-      onResumeTask,
-      showCopyButtons: false,
-    }),
-  );
-  fireEvent.click(screen.getByRole('button', { name: i18nService.t('coworkResumeTaskAction') }));
-  expect(onResumeTask).toHaveBeenCalledWith(interruption);
+    screen.queryByRole('button', { name: i18nService.t('coworkResumeTaskAction') }),
+  ).toBeNull();
+  expect(screen.getByText(i18nService.t('coworkInterruptionRuntimePaused'))).toBeVisible();
 });
 
 const expert = { expertId: 'expert-a', expertName: 'Draft Expert', presetId: 'draft' };

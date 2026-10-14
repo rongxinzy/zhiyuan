@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3';
 
-import type { ProjectIdentity } from '../memory/projectIdentity';
-import { resolveProjectIdentity } from '../memory/projectIdentity';
-import { planRecallQuery } from '../memory/recallQueryPlanner';
+import type { ProjectIdentity } from './projectIdentity';
+import { resolveProjectIdentity } from './projectIdentity';
+import { planRecallQuery } from './recallQueryPlanner';
 import { ConversationHistoryRole, type ConversationHistoryRole as Role } from './constants';
 
 const DEFAULT_RESULT_LIMIT = 6;

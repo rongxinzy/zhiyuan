@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { recipe } from './recipe';
 import { classicLight } from '../themes/classic-light';
-import { generateThemeCSS } from '../engine/css-generator';
+import { generateAppearanceCSS } from '../scripts/appearance-css';
 import { validateComponentAppearances } from './contract';
 
 test('requires complete state declarations and rejects selector and behavior injection', () => {
@@ -27,7 +27,7 @@ test('compiles theme-owned state values with disabled guards and reduced motion'
   theme.meta.id = 'recipe-proof';
   theme.components.input.hover['border-color'] = 'var(--zy-primary)';
   theme.components.input.focus['outline-width'] = '2px';
-  const css = generateThemeCSS(theme);
+  const css = generateAppearanceCSS(theme);
   expect(css).toContain('[data-theme="recipe-proof"] :where(.theme-input)');
   expect(css).toContain(
     ':not(:disabled):not([aria-disabled="true"]):not([data-disabled=""]):not([data-disabled="true"]):hover',
@@ -38,13 +38,13 @@ test('compiles theme-owned state values with disabled guards and reduced motion'
 });
 
 test('variant bases precede interactive states and size recipes remain theme data', () => {
-  const css = generateThemeCSS(classicLight);
+  const css = generateAppearanceCSS(classicLight);
   expect(css.indexOf(':where(.theme-button-outline) {')).toBeLessThan(
     css.indexOf(':where(.theme-button):where(:not(:disabled)'),
   );
   const theme = structuredClone(classicLight);
   theme.components['button-size-default'].base.height = '2.25rem';
-  expect(generateThemeCSS(theme)).toContain('height: 2.25rem');
+  expect(generateAppearanceCSS(theme)).toContain('height: 2.25rem');
   expect(theme.components['select-content'].entering.opacity).toBe('0');
   expect(theme.components['badge-destructive'].focus['box-shadow']).toContain('--destructive');
 });
@@ -72,8 +72,8 @@ test('isolates theme motion and places pseudo-element state selectors on their o
     motionStart: { opacity: '0' },
     motionEnd: { opacity: '1' },
   });
-  const css = generateThemeCSS(theme);
-  const original = generateThemeCSS(classicLight);
+  const css = generateAppearanceCSS(theme);
+  const original = generateAppearanceCSS(classicLight);
   const motion = css.match(/animation-name: (zy-component-composer-far-[\w-]+)/)?.[1];
   expect(motion).toBeTruthy();
   expect(original).not.toContain(`animation-name: ${motion};`);
@@ -100,7 +100,7 @@ test('shared fluid tabs retain Codex geometry and hover feedback in theme recipe
 });
 
 test('selected appearances recognize both Base UI boolean attributes and string states', () => {
-  const css = generateThemeCSS(classicLight);
+  const css = generateAppearanceCSS(classicLight);
   expect(css).toContain('[data-active=""]');
   expect(css).toContain('[data-active="true"]');
   expect(css).toContain('[data-state="selected"]');

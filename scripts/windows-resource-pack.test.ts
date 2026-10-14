@@ -15,17 +15,13 @@ describe('Windows resource archive compression', () => {
   const compressionFor = (key: string) =>
     getWindowsResourceArchiveCompression(components.find(component => component.key === key));
 
-  test('packages only channel runtime and PortableGit', () => {
-    expect(components.map(component => component.key)).toEqual(['channel-runtime', 'portable-git']);
+  test('packages only PortableGit', () => {
+    expect(components.map(component => component.key)).toEqual(['portable-git']);
   });
 
   test('includes only the current component files in shell installer payloads', () => {
     const files = getWindowsResourcePayloadFiles({ components }, 'C:\\project');
     expect(files).toEqual([
-      'channel-runtime.7z',
-      'channel-runtime.version',
-      'channel-runtime.sha256',
-      'channel-runtime.sentinel-sha256',
       'portable-git.7z',
       'portable-git.version',
       'portable-git.sha256',
@@ -60,7 +56,9 @@ describe('Windows resource archive compression', () => {
     });
   });
 
-  test.each(['channel-runtime'])('uses non-solid LZMA2 for %s', key => {
-    expect(compressionFor(key)).toBe(WINDOWS_RESOURCE_ARCHIVE_COMPRESSION.NonSolid);
+  test('uses non-solid LZMA2 for generic resource archives', () => {
+    expect(getWindowsResourceArchiveCompression({ key: 'test-runtime' })).toBe(
+      WINDOWS_RESOURCE_ARCHIVE_COMPRESSION.NonSolid,
+    );
   });
 });

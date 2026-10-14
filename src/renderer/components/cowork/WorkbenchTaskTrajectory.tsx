@@ -14,7 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@shared/components/ui/tooltip';
-import { Activity, Check, Play, RefreshCw, type LucideIcon } from 'lucide-react';
+import { Activity, Check, type LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 
@@ -191,12 +191,6 @@ export function WorkbenchTaskTrajectory({
   const canAccept =
     detail?.task.status === WorkbenchTaskStatus.NeedsReview &&
     activeRun?.verificationResult?.outcome === WorkbenchVerificationOutcome.AcceptanceRequired;
-  const canResume = detail?.task.status === WorkbenchTaskStatus.Paused;
-  const canRetry =
-    detail?.task.status === WorkbenchTaskStatus.NeedsReview ||
-    detail?.task.status === WorkbenchTaskStatus.Failed ||
-    detail?.task.status === WorkbenchTaskStatus.Completed;
-
   const runAction = useCallback(
     async (action: () => Promise<WorkbenchTaskActionResult>, updateCurrent = true) => {
       setBusy(true);
@@ -256,18 +250,6 @@ export function WorkbenchTaskTrajectory({
       toolbarActions={
         <TooltipProvider>
           <div className="flex items-center gap-1">
-            {canResume && (
-              <WorkbenchTaskActionButton
-                icon={Play}
-                label={i18nService.t('workbenchTaskResume')}
-                disabled={busy}
-                onClick={() =>
-                  void runAction(() =>
-                    window.electron.workbenchTask.resume({ taskId: detail.task.id }),
-                  )
-                }
-              />
-            )}
             {canAccept && (
               <WorkbenchTaskActionButton
                 icon={Check}
@@ -275,16 +257,6 @@ export function WorkbenchTaskTrajectory({
                 disabled={busy}
                 onClick={() =>
                   void runAction(() => window.electron.workbenchTask.accept(detail.task.id))
-                }
-              />
-            )}
-            {canRetry && !canAccept && (
-              <WorkbenchTaskActionButton
-                icon={RefreshCw}
-                label={i18nService.t('workbenchTaskRetry')}
-                disabled={busy}
-                onClick={() =>
-                  void runAction(() => window.electron.workbenchTask.retry(detail.task.id))
                 }
               />
             )}

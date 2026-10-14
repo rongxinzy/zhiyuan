@@ -1,7 +1,6 @@
 import type { SessionTarget, WakeMode } from './constants';
 import {
   BindingKind,
-  DeliveryMode,
   PayloadKind,
   ScheduleKind,
   SessionTarget as ST,
@@ -9,12 +8,7 @@ import {
 } from './constants';
 import type { ExecutionBinding, TaskOrigin } from './origin';
 import { inferOriginAndBinding } from './origin';
-import type {
-  PolicyDelivery,
-  PolicyTaskInput,
-  PolicyTaskModel,
-  TaskPolicy,
-} from './policies/types';
+import type { PolicyTaskInput, PolicyTaskModel, TaskPolicy } from './policies/types';
 
 /** Minimal wire task shape for mapping (avoids importing renderer types) */
 export interface WireTask {
@@ -26,7 +20,6 @@ export interface WireTask {
   sessionTarget: SessionTarget;
   wakeMode: WakeMode;
   payload: unknown;
-  delivery: PolicyDelivery;
   workspaceId: string | null;
   sessionKey: string | null;
   state: unknown;
@@ -63,7 +56,6 @@ export class TaskModelMapper {
       sessionTarget: wireBinding.sessionTarget,
       wakeMode: model.wakeMode,
       payload: model.payload,
-      delivery: model.delivery,
       workspaceId: model.workspaceId,
       sessionKey: wireBinding.sessionKey,
     };
@@ -82,7 +74,6 @@ export class TaskModelMapper {
       sessionTarget: defaults.sessionTarget ?? ST.Main,
       wakeMode: defaults.wakeMode ?? WM.Now,
       payload: defaults.payload ?? { kind: PayloadKind.SystemEvent, text: '' },
-      delivery: defaults.delivery ?? { mode: DeliveryMode.None },
       workspaceId: defaults.workspaceId ?? null,
       sessionKey: defaults.sessionKey ?? null,
       state: {

@@ -61,7 +61,6 @@
         "@earendil-works/pi-ai": "1.2.0",
         "@electron/remote": "^2.0.12",
         "@fontsource-variable/geist": "^5.2.9",
-        "@larksuiteoapi/node-sdk": "^1.58.0",
         "@melloware/react-logviewer": "^6.5.5",
         "@napi-rs/canvas": "^0.1.100",
         "@nodesecure/js-x-ray": "^15.2.0",
@@ -96,7 +95,6 @@
         "@uiw/react-codemirror": "^4.25.9",
         "@vitejs/plugin-react": "^6.0.3",
         "@vitest/coverage-v8": "4.1.11",
-        "@wecom/wecom-aibot-sdk": "^0.1.0",
         "@xmldom/xmldom": "0.8.13",
         "ai": "^6.0.218",
         "ai-elements": "^1.9.0",
@@ -609,8 +607,6 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "https://registry.npmmirror.com/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
-
-    "@larksuiteoapi/node-sdk": ["@larksuiteoapi/node-sdk@1.71.1", "https://registry.npmmirror.com/@larksuiteoapi/node-sdk/-/node-sdk-1.71.1.tgz", { "dependencies": { "axios": "^1.16.0", "lodash.identity": "^3.0.0", "lodash.merge": "^4.6.2", "lodash.pickby": "^4.6.0", "protobufjs": "^7.2.6", "qs": "^6.14.2", "ws": "^8.19.0" } }, "sha512-Z4cZmgWvwiE7tCHqGm+t7DKvbpNRRTH2HqVwcYiOMAwbjIytXSoQqWytsOVu3p+d0fIvrtyIPZok5HOV/VNxxw=="],
 
     "@lezer/common": ["@lezer/common@1.5.2", "https://registry.npmmirror.com/@lezer/common/-/common-1.5.2.tgz", {}, "sha512-sxQE460fPZyU3sdc8lafxiPwJHBzZRy/udNFynGQky1SePYBdhkBl1kOagA9uT3pxR8K09bOrmTUqA9wb/PjSQ=="],
 
@@ -1305,8 +1301,6 @@
     "@vitest/spy": ["@vitest/spy@4.1.10", "https://registry.npmmirror.com/@vitest/spy/-/spy-4.1.10.tgz", {}, "sha512-PLf/Ugvoq5wO/b4rwYCR1h2PSIdXz7wnkQFMiUpLdtM7l6pqVFcQIBEHyT1+l+cj7mNwAfZHzqXqDyjvOuwbDw=="],
 
     "@vitest/utils": ["@vitest/utils@4.1.11", "", { "dependencies": { "@vitest/pretty-format": "4.1.11", "convert-source-map": "^2.0.0", "tinyrainbow": "^3.1.0" } }, "sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ=="],
-
-    "@wecom/wecom-aibot-sdk": ["@wecom/wecom-aibot-sdk@0.1.0", "https://registry.npmmirror.com/@wecom/wecom-aibot-sdk/-/wecom-aibot-sdk-0.1.0.tgz", {}, "sha512-rqYS3F0t8+433tQGJCU2pTOBHZD28AYnCG34T7p/4TuMeGsayPTfu2Lef09PZf5ISkJEFYTy0F5GAnajTuzfGA=="],
 
     "@xmldom/xmldom": ["@xmldom/xmldom@0.8.13", "https://registry.npmmirror.com/@xmldom/xmldom/-/xmldom-0.8.13.tgz", {}, "sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw=="],
 
@@ -2282,15 +2276,9 @@
 
     "lodash.flatten": ["lodash.flatten@4.4.0", "https://registry.npmmirror.com/lodash.flatten/-/lodash.flatten-4.4.0.tgz", {}, "sha512-C5N2Z3DgnnKr0LOpv/hKCgKdb7ZZwafIrsesve6lmzvZIRZRGaZ/l6Q8+2W7NaT+ZwO3fFlSCzCzrDCFdJfZ4g=="],
 
-    "lodash.identity": ["lodash.identity@3.0.0", "https://registry.npmmirror.com/lodash.identity/-/lodash.identity-3.0.0.tgz", {}, "sha512-AupTIzdLQxJS5wIYUQlgGyk2XRTfGXA+MCghDHqZk0pzUNYvd3EESS6dkChNauNYVIutcb0dfHw1ri9Q1yPV8Q=="],
-
     "lodash.isequal": ["lodash.isequal@4.5.0", "https://registry.npmmirror.com/lodash.isequal/-/lodash.isequal-4.5.0.tgz", {}, "sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ=="],
 
     "lodash.isplainobject": ["lodash.isplainobject@4.0.6", "https://registry.npmmirror.com/lodash.isplainobject/-/lodash.isplainobject-4.0.6.tgz", {}, "sha512-oSXzaWypCMHkPC3NvBEaPHf0KsA5mvPrOPgQWDsbg8n7orZ290M0BmC/jgRZ4vcJ6DTAhjrsSYgdsW/F+MFOBA=="],
-
-    "lodash.merge": ["lodash.merge@4.6.2", "https://registry.npmmirror.com/lodash.merge/-/lodash.merge-4.6.2.tgz", {}, "sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ=="],
-
-    "lodash.pickby": ["lodash.pickby@4.6.0", "https://registry.npmmirror.com/lodash.pickby/-/lodash.pickby-4.6.0.tgz", {}, "sha512-AZV+GsS/6ckvPOVQPXSiFFacKvKB4kOQu6ynt9wz0F3LO4R9Ij4K1ddYsIytDpSgLz88JHd9P+oaLeej5/Sl7Q=="],
 
     "lodash.union": ["lodash.union@4.6.0", "https://registry.npmmirror.com/lodash.union/-/lodash.union-4.6.0.tgz", {}, "sha512-c4pB2CdGrGdjMKYLA+XiRDO7Y0PRQbm/Gzg8qMj+QH+pFVAoTp5sBpO0odL3FjoPCGjK96p6qsP+yQoiLoOBcw=="],
 

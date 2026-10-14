@@ -51,7 +51,6 @@ import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInpu
 import CoworkSessionViewport from './CoworkSessionViewport';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
 import { useUnmanagedWorkingDirectory } from './useUnmanagedWorkingDirectory';
-import { useTaskResumeContext } from './hooks/useTaskResumeContext';
 import { WorkBriefingHome } from './briefing/WorkBriefingHome';
 
 export interface CoworkViewProps {
@@ -104,7 +103,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
 
   const currentSession = useSelector(selectCurrentSession);
-  const taskResume = useTaskResumeContext(currentSession?.id);
   const displayedSessionId = useSelector(selectDisplayedSessionId);
   const workMode = useSelector(selectWorkMode);
   // Clear session when workMode changes and current session mode doesn't match.
@@ -416,23 +414,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     expertIds: string[] = [],
   ) => {
     if (!currentSession) return;
-    if (taskResume.interruption) {
-      return taskResume.resume({
-        amendment: prompt,
-        expertIds,
-        imageAttachments: imageAttachments
-          ?.filter(
-            (image): image is CoworkImageAttachment & { base64Data: string } =>
-              typeof image.base64Data === 'string',
-          )
-          .map(image => ({
-            name: image.name,
-            mimeType: image.mimeType,
-            base64Data: image.base64Data,
-          })),
-        fileAttachments,
-      });
-    }
     if (continuingSessionIdsRef.current.has(currentSession.id)) return;
 
     // Work keeps the prompt editable while Pi is running. Normal input during
@@ -583,10 +564,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
           onRespondToInlineQuestion={onRespondToInlineQuestion}
           inlinePermission={inlinePermission}
           onRespondToInlinePermission={onRespondToInlinePermission}
-          resumeTaskId={taskResume.interruption?.taskId}
-          resumeDisabled={taskResume.isResuming} // 2026/09/17 lixiang  恢复中禁用继续执行，避免重复点击
-          onResumeTask={taskResume.select}
-          onCancelTaskResume={taskResume.cancel}
         />
       </div>
     );

@@ -2,10 +2,9 @@ import { readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { generateAllThemesCSS } from '../engine/css-generator';
-import { allThemes } from '../themes/index';
+import { generateDefaultAppearanceCSS } from './appearance-css';
 
-const css = generateAllThemesCSS(allThemes);
+const css = generateDefaultAppearanceCSS();
 const outPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'css', 'themes.css');
 if (process.argv.includes('--check')) {
   const checkedInCss = readFileSync(outPath, 'utf8').replace(/\r\n?/g, '\n');

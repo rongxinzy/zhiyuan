@@ -1,7 +1,6 @@
 import { OriginKind } from '../constants';
 import type { TaskOrigin } from '../origin';
 import { CoworkTaskPolicy } from './coworkPolicy';
-import { IMTaskPolicy } from './imPolicy';
 import { LegacyTaskPolicy } from './legacyPolicy';
 import { ManualTaskPolicy } from './manualPolicy';
 import type { TaskPolicy } from './types';
@@ -20,7 +19,6 @@ export class TaskPolicyRegistry {
 
 export const taskPolicyRegistry = new TaskPolicyRegistry([
   new LegacyTaskPolicy(),
-  new IMTaskPolicy(),
   new CoworkTaskPolicy(),
   new ManualTaskPolicy(),
 ]);

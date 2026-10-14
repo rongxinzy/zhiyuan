@@ -18,10 +18,6 @@ import {
 import { Textarea } from '@shared/components/ui/textarea';
 import React from 'react';
 
-import {
-  SessionBindingStrategy,
-  type SessionBindingStrategy as SessionBindingStrategyType,
-} from '../../../scheduledTask/constants';
 import { i18nService } from '../../services/i18n';
 
 interface TaskFormBodyProps {
@@ -29,21 +25,14 @@ interface TaskFormBodyProps {
   name: string;
   modelId: string;
   workspaceId: string;
-  sessionBinding: SessionBindingStrategyType;
-  boundSessionId: string;
-  sessionOptions: Array<{ value: string; label: string }>;
-  sessionOptionsLoading: boolean;
   payloadText: string;
   errors: Record<string, string>;
   modelOptions: Array<{ value: string; label: string }>;
   workspaceOptions: Array<{ value: string; label: string }>;
   scheduleControl: React.ReactNode;
-  notificationControl: React.ReactNode;
   onNameChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onWorkspaceChange: (value: string) => void;
-  onSessionBindingChange: (value: SessionBindingStrategyType) => void;
-  onBoundSessionChange: (value: string) => void;
   onPayloadTextChange: (value: string) => void;
 }
 
@@ -53,21 +42,14 @@ const TaskFormBody: React.FC<TaskFormBodyProps> = React.memo(
     name,
     modelId,
     workspaceId,
-    sessionBinding,
-    boundSessionId,
-    sessionOptions,
-    sessionOptionsLoading,
     payloadText,
     errors,
     modelOptions,
     workspaceOptions,
     scheduleControl,
-    notificationControl,
     onNameChange,
     onModelChange,
     onWorkspaceChange,
-    onSessionBindingChange,
-    onBoundSessionChange,
     onPayloadTextChange,
   }) => (
     <div className="max-w-2xl mx-auto flex flex-col gap-4 w-full px-1">
@@ -157,80 +139,6 @@ const TaskFormBody: React.FC<TaskFormBodyProps> = React.memo(
           <FieldError>{errors.workspaceId}</FieldError>
         </Field>
 
-        <Field data-invalid={Boolean(errors.boundSessionId) || undefined}>
-          <FieldLabel htmlFor="scheduled-task-session-binding">
-            {i18nService.t('scheduledTasksFormSessionBinding')}
-          </FieldLabel>
-          <Select
-            items={{
-              [SessionBindingStrategy.PerRun]: i18nService.t(
-                'scheduledTasksFormSessionBindingPerRun',
-              ),
-              [SessionBindingStrategy.Task]: i18nService.t('scheduledTasksFormSessionBindingTask'),
-              [SessionBindingStrategy.Existing]: i18nService.t(
-                'scheduledTasksFormSessionBindingExisting',
-              ),
-            }}
-            value={sessionBinding}
-            onValueChange={value => onSessionBindingChange(value as SessionBindingStrategyType)}
-          >
-            <SelectTrigger id="scheduled-task-session-binding" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value={SessionBindingStrategy.PerRun}>
-                  {i18nService.t('scheduledTasksFormSessionBindingPerRun')}
-                </SelectItem>
-                <SelectItem value={SessionBindingStrategy.Task}>
-                  {i18nService.t('scheduledTasksFormSessionBindingTask')}
-                </SelectItem>
-                <SelectItem value={SessionBindingStrategy.Existing}>
-                  {i18nService.t('scheduledTasksFormSessionBindingExisting')}
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <FieldDescription className="theme-control-caption">
-            {i18nService.t(
-              `scheduledTasksFormSessionBinding${
-                sessionBinding === SessionBindingStrategy.PerRun
-                  ? 'PerRun'
-                  : sessionBinding === SessionBindingStrategy.Task
-                    ? 'Task'
-                    : 'Existing'
-              }Hint`,
-            )}
-          </FieldDescription>
-          {sessionBinding === SessionBindingStrategy.Existing && (
-            <Select
-              items={sessionOptions}
-              value={boundSessionId}
-              onValueChange={value => onBoundSessionChange(value ?? '')}
-            >
-              <SelectTrigger className="w-full" aria-invalid={Boolean(errors.boundSessionId)}>
-                <SelectValue
-                  placeholder={
-                    sessionOptionsLoading
-                      ? i18nService.t('scheduledTasksFormSessionLoading')
-                      : i18nService.t('scheduledTasksFormSessionPlaceholder')
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {sessionOptions.map(session => (
-                    <SelectItem key={session.value} value={session.value}>
-                      {session.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )}
-          <FieldError>{errors.boundSessionId}</FieldError>
-        </Field>
-
         <Field data-invalid={Boolean(errors.schedule) || undefined}>
           <FieldTitle>{i18nService.t('scheduledTasksFormScheduleType')}</FieldTitle>
           {scheduleControl}
@@ -254,12 +162,6 @@ const TaskFormBody: React.FC<TaskFormBodyProps> = React.memo(
             {i18nService.t('scheduledTasksFormPayloadTextAgentHint')}
           </FieldDescription>
           <FieldError>{errors.payloadText}</FieldError>
-        </Field>
-
-        <Field data-invalid={Boolean(errors.notifyTo) || undefined}>
-          <FieldTitle>{i18nService.t('scheduledTasksFormNotifyChannel')}</FieldTitle>
-          {notificationControl}
-          <FieldError>{errors.notifyTo}</FieldError>
         </Field>
       </FieldGroup>
     </div>

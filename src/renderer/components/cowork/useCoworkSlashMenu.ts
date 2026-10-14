@@ -14,7 +14,6 @@ import {
 interface UseCoworkSlashMenuOptions {
   value: string;
   disabled: boolean;
-  remoteManaged: boolean;
   sessionId?: string;
   setValue: (value: string) => void;
   focusEditor: () => void;
@@ -28,7 +27,6 @@ interface UseCoworkSlashMenuOptions {
 export const useCoworkSlashMenu = ({
   value,
   disabled,
-  remoteManaged,
   sessionId,
   setValue,
   focusEditor,
@@ -48,12 +46,7 @@ export const useCoworkSlashMenu = ({
   const selectedCommandName = commandSelection.query === query ? commandSelection.name : '';
   const selectedCommand =
     matchingCommands.find(command => command.name === selectedCommandName) ?? matchingCommands[0];
-  const open =
-    !disabled &&
-    !remoteManaged &&
-    query !== null &&
-    commands.length > 0 &&
-    dismissedPrompt !== value;
+  const open = !disabled && query !== null && commands.length > 0 && dismissedPrompt !== value;
   const items: SlashCommandMenuItem[] = matchingCommands.map(command => ({
     key: command.name,
     token: `/${command.name}`,

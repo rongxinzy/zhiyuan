@@ -8,16 +8,9 @@ const source = readFileSync(
   'utf8',
 );
 
-test('hides embedding controls until semantic recall is implemented', () => {
-  const memorySettingsStart = source.indexOf("case 'coworkMemory':");
-  const memorySettingsEnd = source.indexOf("case 'triage':", memorySettingsStart);
-  const memorySettingsSource = source.slice(memorySettingsStart, memorySettingsEnd);
-
-  expect(memorySettingsStart).toBeGreaterThanOrEqual(0);
-  expect(memorySettingsEnd).toBeGreaterThan(memorySettingsStart);
-  expect(memorySettingsSource).toContain('<ManagedMemorySettings');
-  expect(memorySettingsSource).not.toContain('<EmbeddingSettingsSection');
-  expect(source).not.toContain(
-    "import EmbeddingSettingsSection from './cowork/EmbeddingSettingsSection'",
-  );
+test('removes the cross-work memory page and embedding configuration writes', () => {
+  expect(source).not.toContain("case 'coworkMemory':");
+  expect(source).not.toContain('ManagedMemorySettings');
+  expect(source).not.toContain('embeddingRemoteApiKey');
+  expect(source).not.toContain('coworkService.updateConfig');
 });

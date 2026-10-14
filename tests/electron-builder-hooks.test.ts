@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
+  beforePack,
   configureMacAutoUpdateMetadata,
   packWindowsResourceComponent7z,
 } from '../scripts/electron-builder-hooks.cjs';
@@ -19,6 +20,18 @@ afterEach(() => {
 });
 
 describe('electron-builder packaging hooks', () => {
+  test.each(['darwin', 'linux'])(
+    'prepares %s packaging without an external messaging runtime',
+    async electronPlatformName => {
+      const context = {
+        electronPlatformName,
+        packager: { config: {} },
+      };
+
+      await expect(beforePack(context)).resolves.toBeUndefined();
+    },
+  );
+
   test('marks macOS automatic installation disabled unless signing explicitly enables it', () => {
     const context = {
       electronPlatformName: 'darwin',

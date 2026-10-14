@@ -28,25 +28,15 @@ import { createPiUiEventBatcher } from './piUiEventBatcher';
 import { persistCoworkTerminalError } from './coworkTerminalErrorPersistence';
 import { bindCoworkRunBridge } from './coworkRunBridge';
 import { registerArtifactFileAvailabilityHandler } from './artifactFileAvailability';
-import { observePreparedRun } from './workbenchTask/preparedRunFailure';
-import {
-  migrateLegacyScheduledTaskRunsToCanonical,
-  migrateLegacyScheduledTasksToCanonical,
-} from '../scheduledTask/migrate';
+
+import { LocalSchedulerRuntime } from '../scheduledTask/localSchedulerRuntime';
 import { CanonicalScheduledTaskService } from '../scheduledTask/canonicalScheduledTaskService';
-import { CcConnectSchedulerRuntime } from '../scheduledTask/ccConnectSchedulerRuntime';
-import { CcConnectCronClient, SchedulerClockAccount } from '../scheduledTask/ccConnectCronClient';
-import { DeferredCcConnectCronClient } from '../scheduledTask/deferredCcConnectCronClient';
-import { CcConnectDeliveryClient } from '../scheduledTask/ccConnectDeliveryClient';
-import { CcConnectDeliveryTransport } from '../scheduledTask/ccConnectDeliveryTransport';
-import { ScheduledTaskDeliveryDispatcher } from '../scheduledTask/deliveryDispatcher';
 import { PiScheduledTaskExecutor } from '../scheduledTask/piScheduledTaskExecutor';
 import { SqliteScheduledTaskStore } from '../scheduledTask/sqliteScheduledTaskStore';
 import { IpcChannel as ScheduledTaskIpc } from '../scheduledTask/constants';
 import { ActivityService } from './activity/activityService';
 import { registerActivityIpcHandlers } from './activity/ipcHandlers';
 import { COMMUNITY_AUTH_ORIGIN, configureCommunityAuthSession } from './communityAuthSession';
-import { ActivitySource, ActivityStatus } from '../shared/activity/constants';
 import { AgentIpcChannel } from '../shared/agent/constants';
 import {
   APP_UPDATE_POLL_INTERVAL_MS,
@@ -81,13 +71,10 @@ import {
   CoworkSessionIpc,
   CoworkStreamIpc,
   HardwareIpc,
-  ImIpc,
   ManagedProviderIpc,
   ProjectIpc,
   RuntimeNoticeIpc,
   ShellIpc,
-  WeixinLoginErrorCode,
-  WeixinInstallIpc,
   WindowIpc,
 } from '../shared/ipc/channels';
 import type { RuntimeRetryNotice } from '../common/runtimeNotice';
@@ -112,23 +99,9 @@ import {
   WorkbenchApprovalMode,
   WorkbenchContractKind,
   WorkbenchRunTrigger,
-  type WorkbenchRun,
-  type WorkbenchTask,
 } from '../shared/workbenchTask';
 import { AgentManager } from './agentManager';
-import { EngramManager } from './memory/engramManager';
-import {
-  importLegacyMemoryFileCandidates,
-  importLegacySqliteMemoryCandidates,
-} from './memory/legacyMemoryFileImportService';
-import { ProjectMemoryService } from './memory/projectMemoryService';
-import { resolveProjectIdentity } from './memory/projectIdentity';
-import { MemoryRepository } from './memory/repository';
-import { ZhiYuanEngramAdapter } from './memory/zhiyuanEngramAdapter';
-import { registerMemoryIpcHandlers } from './memory/ipc';
 import { registerModelPoolIpcHandlers } from './modelPoolIpc';
-import { resolveMemorySessionTitles } from './memory/sessionTitleResolver';
-import { promoteVerifiedWorkbenchRun } from './memory/taskMemoryPromotion';
 import {
   APP_DATA_DIR_NAME,
   APP_NAME,
@@ -163,18 +136,7 @@ import {
   isDefaultConversationWorkspacePath,
 } from './defaultConversationWorkspace';
 import { setLanguage, t } from './i18n';
-import { IMGatewayConfig } from './im';
-import { ChannelAccountManager } from './im/channelAccountManager';
-import { type IMGatewayConfigPatch, sanitizeRendererIMConfigPatch } from './im/configPatch';
-import type {
-  DingTalkInstanceConfig,
-  DiscordInstanceConfig,
-  FeishuInstanceConfig,
-  Platform,
-  QQInstanceConfig,
-  TelegramInstanceConfig,
-  WecomInstanceConfig,
-} from './im/types';
+
 import { getLlamaCppServiceConfig, registerLlamaCppIpcHandlers } from './ipcHandlers/llamacpp';
 import type { LlamaCppModelDaemonController } from './libs/llamacppModelDaemonController';
 import { registerMarketplaceIpcHandlers } from './ipcHandlers/marketplace';
@@ -183,7 +145,6 @@ import { registerProviderModelDiscoveryIpcHandler } from './ipcHandlers/provider
 import {
   getCronJobService,
   initCronJobServiceManager,
-  initScheduledTaskHelpers,
   registerScheduledTaskHandlers,
 } from './ipcHandlers/scheduledTask';
 import { registerTriageIpcHandlers } from './ipcHandlers/triage';
@@ -214,6 +175,7 @@ import { registerTodoIpcHandlers } from './todo/ipc';
 import { TodoReminderScheduler } from './todo/reminderScheduler';
 import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
 import { registerDurableIpc } from './libs/agentEngine/durable/ipc';
+import { registerWorkDocumentIpc } from './libs/agentEngine/durable/workDocumentIpc';
 import type { PiThinkingLevel } from './libs/agentEngine/piRuntimeTypes';
 import { PiModelCatalogRefreshCoordinator } from './libs/agentEngine/piModelCatalogRefresh';
 import { AppUpdateCoordinator } from './libs/appUpdateCoordinator';
@@ -276,17 +238,6 @@ import {
 import { truncateNetworkBody } from '../shared/devNetworkLog';
 
 import { LlamaCppManager } from './libs/llamacppManager';
-import { CcConnectBridgeServer } from './libs/ccConnectBridgeServer';
-import { serializeCcConnectSidecarConfig } from './libs/ccConnectSidecarConfig';
-import { listCcConnectAccountConfigs } from './libs/ccConnectAccountConfig';
-import { resolveCcConnectAccountRuntimeStatus } from './libs/ccConnectAccountRuntimeStatus';
-import { CcConnectRuntimeStatusRegistry } from './libs/ccConnectRuntimeStatusRegistry';
-import { CcConnectSidecarManager } from './libs/ccConnectSidecarManager';
-import {
-  formatWeixinSetupErrorForLog,
-  isWeixinSetupTransportError,
-  runCcConnectWeixinSetup,
-} from './libs/ccConnectWeixinSetup';
 
 import { generateCorrelationId, runWithCorrelationId } from './libs/logCorrelation';
 import { exportLogsZip } from './libs/logExport';
@@ -308,12 +259,6 @@ import {
 } from './libs/systemProxy';
 import { getLogFilePath, getRecentMainLogEntries, initLogger, log } from './logger';
 
-import { parseCcConnectScopedConversationId } from './im/ccConnectConversationId';
-import { CcConnectPiBridge } from './im/ccConnectPiBridge';
-import { ChannelInboxStore } from './im/channelInboxStore';
-import { ChannelTurnCoordinator } from './im/channelTurnCoordinator';
-import { createIMScheduledTaskRequestDetector } from './im/imScheduledTaskHandler';
-import { IMStore } from './im/imStore';
 import { shouldReloadRendererProcess } from './rendererProcessRecovery';
 import { configureRendererStartup } from './rendererStartup';
 
@@ -1110,30 +1055,11 @@ let piRuntimeAdapter: PiRuntimeAdapter | null = null;
 let piModelCatalogRefreshCoordinator: PiModelCatalogRefreshCoordinator | null = null;
 let workbenchTaskService: WorkbenchTaskService | null = null;
 let codingRoomService: CodingRoomService | null = null;
-let engramManager: EngramManager | null = null;
-let engramAdapter: ZhiYuanEngramAdapter | null = null;
-let memoryRepository: MemoryRepository | null = null;
-let projectMemoryService: ProjectMemoryService | null = null;
 let todoReminderScheduler: TodoReminderScheduler | null = null;
 
 const getWorkbenchTaskService = (): WorkbenchTaskService => {
   if (!workbenchTaskService) {
-    workbenchTaskService = new WorkbenchTaskService(getStore().getDatabase(), {
-      onVerifiedRun: event => {
-        const complete = getPiRuntimeAdapter().getSessionMemoryCompletion(event.task.sessionId);
-        if (!complete) {
-          console.warn(
-            '[Memory] Skipped verified run extraction because the session model is unavailable.',
-          );
-          return;
-        }
-        void promoteVerifiedWorkbenchRun(getProjectMemoryService(), event, complete).catch(
-          error => {
-            console.warn('[Memory] Failed to extract verified run memory:', error);
-          },
-        );
-      },
-    });
+    workbenchTaskService = new WorkbenchTaskService(getStore().getDatabase());
   }
   return workbenchTaskService;
 };
@@ -1457,31 +1383,6 @@ const getCodingRoomService = (): CodingRoomService => {
   return codingRoomService;
 };
 
-const getEngramManager = (): EngramManager => {
-  if (!engramManager) {
-    engramManager = new EngramManager({
-      userDataPath: app.getPath('userData'),
-      resourcesPath: process.resourcesPath,
-      projectRoot: app.isPackaged ? undefined : process.cwd(),
-    });
-  }
-  return engramManager;
-};
-
-const getProjectMemoryService = (): ProjectMemoryService => {
-  if (!engramAdapter) engramAdapter = new ZhiYuanEngramAdapter(getEngramManager());
-  if (!memoryRepository) memoryRepository = new MemoryRepository(getStore().getDatabase());
-  if (!projectMemoryService) {
-    projectMemoryService = new ProjectMemoryService(
-      memoryRepository,
-      engramAdapter,
-      resolveProjectIdentity,
-      path.join(app.getPath('userData'), 'memory'),
-    );
-  }
-  return projectMemoryService;
-};
-
 const getPiRuntimeAdapter = (): PiRuntimeAdapter => {
   if (!piRuntimeAdapter) {
     piRuntimeAdapter = new PiRuntimeAdapter();
@@ -1489,63 +1390,12 @@ const getPiRuntimeAdapter = (): PiRuntimeAdapter => {
   }
   return piRuntimeAdapter;
 };
-let imGatewayManager: ChannelAccountManager | null = null;
-let ccConnectBridgeServer: CcConnectBridgeServer | null = null;
-let ccConnectSidecarManager: CcConnectSidecarManager | null = null;
-const ccConnectRuntimeStatuses = new CcConnectRuntimeStatusRegistry();
-const ccConnectDeliveryAccounts = new Set<string>();
-let ccConnectRuntimeRestartTimer: NodeJS.Timeout | null = null;
-let ccConnectRuntimeStopping = false;
-let ccConnectRuntimeReconcileQueue: Promise<void> = Promise.resolve();
-let ccConnectRuntimeConfigSignature = '';
-let ccConnectRuntimeControlClient: CcConnectCronClient | null = null;
-let ccConnectPiBridge: CcConnectPiBridge | null = null;
 let canonicalScheduledTaskService: CanonicalScheduledTaskService | null = null;
 let activityService: ActivityService | null = null;
-let canonicalSchedulerRuntime: CcConnectSchedulerRuntime | null = null;
-let deferredCcConnectCronClient: DeferredCcConnectCronClient | null = null;
-let ccConnectDeliveryTransport: CcConnectDeliveryTransport | null = null;
-let ccConnectBridgeToken: string | null = null;
-let ccConnectBridgeUrl: string | null = null;
-let ccConnectRuntimeRestartAttempts = 0;
-const getScheduledTaskDetectorConfig = async (): Promise<{
-  apiKey: string;
-  baseUrl: string;
-  model?: string;
-  provider?: string;
-} | null> => {
-  const config = getStore().get<any>('app_config');
-  for (const [provider, value] of Object.entries(config?.providers ?? {}) as Array<[string, any]>) {
-    if (value?.enabled && value.apiKey)
-      return {
-        apiKey: value.apiKey,
-        baseUrl: value.baseUrl,
-        model: value.models?.[0]?.id,
-        provider,
-      };
-  }
-  return config?.api?.key
-    ? { apiKey: config.api.key, baseUrl: config.api.baseUrl, model: config.model?.defaultModel }
-    : null;
-};
-const attachCcConnectCronControl = async (
-  accountId: string,
-  baseUrl: string,
-  expectedPid: number,
-): Promise<Awaited<ReturnType<CcConnectCronClient['healthCheck']>>> => {
-  if (!ccConnectBridgeToken) throw new Error('cc-connect bridge token is not initialized');
-  getCanonicalScheduledTaskService();
-  const client = new CcConnectCronClient(baseUrl, ccConnectBridgeToken);
-  const health = await client.healthCheck(expectedPid);
-  await deferredCcConnectCronClient!.attach(accountId, client);
-  // The sidecar intentionally has no durable task state. Rebuild its complete
-  // trigger projection from SQLite after every successful control-plane attach.
-  await canonicalSchedulerRuntime!.reconcile(await getCanonicalScheduledTaskService().listJobs());
-  return health;
-};
+let canonicalSchedulerRuntime: LocalSchedulerRuntime | null = null;
 /**
  * Pushes canonical scheduler Run/status changes to every renderer window.
- * Scheduled Runs are started by the sidecar clock, so without this push the
+ * Scheduled runs are started by the host clock, so without this push the
  * task list and run history would keep showing pre-Run state until the next
  * user action.
  */
@@ -1566,18 +1416,15 @@ const broadcastScheduledTaskEvent = (
 const getCanonicalScheduledTaskService = (): CanonicalScheduledTaskService => {
   if (!canonicalScheduledTaskService) {
     const taskStore = new SqliteScheduledTaskStore(getStore().getDatabase());
-    deferredCcConnectCronClient = new DeferredCcConnectCronClient();
-    ccConnectDeliveryTransport = new CcConnectDeliveryTransport(
-      new IMStore(getStore().getDatabase()),
+    const executor = new PiScheduledTaskExecutor(
+      getPiRuntimeAdapter(),
       getCoworkStore(),
+      (runId, sessionId) => taskStore.setRunSession(runId, sessionId),
     );
-    const executor = new PiScheduledTaskExecutor(getPiRuntimeAdapter(), getCoworkStore());
     activityService ??= new ActivityService(getStore().getDatabase());
-    canonicalSchedulerRuntime = new CcConnectSchedulerRuntime(
+    canonicalSchedulerRuntime = new LocalSchedulerRuntime(
       taskStore,
-      deferredCcConnectCronClient,
       executor.execute.bind(executor),
-      new ScheduledTaskDeliveryDispatcher(taskStore, ccConnectDeliveryTransport),
       activityService,
       {
         runUpdated: (run, taskName) =>
@@ -1587,6 +1434,7 @@ const getCanonicalScheduledTaskService = (): CanonicalScheduledTaskService => {
         taskStateChanged: (taskId, state) =>
           broadcastScheduledTaskEvent(ScheduledTaskIpc.StatusUpdate, { taskId, state }),
       },
+      run => executor.cancel(run),
     );
     canonicalScheduledTaskService = new CanonicalScheduledTaskService(
       taskStore,
@@ -1594,251 +1442,6 @@ const getCanonicalScheduledTaskService = (): CanonicalScheduledTaskService => {
     );
   }
   return canonicalScheduledTaskService;
-};
-const startCcConnectBridge = async (): Promise<void> => {
-  if (ccConnectBridgeServer) return;
-  const token = crypto.randomBytes(32).toString('base64url');
-  ccConnectBridgeToken = token;
-  ccConnectPiBridge = new CcConnectPiBridge({
-    runtime: getPiRuntimeAdapter(),
-    coworkStore: getCoworkStore(),
-    imStore: new IMStore(getStore().getDatabase()),
-    turnCoordinator: new ChannelTurnCoordinator(new ChannelInboxStore(getStore().getDatabase())),
-    activityService:
-      activityService ?? (activityService = new ActivityService(getStore().getDatabase())),
-    detectScheduledTaskRequest: createIMScheduledTaskRequestDetector({
-      getLLMConfig: getScheduledTaskDetectorConfig,
-    }),
-    createScheduledTask: async ({ sessionId, message, request }) => {
-      const [accountId, destination] = parseCcConnectScopedConversationId(message.conversationId);
-      const session = getCoworkStore().getSession(sessionId);
-      if (!session) throw new Error(`IM session not found: ${sessionId}`);
-      const task = await getCanonicalScheduledTaskService().addJob({
-        name: request.taskName,
-        description: '',
-        enabled: true,
-        schedule: { kind: 'at', at: request.scheduleAt },
-        sessionTarget: 'main',
-        wakeMode: 'now',
-        payload: { kind: 'agentTurn', message: request.payloadText },
-        delivery: { mode: 'announce', channel: message.platform, to: destination, accountId },
-        workspaceId: session.workspaceId,
-        sessionKey: sessionId,
-      });
-      return {
-        id: task.id,
-        name: task.name,
-        sessionKey: task.sessionKey,
-        payloadText: request.payloadText,
-        scheduleAt: request.scheduleAt,
-      };
-    },
-    onCronTrigger: async trigger =>
-      getCanonicalScheduledTaskService() &&
-      canonicalSchedulerRuntime!.handleTrigger({
-        accountId: trigger.accountId,
-        taskId: trigger.taskId,
-        scheduleVersion: trigger.scheduleVersion,
-        scheduledAt: trigger.scheduledAt,
-      }),
-  });
-  ccConnectBridgeServer = new CcConnectBridgeServer(token, {
-    onTurn: (request, signal) => ccConnectPiBridge!.runTurn(request, signal),
-    onCronTrigger: trigger => ccConnectPiBridge!.runCronTrigger(trigger),
-  });
-  ccConnectBridgeUrl = await ccConnectBridgeServer.start();
-};
-
-const resolveCcConnectSidecarExecutable = (): string | null => {
-  const binary = process.platform === 'win32' ? 'cc-connect-sidecar.exe' : 'cc-connect-sidecar';
-  const runtimeDirectories = [
-    path.join(process.resourcesPath, 'channel-runtime'),
-    path.join(app.getAppPath(), 'vendor', 'channel-runtime', 'current'),
-  ];
-  const candidates = runtimeDirectories.flatMap(directory => {
-    try {
-      const buildInfo = JSON.parse(
-        fs.readFileSync(path.join(directory, 'runtime-build-info.json'), 'utf8'),
-      ) as { binary?: unknown };
-      return typeof buildInfo.binary === 'string'
-        ? [path.join(directory, buildInfo.binary), path.join(directory, binary)]
-        : [path.join(directory, binary)];
-    } catch {
-      return [path.join(directory, binary)];
-    }
-  });
-  return candidates.find(candidate => fs.existsSync(candidate)) ?? null;
-};
-
-const waitForCcConnectCronControl = async (
-  accountId: string,
-  baseUrl: string,
-  expectedPid: number,
-): Promise<Awaited<ReturnType<CcConnectCronClient['healthCheck']>>> => {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    try {
-      return await attachCcConnectCronControl(accountId, baseUrl, expectedPid);
-    } catch (error) {
-      lastError = error;
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-  }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('cc-connect cron control did not become ready');
-};
-
-const applyCcConnectPlatformStatuses = (
-  statuses: Awaited<ReturnType<CcConnectCronClient['healthCheck']>>['platforms'],
-): void => {
-  ccConnectRuntimeStatuses.replace(statuses);
-};
-
-const refreshCcConnectPlatformStatuses = async (): Promise<void> => {
-  if (!ccConnectRuntimeControlClient || !ccConnectSidecarManager?.running) return;
-  const health = await ccConnectRuntimeControlClient.healthCheck(
-    ccConnectSidecarManager.pid ?? undefined,
-  );
-  applyCcConnectPlatformStatuses(health.platforms);
-};
-
-const startCcConnectRuntime = async (
-  accounts: ReturnType<typeof listCcConnectAccountConfigs>,
-  signature: string,
-): Promise<void> => {
-  if (ccConnectSidecarManager) return;
-  if (!ccConnectBridgeToken || !ccConnectBridgeUrl)
-    throw new Error('cc-connect bridge is not initialized');
-  const executable = resolveCcConnectSidecarExecutable();
-  if (!executable) throw new Error('cc-connect runtime is not bundled');
-  const sidecarRoot = path.join(app.getPath('userData'), 'cc-connect', 'runtime');
-  const manager = new CcConnectSidecarManager(executable, path.join(sidecarRoot, 'config.toml'));
-  let stopRequested = false;
-  manager.on('stdout', line => console.debug(`[ChannelRuntime] ${line}`));
-  manager.on('stderr', line => {
-    if (/(?:^|\s)(?:level=)?ERROR(?:\s|$)/.test(line)) console.error(`[ChannelRuntime] ${line}`);
-    else console.debug(`[ChannelRuntime] ${line}`);
-  });
-  manager.on('error', error => console.error('[ChannelRuntime] Sidecar error:', error));
-  manager.on('exit', ({ code, signal }) => {
-    if (ccConnectSidecarManager === manager) ccConnectSidecarManager = null;
-    deferredCcConnectCronClient?.detach(SchedulerClockAccount);
-    for (const account of accounts) {
-      ccConnectRuntimeStatuses.delete(account.accountId);
-      ccConnectDeliveryTransport?.detach(account.accountId);
-      ccConnectDeliveryAccounts.delete(account.accountId);
-      ccConnectRuntimeStatuses.markUnavailable(
-        account.accountId,
-        manager.lastError ?? `Channel runtime exited with code ${code ?? 'unknown'}`,
-      );
-    }
-    console.warn(`[ChannelRuntime] Sidecar exited (code=${code}, signal=${signal})`);
-    if (
-      ccConnectRuntimeStopping ||
-      stopRequested ||
-      !ccConnectBridgeServer ||
-      ccConnectRuntimeRestartTimer
-    )
-      return;
-    scheduleCcConnectRuntimeRestart();
-  });
-  ccConnectSidecarManager = manager;
-  try {
-    await manager.start(
-      serializeCcConnectSidecarConfig({
-        dataDir: sidecarRoot,
-        bridgeUrl: ccConnectBridgeUrl,
-        bridgeToken: ccConnectBridgeToken,
-        cronControlListen: '127.0.0.1:0',
-        projects: [{ accountId: SchedulerClockAccount }, ...accounts],
-      }),
-    );
-    const pid = manager.pid;
-    if (!pid) throw new Error('cc-connect runtime has no child PID');
-    const baseUrl = await manager.waitForControlUrl();
-    const health = await waitForCcConnectCronControl(SchedulerClockAccount, baseUrl, pid);
-    ccConnectRuntimeControlClient = new CcConnectCronClient(baseUrl, ccConnectBridgeToken);
-    const client = new CcConnectDeliveryClient(baseUrl, ccConnectBridgeToken);
-    for (const account of accounts) {
-      ccConnectDeliveryTransport?.attach(account.accountId, client);
-      ccConnectDeliveryAccounts.add(account.accountId);
-    }
-    applyCcConnectPlatformStatuses(health.platforms);
-    ccConnectRuntimeConfigSignature = signature;
-    ccConnectRuntimeRestartAttempts = 0;
-    console.log(`[ChannelRuntime] Started one runtime with ${accounts.length} channel account(s)`);
-  } catch (error) {
-    if (ccConnectSidecarManager === manager) ccConnectSidecarManager = null;
-    ccConnectRuntimeControlClient = null;
-    deferredCcConnectCronClient?.detach(SchedulerClockAccount);
-    for (const account of accounts) {
-      ccConnectRuntimeStatuses.delete(account.accountId);
-      ccConnectDeliveryTransport?.detach(account.accountId);
-      ccConnectDeliveryAccounts.delete(account.accountId);
-      ccConnectRuntimeStatuses.markUnavailable(
-        account.accountId,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    stopRequested = true;
-    await manager.stop();
-    throw error;
-  }
-};
-
-const loadCcConnectChannelAccounts = () => {
-  const accounts = listCcConnectAccountConfigs(new IMStore(getStore().getDatabase()), workspaceId =>
-    Boolean(getCoworkStore().getWorkspace(workspaceId)),
-  );
-  console.log(`[ChannelRuntime] Found ${accounts.length} enabled channel account(s)`);
-  return accounts;
-};
-
-/** Reconcile one process containing the scheduler and every enabled channel project. */
-const reconcileCcConnectChannelSidecarsNow = async (): Promise<void> => {
-  const accounts = loadCcConnectChannelAccounts();
-  const signature = JSON.stringify(accounts);
-  if (signature === ccConnectRuntimeConfigSignature && ccConnectSidecarManager?.running) return;
-  ccConnectRuntimeStopping = true;
-  if (ccConnectRuntimeRestartTimer) clearTimeout(ccConnectRuntimeRestartTimer);
-  ccConnectRuntimeRestartTimer = null;
-  try {
-    await ccConnectSidecarManager?.stop();
-    ccConnectSidecarManager = null;
-    ccConnectRuntimeControlClient = null;
-    deferredCcConnectCronClient?.detach(SchedulerClockAccount);
-    for (const accountId of ccConnectDeliveryAccounts)
-      ccConnectDeliveryTransport?.detach(accountId);
-    ccConnectDeliveryAccounts.clear();
-    ccConnectRuntimeStatuses.clear();
-    ccConnectRuntimeConfigSignature = '';
-  } finally {
-    ccConnectRuntimeStopping = false;
-  }
-  await startCcConnectRuntime(accounts, signature);
-};
-
-const reconcileCcConnectChannelSidecars = (): Promise<void> => {
-  const operation = ccConnectRuntimeReconcileQueue.then(
-    reconcileCcConnectChannelSidecarsNow,
-    reconcileCcConnectChannelSidecarsNow,
-  );
-  ccConnectRuntimeReconcileQueue = operation.catch((): void => undefined);
-  return operation;
-};
-
-const scheduleCcConnectRuntimeRestart = (): void => {
-  if (ccConnectRuntimeRestartTimer || !ccConnectBridgeServer) return;
-  const delayMs = Math.min(30_000, 1_000 * 2 ** ccConnectRuntimeRestartAttempts);
-  ccConnectRuntimeRestartAttempts = Math.min(ccConnectRuntimeRestartAttempts + 1, 5);
-  ccConnectRuntimeRestartTimer = setTimeout(() => {
-    ccConnectRuntimeRestartTimer = null;
-    void reconcileCcConnectChannelSidecars().catch(error => {
-      console.error('[ChannelRuntime] Failed to restart unified runtime:', error);
-      scheduleCcConnectRuntimeRestart();
-    });
-  }, delayMs);
 };
 let storeInitPromise: Promise<SqliteStore> | null = null;
 let sqliteBackupManager: SqliteBackupManager | null = null;
@@ -1889,9 +1492,6 @@ const getStore = (): SqliteStore => {
   }
   return store;
 };
-
-const getMainAgentWorkspace = (): string =>
-  path.join(app.getPath('userData'), 'agent-workspaces', 'main');
 
 const buildAvailableAgentProviders = (): Record<string, { models: Array<{ id: string }> }> => {
   const providerMap: Record<string, { models: Array<{ id: string }> }> = {};
@@ -1955,10 +1555,6 @@ const getCoworkStore = () => {
   if (!coworkStore) {
     const sqliteStore = getStore();
     coworkStore = new CoworkStore(sqliteStore.getDatabase());
-    const cleaned = coworkStore.autoDeleteNonPersonalMemories();
-    if (cleaned > 0) {
-      console.info(`[cowork-memory] Auto-deleted ${cleaned} non-personal/procedural memories`);
-    }
   }
   return coworkStore;
 };
@@ -2083,6 +1679,12 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
     });
   });
 
+  runtime.on('workDocumentChanged', payload => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('cowork:workDocument:changed', payload);
+    }
+  });
+
   runtime.on('permissionDismiss', (requestId: string) => {
     emitUiEvent({ type: PiUiEventType.PermissionDismiss, sessionId: null, requestId });
   });
@@ -2132,20 +1734,6 @@ const bindPiWorkbenchRuntimeForwarder = (): void => {
 
   forwardPiWorkbenchRuntimeToRenderer(getPiRuntimeAdapter());
   piWorkbenchRuntimeForwarderBound = true;
-};
-
-const getIMGatewayManager = () => {
-  if (!imGatewayManager) {
-    imGatewayManager = new ChannelAccountManager(getStore().getDatabase(), async accountId => {
-      await refreshCcConnectPlatformStatuses();
-      return resolveCcConnectAccountRuntimeStatus(
-        ccConnectRuntimeStatuses,
-        accountId,
-        ccConnectSidecarManager?.running === true,
-      );
-    });
-  }
-  return imGatewayManager;
 };
 
 const resolveCoworkPromptLanguage = (): CoworkPromptLanguage => {
@@ -2740,11 +2328,6 @@ if (!gotTheLock) {
   ipcMain.removeAllListeners('network:status-change');
   ipcMain.on('network:status-change', (_event, status: 'online' | 'offline') => {
     console.log(`[Main] Network status changed: ${status}`);
-
-    if (status === 'online' && imGatewayManager) {
-      console.log('[Main] Network restored, reconciling channel sidecars...');
-      void reconcileCcConnectChannelSidecars();
-    }
   });
 
   // Log IPC handlers
@@ -3344,6 +2927,9 @@ if (!gotTheLock) {
   registerDurableIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
   );
+  registerWorkDocumentIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
+    Boolean(getCoworkStore().getSession(sessionId, 0)),
+  );
   // Cowork IPC handlers
   ipcMain.handle(CoworkSessionIpc.Start, async (_event, rawOptions: unknown) => {
     const cid = generateCorrelationId();
@@ -3889,13 +3475,6 @@ if (!gotTheLock) {
       forgetCoworkSession(sessionId);
       const coworkStoreInstance = getCoworkStore();
       coworkStoreInstance.deleteSession(sessionId);
-      // Clean up IM session mapping so that new channel messages
-      // create a fresh session instead of referencing a deleted one.
-      try {
-        getIMGatewayManager()?.getIMStore()?.deleteSessionMappingByCoworkSessionId(sessionId);
-      } catch {
-        // IM store may not be initialised yet; safe to ignore.
-      }
       return { success: true };
     } catch (error) {
       return {
@@ -3914,13 +3493,6 @@ if (!gotTheLock) {
       }
       const coworkStoreInstance = getCoworkStore();
       coworkStoreInstance.deleteSessions(sessionIds);
-      for (const sessionId of sessionIds) {
-        try {
-          getIMGatewayManager()?.getIMStore()?.deleteSessionMappingByCoworkSessionId(sessionId);
-        } catch {
-          // IM store may not be initialised yet; safe to ignore.
-        }
-      }
       return { success: true };
     } catch (error) {
       return {
@@ -4030,21 +3602,6 @@ if (!gotTheLock) {
       }
     },
   );
-
-  ipcMain.handle('cowork:session:remoteManaged', async (_event, sessionId: string) => {
-    try {
-      const mapping = getIMGatewayManager()
-        ?.getIMStore()
-        ?.getSessionMappingByCoworkSessionId(sessionId);
-      return { success: true, remoteManaged: !!mapping };
-    } catch (error) {
-      return {
-        success: false,
-        remoteManaged: false,
-        error: error instanceof Error ? error.message : 'Failed to check remote managed session',
-      };
-    }
-  });
 
   ipcMain.handle(
     CoworkSessionIpc.List,
@@ -4184,19 +3741,7 @@ if (!gotTheLock) {
       }
       const deletedSessionIds = coworkStore.deleteSessionsByAgentId(id);
 
-      // Clean up IM session mappings for deleted sessions
       if (deletedSessionIds.length > 0) {
-        try {
-          const imStore = getIMGatewayManager()?.getIMStore();
-          if (imStore) {
-            for (const sessionId of deletedSessionIds) {
-              imStore.deleteSessionMappingByCoworkSessionId(sessionId);
-            }
-          }
-        } catch {
-          // IM store may not be initialised yet; safe to ignore.
-        }
-
         // Notify renderer to refresh session lists
         const windows = BrowserWindow.getAllWindows();
         for (const win of windows) {
@@ -4506,26 +4051,7 @@ if (!gotTheLock) {
   initCronJobServiceManager({
     getScheduledTaskService: getCanonicalScheduledTaskService,
   });
-  initScheduledTaskHelpers({
-    getIMGatewayManager: () => ({
-      getConfig: () => getIMGatewayManager().getConfig() as unknown as Record<string, unknown>,
-    }),
-  });
-  registerScheduledTaskHandlers({
-    getCronJobService,
-    getIMGatewayManager: () => ({
-      getIMStore: () => ({
-        getSessionMapping: (conversationId: string, platform: string) =>
-          getIMGatewayManager()
-            .getIMStore()
-            .getSessionMapping(conversationId, platform as Platform),
-        listSessionMappings: (platform: string, accountId?: string) =>
-          getIMGatewayManager()
-            .getIMStore()
-            .listSessionMappings(platform as Platform, accountId),
-      }),
-    }),
-  });
+  registerScheduledTaskHandlers({ getCronJobService });
 
   // ==================== Permissions IPC Handlers ====================
 
@@ -4574,645 +4100,6 @@ if (!gotTheLock) {
       };
     }
   });
-
-  // ==================== IM Gateway IPC Handlers ====================
-
-  ipcMain.handle('im:config:get', async () => {
-    try {
-      const config = getIMGatewayManager().getConfig();
-      return { success: true, config };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get IM config',
-      };
-    }
-  });
-
-  // Debounce and serialize sidecar reconciliation after IM config changes.
-  // Rapid sequential config changes (e.g. toggling 4 platforms) are coalesced
-  // into a single gateway restart instead of N restarts.
-  // The running/pending flags prevent concurrent sync operations from racing:
-  // if a sync is in progress when new changes arrive, they are queued and
-  // a follow-up sync runs after the current one completes.
-  let imConfigSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  let imConfigSyncRunning = false;
-  let imConfigSyncPending = false;
-  const IM_CONFIG_SYNC_DEBOUNCE_MS = 600;
-
-  const doImConfigSync = async () => {
-    imConfigSyncRunning = true;
-    try {
-      await reconcileCcConnectChannelSidecars();
-    } catch (error) {
-      console.error('[IM] Sidecar reconciliation failed:', error);
-    } finally {
-      imConfigSyncRunning = false;
-      if (imConfigSyncPending) {
-        imConfigSyncPending = false;
-        scheduleImConfigSync();
-      }
-    }
-  };
-
-  const scheduleImConfigSync = () => {
-    if (imConfigSyncRunning) {
-      // A sync is already in progress; mark pending so it re-runs after completion.
-      imConfigSyncPending = true;
-      return;
-    }
-    if (imConfigSyncTimer) clearTimeout(imConfigSyncTimer);
-    imConfigSyncTimer = setTimeout(() => {
-      imConfigSyncTimer = null;
-      void doImConfigSync();
-    }, IM_CONFIG_SYNC_DEBOUNCE_MS);
-  };
-
-  const reconcileImConfigImmediately = async (): Promise<void> => {
-    if (imConfigSyncTimer) clearTimeout(imConfigSyncTimer);
-    imConfigSyncTimer = null;
-    imConfigSyncPending = false;
-    await reconcileCcConnectChannelSidecars();
-  };
-
-  ipcMain.handle(
-    ImIpc.ConfigSet,
-    async (_event, config: IMGatewayConfigPatch, options?: { syncGateway?: boolean }) => {
-      try {
-        const sanitizedConfig = sanitizeRendererIMConfigPatch(config);
-        getIMGatewayManager().setConfig(sanitizedConfig, {
-          syncGateway: options?.syncGateway,
-        });
-
-        const hasChannelChange =
-          sanitizedConfig.telegram ||
-          sanitizedConfig.discord ||
-          sanitizedConfig.dingtalk ||
-          sanitizedConfig.feishu ||
-          sanitizedConfig.qq ||
-          sanitizedConfig.wecom ||
-          sanitizedConfig.weixin;
-        if (options?.syncGateway && hasChannelChange) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set IM config',
-        };
-      }
-    },
-  );
-
-  // Apply persisted channel configuration to cc-connect sidecars.
-  ipcMain.handle('im:config:sync', async () => {
-    try {
-      await reconcileCcConnectChannelSidecars();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to sync IM config',
-      };
-    }
-  });
-
-  ipcMain.handle('im:gateway:start', async (_event, platform: Platform) => {
-    try {
-      // Persist enabled state
-      const manager = getIMGatewayManager();
-      manager.setConfig({ [platform]: { enabled: true } });
-      await reconcileCcConnectChannelSidecars();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to start gateway',
-      };
-    }
-  });
-
-  ipcMain.handle('im:gateway:stop', async (_event, platform: Platform) => {
-    try {
-      // Persist disabled state
-      const manager = getIMGatewayManager();
-      manager.setConfig({ [platform]: { enabled: false } });
-      await reconcileCcConnectChannelSidecars();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to stop gateway',
-      };
-    }
-  });
-
-  ipcMain.handle(WeixinInstallIpc.Start, async () => {
-    try {
-      const executable = resolveCcConnectSidecarExecutable();
-      if (!executable) throw new Error('Channel runtime is not bundled');
-      const result = await runCcConnectWeixinSetup(executable, 'start');
-      return {
-        success: true,
-        status: result.status,
-        qrcode: result.qrcode,
-        qrcodeUrl: result.qrcodeUrl,
-      };
-    } catch (error) {
-      const errorCode = isWeixinSetupTransportError(error)
-        ? WeixinLoginErrorCode.Transport
-        : WeixinLoginErrorCode.Setup;
-      console.warn(
-        `[WeixinLogin] QR code setup failed with ${errorCode}: ${formatWeixinSetupErrorForLog(error)}`,
-      );
-      return {
-        success: false,
-        errorCode,
-      };
-    }
-  });
-
-  ipcMain.handle(WeixinInstallIpc.Poll, async (_event, qrcode: string) => {
-    try {
-      if (!qrcode?.trim()) throw new Error('Weixin QR code is required');
-      const executable = resolveCcConnectSidecarExecutable();
-      if (!executable) throw new Error('Channel runtime is not bundled');
-      const result = await runCcConnectWeixinSetup(executable, 'poll', qrcode);
-      if (result.status === 'confirmed') {
-        if (!result.accountId || !result.botToken || !result.baseUrl) {
-          throw new Error('Weixin login result is incomplete');
-        }
-        getIMGatewayManager().setConfig({
-          weixin: {
-            ...getIMGatewayManager().getConfig().weixin,
-            enabled: true,
-            accountId: result.accountId,
-            token: result.botToken,
-            baseUrl: result.baseUrl,
-          },
-        });
-        await reconcileImConfigImmediately();
-      }
-      return {
-        success: true,
-        status: result.status,
-        accountId: result.status === 'confirmed' ? result.accountId : undefined,
-      };
-    } catch (error) {
-      const errorCode = isWeixinSetupTransportError(error)
-        ? WeixinLoginErrorCode.Transport
-        : WeixinLoginErrorCode.Setup;
-      console.warn(
-        `[WeixinLogin] QR code polling failed with ${errorCode}: ${formatWeixinSetupErrorForLog(error)}`,
-      );
-      return {
-        success: false,
-        status: 'wait',
-        errorCode,
-      };
-    }
-  });
-
-  ipcMain.handle(
-    ImIpc.GatewayTest,
-    async (
-      _event,
-      platform: Platform,
-      configOverride?: Partial<IMGatewayConfig>,
-      accountId?: string,
-    ) => {
-      try {
-        const result = await getIMGatewayManager().testGateway(platform, configOverride, accountId);
-        return { success: true, result };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to test gateway connectivity',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(ImIpc.StatusGet, async () => {
-    try {
-      await refreshCcConnectPlatformStatuses();
-      const status = getIMGatewayManager().getStatus(instanceId => {
-        return resolveCcConnectAccountRuntimeStatus(
-          ccConnectRuntimeStatuses,
-          instanceId,
-          ccConnectSidecarManager?.running === true,
-        );
-      });
-      return { success: true, status };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get IM status',
-      };
-    }
-  });
-
-  ipcMain.handle('im:getLocalIp', () => {
-    const nets = os.networkInterfaces();
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name] || []) {
-        if (net.family === 'IPv4' && !net.internal) {
-          return net.address;
-        }
-      }
-    }
-    return '127.0.0.1';
-  });
-  // DingTalk Multi-Instance handlers
-  ipcMain.handle('im:dingtalk:instance:add', async (_event, name: string, workspaceId: string) => {
-    try {
-      const instanceId = crypto.randomUUID();
-      const { DEFAULT_DINGTALK_CHANNEL_CONFIG: defaults } = await import('./im/types.js');
-      const instance = {
-        ...defaults,
-        instanceId,
-        instanceName: name || 'DingTalk Bot',
-        workspaceId,
-      };
-      getIMGatewayManager().getIMStore().setDingTalkInstanceConfig(instanceId, instance);
-      scheduleImConfigSync();
-      return { success: true, instance };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to add DingTalk instance',
-      };
-    }
-  });
-
-  ipcMain.handle('im:dingtalk:instance:delete', async (_event, instanceId: string) => {
-    try {
-      getIMGatewayManager().getIMStore().deleteDingTalkInstance(instanceId);
-      scheduleImConfigSync();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete DingTalk instance',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'im:dingtalk:instance:config:set',
-    async (
-      _event,
-      instanceId: string,
-      config: Partial<DingTalkInstanceConfig>,
-      options?: { syncGateway?: boolean },
-    ) => {
-      try {
-        getIMGatewayManager().getIMStore().setDingTalkInstanceConfig(instanceId, config);
-        if (options?.syncGateway) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set DingTalk instance config',
-        };
-      }
-    },
-  );
-
-  // QQ Multi-Instance handlers
-  ipcMain.handle('im:qq:instance:add', async (_event, name: string, workspaceId: string) => {
-    try {
-      const instanceId = crypto.randomUUID();
-      const { DEFAULT_QQ_CONFIG: defaults } = await import('./im/types.js');
-      const instance = {
-        ...defaults,
-        instanceId,
-        instanceName: name || 'QQ Bot',
-        workspaceId,
-      };
-      getIMGatewayManager().getIMStore().setQQInstanceConfig(instanceId, instance);
-      scheduleImConfigSync();
-      return { success: true, instance };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to add QQ instance',
-      };
-    }
-  });
-
-  ipcMain.handle('im:qq:instance:delete', async (_event, instanceId: string) => {
-    try {
-      getIMGatewayManager().getIMStore().deleteQQInstance(instanceId);
-      scheduleImConfigSync();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete QQ instance',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'im:qq:instance:config:set',
-    async (
-      _event,
-      instanceId: string,
-      config: Partial<QQInstanceConfig>,
-      options?: { syncGateway?: boolean },
-    ) => {
-      try {
-        getIMGatewayManager().getIMStore().setQQInstanceConfig(instanceId, config);
-        if (options?.syncGateway) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set QQ instance config',
-        };
-      }
-    },
-  );
-
-  // Feishu Multi-Instance handlers
-  ipcMain.handle('im:feishu:instance:add', async (_event, name: string, workspaceId: string) => {
-    try {
-      const instanceId = crypto.randomUUID();
-      const { DEFAULT_FEISHU_CHANNEL_CONFIG: defaults } = await import('./im/types.js');
-      const instance = {
-        ...defaults,
-        instanceId,
-        instanceName: name || 'Feishu Bot',
-        workspaceId,
-      };
-      getIMGatewayManager().getIMStore().setFeishuInstanceConfig(instanceId, instance);
-      scheduleImConfigSync();
-      return { success: true, instance };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to add Feishu instance',
-      };
-    }
-  });
-
-  ipcMain.handle('im:feishu:instance:delete', async (_event, instanceId: string) => {
-    try {
-      getIMGatewayManager().getIMStore().deleteFeishuInstance(instanceId);
-      scheduleImConfigSync();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete Feishu instance',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'im:feishu:instance:config:set',
-    async (
-      _event,
-      instanceId: string,
-      config: Partial<FeishuInstanceConfig>,
-      options?: { syncGateway?: boolean },
-    ) => {
-      try {
-        getIMGatewayManager().getIMStore().setFeishuInstanceConfig(instanceId, config);
-        if (options?.syncGateway) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set Feishu instance config',
-        };
-      }
-    },
-  );
-
-  // WeCom Multi-Instance handlers
-  ipcMain.handle('im:wecom:instance:add', async (_event, name: string, workspaceId: string) => {
-    try {
-      const instanceId = crypto.randomUUID();
-      const { DEFAULT_WECOM_CONFIG: defaults } = await import('./im/types.js');
-      const instance = {
-        ...defaults,
-        instanceId,
-        instanceName: name || 'WeCom Bot',
-        workspaceId,
-      };
-      getIMGatewayManager().getIMStore().setWecomInstanceConfig(instanceId, instance);
-      scheduleImConfigSync();
-      return { success: true, instance };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to add WeCom instance',
-      };
-    }
-  });
-
-  ipcMain.handle('im:wecom:instance:delete', async (_event, instanceId: string) => {
-    try {
-      getIMGatewayManager().getIMStore().deleteWecomInstance(instanceId);
-      scheduleImConfigSync();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete WeCom instance',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'im:wecom:instance:config:set',
-    async (
-      _event,
-      instanceId: string,
-      config: Partial<WecomInstanceConfig>,
-      options?: { syncGateway?: boolean },
-    ) => {
-      try {
-        getIMGatewayManager().getIMStore().setWecomInstanceConfig(instanceId, config);
-        if (options?.syncGateway) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set WeCom instance config',
-        };
-      }
-    },
-  );
-
-  // Telegram Multi-Instance handlers
-  ipcMain.handle('im:telegram:instance:add', async (_event, name: string, workspaceId: string) => {
-    try {
-      const instanceId = crypto.randomUUID();
-      const { DEFAULT_TELEGRAM_CHANNEL_CONFIG: defaults } = await import('./im/types.js');
-      const instance = {
-        ...defaults,
-        instanceId,
-        instanceName: name || 'Telegram Bot',
-        workspaceId,
-      };
-      getIMGatewayManager().getIMStore().setTelegramInstanceConfig(instanceId, instance);
-      scheduleImConfigSync();
-      return { success: true, instance };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to add Telegram instance',
-      };
-    }
-  });
-
-  ipcMain.handle('im:telegram:instance:delete', async (_event, instanceId: string) => {
-    try {
-      getIMGatewayManager().getIMStore().deleteTelegramInstance(instanceId);
-      scheduleImConfigSync();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete Telegram instance',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'im:telegram:instance:config:set',
-    async (
-      _event,
-      instanceId: string,
-      config: Partial<TelegramInstanceConfig>,
-      options?: { syncGateway?: boolean },
-    ) => {
-      try {
-        getIMGatewayManager().getIMStore().setTelegramInstanceConfig(instanceId, config);
-        if (options?.syncGateway) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set Telegram instance config',
-        };
-      }
-    },
-  );
-
-  // Discord Multi-Instance handlers
-  ipcMain.handle('im:discord:instance:add', async (_event, name: string, workspaceId: string) => {
-    try {
-      const instanceId = crypto.randomUUID();
-      const { DEFAULT_DISCORD_CHANNEL_CONFIG: defaults } = await import('./im/types.js');
-      const instance = {
-        ...defaults,
-        instanceId,
-        instanceName: name || 'Discord Bot',
-        workspaceId,
-      };
-      getIMGatewayManager().getIMStore().setDiscordInstanceConfig(instanceId, instance);
-      scheduleImConfigSync();
-      return { success: true, instance };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to add Discord instance',
-      };
-    }
-  });
-
-  ipcMain.handle('im:discord:instance:delete', async (_event, instanceId: string) => {
-    try {
-      getIMGatewayManager().getIMStore().deleteDiscordInstance(instanceId);
-      scheduleImConfigSync();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to delete Discord instance',
-      };
-    }
-  });
-
-  ipcMain.handle(
-    'im:discord:instance:config:set',
-    async (
-      _event,
-      instanceId: string,
-      config: Partial<DiscordInstanceConfig>,
-      options?: { syncGateway?: boolean },
-    ) => {
-      try {
-        getIMGatewayManager().getIMStore().setDiscordInstanceConfig(instanceId, config);
-        if (options?.syncGateway) {
-          scheduleImConfigSync();
-        }
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to set Discord instance config',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    'feishu:install:verify',
-    async (_event, { appId, appSecret }: { appId: string; appSecret: string }) => {
-      try {
-        return await getIMGatewayManager().verifyFeishuCredentials(appId, appSecret);
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : '验证失败' };
-      }
-    },
-  );
-
-  // DingTalk bot install helpers
-  ipcMain.handle('dingtalk:install:qrcode', async () => {
-    try {
-      return await getIMGatewayManager().startDingTalkInstallQrcode();
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : '获取二维码失败');
-    }
-  });
-
-  ipcMain.handle(
-    'dingtalk:install:poll',
-    async (_event, { deviceCode }: { deviceCode: string }) => {
-      try {
-        return await getIMGatewayManager().pollDingTalkInstall(deviceCode);
-      } catch (error) {
-        return { done: false, error: error instanceof Error ? error.message : '轮询失败' };
-      }
-    },
-  );
-
-  ipcMain.handle(
-    'dingtalk:install:verify',
-    async (_event, { clientId, clientSecret }: { clientId: string; clientSecret: string }) => {
-      try {
-        return await getIMGatewayManager().verifyDingTalkCredentials(clientId, clientSecret);
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : '验证失败' };
-      }
-    },
-  );
 
   // GitHub Copilot device code authentication handlers
   ipcMain.handle('github-copilot:request-device-code', async () => {
@@ -5857,22 +4744,6 @@ if (!gotTheLock) {
 
   // ─── end OAuth ───
 
-  // 企微 SDK 授权弹窗白名单域名
-  const WECOM_AUTH_HOSTNAMES = new Set([
-    'work.weixin.qq.com',
-    'open.work.weixin.qq.com',
-    'wwcdn.weixin.qq.com',
-  ]);
-
-  const isWecomAuthUrl = (url: string): boolean => {
-    try {
-      const hostname = new URL(url).hostname;
-      return WECOM_AUTH_HOSTNAMES.has(hostname);
-    } catch {
-      return false;
-    }
-  };
-
   const isArtifactSandboxUrl = (url: string): boolean => {
     try {
       const pathname = new URL(url).pathname;
@@ -5890,12 +4761,6 @@ if (!gotTheLock) {
   // 设置 Content Security Policy
   const setContentSecurityPolicy = () => {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      // 跳过企微授权页面，让其使用自身的 CSP（否则外部脚本被阻止导致空白页）
-      if (isWecomAuthUrl(details.url)) {
-        callback({ responseHeaders: details.responseHeaders });
-        return;
-      }
-
       // 跳过 artifact 沙箱及其 vendor 脚本的 CSP（iframe sandbox="allow-scripts" 隔离）
       if (isArtifactSandboxUrl(details.url)) {
         callback({ responseHeaders: details.responseHeaders });
@@ -5990,36 +4855,9 @@ if (!gotTheLock) {
     mainWindow.setMenu(null);
     const unregisterContextMenu = registerContextMenu(mainWindow);
 
-    // 处理 window.open 请求（企微 SDK 授权弹窗等）
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (isWecomAuthUrl(url)) {
-        return {
-          action: 'allow',
-          overrideBrowserWindowOptions: {
-            width: 950,
-            height: 640,
-            title: '企业微信授权',
-            autoHideMenuBar: true,
-            webPreferences: {
-              nodeIntegration: false,
-              contextIsolation: true,
-              sandbox: true,
-            },
-          },
-        };
-      }
       shell.openExternal(url);
       return { action: 'deny' };
-    });
-
-    // 监听子窗口创建事件（企微授权弹窗安全限制）
-    mainWindow.webContents.on('did-create-window', childWindow => {
-      // 限制子窗口只能导航到企微域名，防止被劫持到其他站点
-      childWindow.webContents.on('will-navigate', (event, navUrl) => {
-        if (!isWecomAuthUrl(navUrl)) {
-          event.preventDefault();
-        }
-      });
     });
 
     // 设置窗口的最小尺寸
@@ -6193,25 +5031,6 @@ if (!gotTheLock) {
         } catch (err) {
           console.warn('[Main] Canonical scheduler not available yet:', err);
         }
-
-        // One-time migration: import legacy SQLite task records into the
-        // canonical scheduler. No task is delegated to another runtime.
-        migrateLegacyScheduledTasksToCanonical({
-          db: getStore().getDatabase(),
-          getKv: key => getStore().get(key),
-          setKv: (key, value) => getStore().set(key, value),
-          store: new SqliteScheduledTaskStore(getStore().getDatabase()),
-        }).catch(err => {
-          console.warn('[Main] Canonical scheduled-task migration failed:', err);
-        });
-        migrateLegacyScheduledTaskRunsToCanonical({
-          db: getStore().getDatabase(),
-          getKv: key => getStore().get(key),
-          setKv: (key, value) => getStore().set(key, value),
-          store: new SqliteScheduledTaskStore(getStore().getDatabase()),
-        }).catch(err => {
-          console.warn('[Main] Canonical scheduled-task Run migration failed:', err);
-        });
       })();
     });
   };
@@ -6241,6 +5060,13 @@ if (!gotTheLock) {
       console.error('[EnterpriseExtension] Failed to dispose enterprise extension:', error);
     });
 
+    // Stop the cron job polling
+    try {
+      getCronJobService().stopPolling();
+    } catch {
+      // The canonical scheduler may not have been initialized — safe to ignore.
+    }
+
     // Stop all active Pi sessions without blocking shutdown.
     console.log('[Main] Stopping cowork sessions...');
     if (piRuntimeAdapter) await piRuntimeAdapter.close();
@@ -6251,17 +5077,6 @@ if (!gotTheLock) {
     await stopCoworkOpenAICompatProxy().catch(error => {
       console.error('Failed to stop OpenAI compatibility proxy:', error);
     });
-
-    await ccConnectBridgeServer?.stop().catch(error => {
-      console.error('[cc-connect] Failed to stop bridge on quit:', error);
-    });
-    ccConnectBridgeServer = null;
-    ccConnectRuntimeStopping = true;
-    if (ccConnectRuntimeRestartTimer) clearTimeout(ccConnectRuntimeRestartTimer);
-    ccConnectRuntimeRestartTimer = null;
-    await ccConnectSidecarManager?.stop();
-    ccConnectSidecarManager = null;
-    ccConnectRuntimeControlClient = null;
 
     if (ollamaManager) {
       await ollamaManager.shutdownForQuit().catch(error => {
@@ -6281,23 +5096,10 @@ if (!gotTheLock) {
       });
     }
 
-    if (engramManager) {
-      await engramManager.stop().catch(error => {
-        console.error('[MemoryRuntime] Failed to stop local memory service:', error);
-      });
-    }
-
     if (codingRoomService) {
       await codingRoomService.dispose().catch(error => {
         console.error('[CodingRoom] Failed to dispose coding agent connections on quit:', error);
       });
-    }
-
-    // Stop the cron job polling
-    try {
-      getCronJobService().stopPolling();
-    } catch {
-      // The canonical scheduler may not have been initialized — safe to ignore.
     }
 
     sqliteBackupManager?.stopPeriodicBackupLoop();
@@ -6408,10 +5210,6 @@ if (!gotTheLock) {
       );
     }
 
-    void getEngramManager()
-      .start()
-      .catch(error => console.warn('[MemoryRuntime] Failed to start local memory service:', error));
-
     // Note: Calendar permission is checked on-demand when calendar operations are requested
     // We don't trigger permission dialogs at startup to avoid annoying users
 
@@ -6445,40 +5243,8 @@ if (!gotTheLock) {
     zhiyuanManagedProviderBridge.attachStore(store);
     profiler.measure('initStore');
     console.log('[Main] initApp: store initialized');
-    try {
-      const legacyMemoryImport = importLegacyMemoryFileCandidates({
-        agentWorkspace: getMainAgentWorkspace(),
-        service: getProjectMemoryService(),
-      });
-      const legacySqliteMemoryImport = importLegacySqliteMemoryCandidates({
-        store: getCoworkStore(),
-        service: getProjectMemoryService(),
-      });
-      const importedLegacyMemories =
-        legacyMemoryImport.imported + legacySqliteMemoryImport.imported;
-      if (importedLegacyMemories > 0) {
-        console.log(
-          `[MemoryMigration] imported ${importedLegacyMemories} legacy entries for review`,
-        );
-      }
-    } catch (error) {
-      console.warn('[MemoryMigration] Failed to import legacy memory sources:', error);
-    }
-    void getEngramManager()
-      .start()
-      .then(connection => {
-        if (!connection) return;
-        return getProjectMemoryService().drainOutbox();
-      })
-      .catch(error => console.warn('[ProjectMemory] Failed to drain pending operations:', error));
     refreshEndpointsTestMode(store);
     sqliteBackupManager = new SqliteBackupManager(app.getPath('userData'));
-    await startCcConnectBridge().catch(error =>
-      console.error('[cc-connect] Failed to start local bridge:', error),
-    );
-    await reconcileCcConnectChannelSidecars().catch(error => {
-      console.error('[ChannelRuntime] Failed to start unified runtime:', error);
-    });
     const startSqliteBackupLoop = async (): Promise<void> => {
       if (!sqliteBackupManager) return;
       await sqliteBackupManager.startPeriodicBackupLoop(() => getStore().getDatabase());
@@ -6512,21 +5278,6 @@ if (!gotTheLock) {
     if (prunedActivityRuns > 0) {
       console.log(`[Activity] removed ${prunedActivityRuns} expired activity run(s)`);
     }
-    const recoveredScheduledRuns = new SqliteScheduledTaskStore(
-      getStore().getDatabase(),
-    ).recoverInterruptedRuns(run => {
-      activityService?.upsertBestEffort({
-        id: run.id,
-        source: ActivitySource.ScheduledTask,
-        status: ActivityStatus.Failed,
-        startedAt: Date.parse(run.startedAt),
-        updatedAt: Date.parse(run.finishedAt ?? run.startedAt),
-        errorMessage: run.error ?? undefined,
-      });
-    });
-    if (recoveredScheduledRuns > 0) {
-      console.warn(`[Scheduler] marked ${recoveredScheduledRuns} interrupted Run(s) as failed`);
-    }
     const recoveredWorkbenchTasks = getWorkbenchTaskService().recoverInterruptedState();
     if (recoveredWorkbenchTasks > 0) {
       console.log(
@@ -6535,42 +5286,6 @@ if (!gotTheLock) {
     }
     registerWorkbenchTaskIpcHandlers({
       getService: getWorkbenchTaskService,
-      startPreparedRun: async (task: WorkbenchTask, run: WorkbenchRun, resumeInput) => {
-        const session = getCoworkStore().getSession(task.sessionId);
-        if (!session) throw new Error('Cowork session not found.');
-        const config = getCoworkStore().getConfig();
-        const amendment = resumeInput?.amendment?.trim() ?? '';
-        const prompt =
-          amendment || 'Continue the current task from its persisted state and verify the result.';
-        // 2026/09/17 lixiang  resume 不等待整段跑完（对齐 Continue IPC），否则底部无法切到停止
-        observePreparedRun(
-          () =>
-            getPiRuntimeAdapter().continueSession(session.id, prompt, {
-              systemPrompt: session.systemPrompt,
-              skillIds: resumeInput?.skillIds ?? session.activeSkillIds,
-              sessionMode: session.mode,
-              workspaceRoot: session.cwd,
-              agentId: session.agentId,
-              expertIds:
-                resumeInput?.expertIds === undefined
-                  ? session.experts.slice(0, 1).map(expert => expert.expertId)
-                  : normalizeSingleExpertIds(resumeInput.expertIds),
-              modelOverride: session.modelOverride,
-              approvalMode:
-                config.permissionMode === CoworkPermissionMode.AllowAll
-                  ? WorkbenchApprovalMode.AllowAll
-                  : WorkbenchApprovalMode.Ask,
-              goalMode: resumeInput?.goalMode,
-              imageAttachments: resumeInput?.imageAttachments,
-              fileAttachments: resumeInput?.fileAttachments,
-              _workbenchRunId: run.id,
-              _skipUserMessage: !amendment,
-            }),
-          task,
-          run,
-          { service: getWorkbenchTaskService(), runtime: getPiRuntimeAdapter() },
-        );
-      },
     });
     todoReminderScheduler = new TodoReminderScheduler(getStore().getDatabase());
     todoReminderScheduler.start();
@@ -6589,11 +5304,6 @@ if (!gotTheLock) {
       .catch(error => {
         console.warn('[CodingAgent] External ACP discovery failed:', error);
       });
-    registerMemoryIpcHandlers({
-      getService: getProjectMemoryService,
-      resolveSessionTitles: sessionIds =>
-        resolveMemorySessionTitles(getStore().getDatabase(), sessionIds),
-    });
     // Inject store getter into claudeSettings
     setStoreGetter(() => store);
     setPiCapabilityCorrectionStoreGetter(() => store);

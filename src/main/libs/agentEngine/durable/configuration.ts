@@ -1,3 +1,4 @@
+import { WorkDocumentDoc, WorkDocumentExtension } from './workDocument';
 import type { AgentChange, HarnessOptions } from '@earendil-works/pi-durable';
 import { classifyWorkbenchToolRisk } from '../../../workbenchTask/riskClassifier';
 import {
@@ -23,6 +24,7 @@ export async function buildDurableConfiguration(input: {
     import('@earendil-works/pi-durable/env/node'),
   ]);
   const registry = createRegistry();
+  registry.install(WorkDocumentExtension);
   if (input.options.sessionMode !== 'chat' && input.options.confirmationMode !== 'text') {
     registry.install({
       ...CodingTools,
@@ -66,7 +68,14 @@ export async function buildDurableConfiguration(input: {
   const cwd = input.options.workspaceRoot || process.cwd();
   const environment = new NodeExecutionEnv({ cwd });
   return {
-    harness: { models: input.models, registry, env: () => environment },
+    harness: {
+      models: input.models,
+      registry,
+      env: () => environment,
+      conversationCreated: async (tx, conversation) => {
+        await tx.doc(WorkDocumentDoc, conversation.id);
+      },
+    },
     agent: {
       model: input.model,
       cwd,

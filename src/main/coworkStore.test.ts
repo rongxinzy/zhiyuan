@@ -467,10 +467,6 @@ test('listWorkspaces and getWorkspace include attached folders', () => {
 });
 
 test('deleteWorkspace removes attached folders', () => {
-  db.exec(`
-    CREATE TABLE user_memories (id INTEGER PRIMARY KEY, is_explicit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'created', updated_at INTEGER NOT NULL DEFAULT 0);
-    CREATE TABLE user_memory_sources (memory_id INTEGER NOT NULL, session_id TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1);
-  `);
   const workspace = store.createWorkspace('/tmp/workspace-delete-folders', 'delete-me');
   store.setWorkspaceFolders(workspace.id, ['/tmp/a']);
 
@@ -484,7 +480,7 @@ test('deleteWorkspace removes attached folders', () => {
   ).toEqual({ count: 0 });
 });
 
-test('relocateWorkspace transfers folders and migrates project memory scope', () => {
+test('relocateWorkspace transfers folders without touching archived legacy memory', () => {
   db.exec(`
     CREATE TABLE memory_links (id TEXT PRIMARY KEY, project_id TEXT NOT NULL);
     CREATE TABLE memory_candidates (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT '');
@@ -508,11 +504,11 @@ test('relocateWorkspace transfers folders and migrates project memory scope', ()
   expect(relocated).not.toBeNull();
   expect(store.getWorkspace(relocated!.id)!.folders).toEqual(['/tmp/extra']);
   expect(db.prepare('SELECT project_id FROM memory_links WHERE id = ?').get('link-1')).toEqual({
-    project_id: relocated!.id,
+    project_id: oldWorkspace.id,
   });
   expect(
     db.prepare('SELECT project_id FROM memory_candidates WHERE id = ?').get('candidate-1'),
-  ).toEqual({ project_id: relocated!.id });
+  ).toEqual({ project_id: oldWorkspace.id });
 });
 
 test('relocateWorkspace rejects while a session is running', () => {

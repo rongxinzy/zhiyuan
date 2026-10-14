@@ -42,6 +42,8 @@ jobs:
         run: bun x --no-install tsc --project electron-tsconfig.json --noEmit
       - name: Test renderer and shared behavior
         run: bun x --no-install vitest run src/renderer src/shared --maxWorkers=2
+      - name: Test native durable execution and work documents
+        run: bun x --no-install vitest run src/main/libs/agentEngine/durable src/main/libs/agentEngine/piRuntimeAdapter.test.ts src/main/libs/agentEngine/piClassifierTriage.test.ts --maxWorkers=2
       - name: Build renderer without Electron packaging
         run: bun run build:vite
         env:

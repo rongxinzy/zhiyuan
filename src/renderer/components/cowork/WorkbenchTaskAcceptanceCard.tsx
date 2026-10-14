@@ -22,7 +22,7 @@ interface WorkbenchTaskAcceptanceCardProps {
  * Inline acceptance card rendered at the end of the conversation flow when a
  * work task finished with `AcceptanceRequired` (no deterministic verifier was
  * available for the result). Mirrors the AskUserQuestionCard placement: the
- * user sees the final answer, then decides to accept or re-run in place.
+ * user sees the final answer, then decides whether to accept the historical result.
  */
 export function WorkbenchTaskAcceptanceCard({ sessionId }: WorkbenchTaskAcceptanceCardProps) {
   const [detail, setDetail] = useState<WorkbenchTaskDetail | null>(null);
@@ -86,14 +86,6 @@ export function WorkbenchTaskAcceptanceCard({ sessionId }: WorkbenchTaskAcceptan
       }
       footer={
         <>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => void runAction(() => window.electron.workbenchTask.retry(task.id))}
-          >
-            {i18nService.t('workbenchTaskRetry')}
-          </Button>
           <Button
             type="button"
             disabled={busy}

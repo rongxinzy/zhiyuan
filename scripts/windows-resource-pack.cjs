@@ -72,13 +72,6 @@ function getWindowsResourceArchiveCompression(component) {
 function getWindowsResourceComponents(projectRoot) {
   return [
     {
-      key: 'channel-runtime',
-      label: 'cc-connect channel runtime',
-      dir: path.join(projectRoot, 'vendor', 'channel-runtime', 'current'),
-      prefix: 'channel-runtime',
-      sentinel: 'channel-runtime/cc-connect-sidecar.exe',
-    },
-    {
       key: 'portable-git',
       label: 'PortableGit runtime',
       dir: path.join(projectRoot, 'resources', 'mingit'),

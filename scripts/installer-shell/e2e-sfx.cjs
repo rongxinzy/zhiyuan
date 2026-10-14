@@ -213,10 +213,8 @@ try {
   check(treeOk, 'all resources junctions + .complete sentinels present');
   check(
     fs.existsSync(path.join(installDir, '知远.exe')) &&
-      fs.existsSync(
-        path.join(installDir, 'resources', 'channel-runtime', 'cc-connect-sidecar.exe'),
-      ),
-    'fake app + channel runtime sentinel installed',
+      fs.existsSync(path.join(installDir, 'resources', 'mingit', 'usr', 'bin', 'bash.exe')),
+    'fake app + PortableGit sentinel installed',
   );
 
   // Zero pollution: extraction dir removed, real runtime cache untouched,

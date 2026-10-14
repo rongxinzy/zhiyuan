@@ -1,13 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
 import type { ScheduledTask } from '../../scheduledTask/types';
-import {
-  DeliveryMode,
-  PayloadKind,
-  ScheduleKind,
-  SessionTarget,
-  WakeMode,
-} from '../../scheduledTask/constants';
+import { PayloadKind, ScheduleKind, SessionTarget, WakeMode } from '../../scheduledTask/constants';
 import { store } from '../store';
 import { setListError, setLoading, setTasks } from '../store/slices/scheduledTaskSlice';
 import { ScheduledTaskService } from './scheduledTask';
@@ -91,7 +85,6 @@ function makeTaskFixture(id: string): ScheduledTask {
     sessionTarget: SessionTarget.Isolated,
     wakeMode: WakeMode.Now,
     payload: { kind: PayloadKind.AgentTurn, message: 'Summarize updates' },
-    delivery: { mode: DeliveryMode.None },
     workspaceId: 'workspace-1',
     sessionKey: null,
     state: {

@@ -11,7 +11,7 @@ import {
   CoworkSessionSource,
   CoworkSessionStatus,
 } from '../../../../shared/cowork/constants';
-import { SessionTarget, WakeMode, DeliveryMode } from '../../../../scheduledTask/constants';
+import { SessionTarget, WakeMode } from '../../../../scheduledTask/constants';
 import type { ScheduledTask } from '../../../../scheduledTask/types';
 import type { CoworkSessionSummary } from '../../../types/cowork';
 import { buildWorkBriefing, type BriefingInput } from './projection';
@@ -50,7 +50,6 @@ const schedule = (id: string, nextRunAtMs: number | null, enabled = true): Sched
   sessionTarget: SessionTarget.Isolated,
   wakeMode: WakeMode.Now,
   payload: { kind: 'agentTurn', message: 'work' },
-  delivery: { mode: DeliveryMode.None },
   workspaceId: null,
   sessionKey: null,
   createdAt: '',

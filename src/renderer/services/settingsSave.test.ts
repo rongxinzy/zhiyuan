@@ -66,19 +66,19 @@ test('includes API and model configuration only when providers changed', () => {
   expect(patch).toMatchObject({ providers, api: { key: 'test-key' }, model: defaultConfig.model });
 });
 
-test('saves a style change independently from appearance and model settings', () => {
-  const input = {
-    current: defaultConfig,
-    theme: defaultConfig.theme,
-    themeStyle: 'paper',
-    language: defaultConfig.language,
-    useSystemProxy: defaultConfig.useSystemProxy,
-    sqliteAutoBackupEnabled: defaultConfig.sqliteAutoBackupEnabled ?? false,
-    shortcuts: defaultConfig.shortcuts!,
-    providers: defaultConfig.providers,
-    api: defaultConfig.api,
-    model: defaultConfig.model,
-  };
-  expect(buildAppSettingsSavePatch(input)).toEqual({ themeStyle: 'paper' });
-  expect(buildAppSettingsSavePatch({ ...input, themeStyle: 'codex' })).toEqual({});
+test('saving appearance does not overwrite a stored legacy style identifier', () => {
+  const current = { ...defaultConfig, themeStyle: 'legacy-custom-style' };
+  const patch = buildAppSettingsSavePatch({
+    current,
+    theme: 'dark',
+    language: current.language,
+    useSystemProxy: current.useSystemProxy,
+    sqliteAutoBackupEnabled: current.sqliteAutoBackupEnabled ?? false,
+    shortcuts: current.shortcuts!,
+    providers: current.providers,
+    api: current.api,
+    model: current.model,
+  });
+  expect(patch).toEqual({ theme: 'dark' });
+  expect({ ...current, ...patch }.themeStyle).toBe('legacy-custom-style');
 });

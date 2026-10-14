@@ -109,7 +109,7 @@ test('recovers interrupted running snapshots during startup', async () => {
   const service = new ActivityService(new Database(':memory:'));
   service.upsert({
     id: 'stale',
-    source: ActivitySource.ScheduledTask,
+    source: ActivitySource.Channel,
     status: ActivityStatus.Running,
     updatedAt: 10,
   });
@@ -132,4 +132,17 @@ test('recovers interrupted running snapshots during startup', async () => {
       errorMessage: ActivityErrorCode.Interrupted,
     }),
   ]);
+});
+
+test('startup does not invent failure for a durable scheduled occurrence', async () => {
+  const { ActivityService } = await import('./activityService');
+  const service = new ActivityService(new Database(':memory:'));
+  service.upsert({
+    id: 'native-pending',
+    source: ActivitySource.ScheduledTask,
+    status: ActivityStatus.Running,
+    updatedAt: 10,
+  });
+  expect(service.recoverInterruptedRuns()).toBe(0);
+  expect(service.list()[0]).toMatchObject({ id: 'native-pending', status: ActivityStatus.Running });
 });

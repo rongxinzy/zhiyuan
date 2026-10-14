@@ -6,6 +6,7 @@ import {
   ActivityIpc,
   ActivityRetention,
   ActivityStatus,
+  ActivitySource,
 } from '../../shared/activity/constants';
 import { shouldAcceptActivityUpdate } from '../../shared/activity/ordering';
 import type { ActivityRun, ActivityRunUpdate } from '../../shared/activity/types';
@@ -55,7 +56,7 @@ export class ActivityService {
   }
 
   /**
-   * A force-closed app cannot emit a terminal event. Clear those stale
+   * Retired channel work cannot resume. Clear only those stale
    * in-progress projections during startup so the sidebar indicator reflects
    * work that is actually running in this process. `updated_at` is deliberately
    * left untouched so a recovered run keeps its real position in the feed.
@@ -65,9 +66,14 @@ export class ActivityService {
       .prepare(
         `UPDATE zhiyuan_activity_runs
          SET status = ?, error_message = COALESCE(error_message, ?)
-         WHERE status = ?`,
+         WHERE status = ? AND source <> ?`,
       )
-      .run(ActivityStatus.Failed, ActivityErrorCode.Interrupted, ActivityStatus.Running).changes;
+      .run(
+        ActivityStatus.Failed,
+        ActivityErrorCode.Interrupted,
+        ActivityStatus.Running,
+        ActivitySource.ScheduledTask,
+      ).changes;
   }
 
   upsert(update: ActivityRunUpdate): ActivityRun {

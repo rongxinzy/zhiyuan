@@ -2,8 +2,6 @@ import { expect, test } from 'vitest';
 
 import {
   BindingKind,
-  DeliveryChannel,
-  DeliveryMode,
   OriginKind,
   PayloadKind,
   ScheduleKind,
@@ -45,7 +43,6 @@ test('mapper.fromWire: preserves all wire fields', () => {
     description: 'Test desc',
     schedule: { kind: ScheduleKind.Cron, expr: '*/5 * * * *' },
     payload: { kind: PayloadKind.AgentTurn, message: 'work', timeoutSeconds: 120 },
-    delivery: { mode: DeliveryMode.Announce, channel: 'feishu' },
   });
   const model = mapper.fromWire(wire, {
     origin: { kind: OriginKind.Manual },
@@ -54,7 +51,6 @@ test('mapper.fromWire: preserves all wire fields', () => {
   expect(model.name).toBe('My Task');
   expect(model.description).toBe('Test desc');
   expect(model.schedule).toEqual({ kind: ScheduleKind.Cron, expr: '*/5 * * * *' });
-  expect(model.delivery.channel).toBe('feishu');
 });
 
 test('mapper.toWireInput: new_session binding -> sessionKey null', () => {
@@ -79,22 +75,12 @@ test('mapper.toWireInput: ui_session binding -> managed sessionKey', () => {
   expect(wire.sessionTarget).toBe(SessionTarget.Main);
 });
 
-test('mapper.toWireInput: im_session without sessionId -> sessionKey null', () => {
-  const model = makeModel({
-    origin: { kind: OriginKind.Manual },
-    binding: { kind: BindingKind.IMSession, platform: 'telegram', conversationId: 'c1' },
-  });
-  const wire = mapper.toWireInput(model, manualPolicy);
-  expect(wire.sessionKey).toBe(null);
-});
-
 test('mapper.toWireInput: passes through non-binding fields', () => {
   const model = makeModel({
     name: 'Pass-through Test',
     description: 'Desc with \u7279\u6b8a\u5b57\u7b26',
     schedule: { kind: ScheduleKind.Every, everyMs: 60000 },
     payload: { kind: PayloadKind.SystemEvent, text: 'hello' },
-    delivery: { mode: DeliveryMode.Announce, channel: DeliveryChannel.Last },
     origin: { kind: OriginKind.Manual },
     binding: { kind: BindingKind.NewSession },
   });
@@ -102,7 +88,6 @@ test('mapper.toWireInput: passes through non-binding fields', () => {
   expect(wire.name).toBe('Pass-through Test');
   expect(wire.description).toBe('Desc with \u7279\u6b8a\u5b57\u7b26');
   expect(wire.schedule).toEqual({ kind: ScheduleKind.Every, everyMs: 60000 });
-  expect(wire.delivery).toEqual({ mode: DeliveryMode.Announce, channel: DeliveryChannel.Last });
 });
 
 test('mapper.createDraft: from manual origin has valid defaults', () => {
@@ -115,16 +100,6 @@ test('mapper.createDraft: from manual origin has valid defaults', () => {
   expect(draft.binding.kind).toBe(BindingKind.NewSession);
   expect(draft.sessionTarget).toBe(SessionTarget.Isolated);
   expect(draft.wakeMode).toBe(WakeMode.Now);
-});
-
-test('mapper.createDraft: from im origin uses provided defaults', () => {
-  const origin = { kind: OriginKind.IM as const, platform: 'telegram', conversationId: 'c1' };
-  const draft = mapper.createDraft(origin, {
-    delivery: { mode: DeliveryMode.Announce, channel: 'telegram' },
-  });
-  expect(draft.origin.kind).toBe(OriginKind.IM);
-  expect(draft.delivery.mode).toBe(DeliveryMode.Announce);
-  expect(draft.delivery.channel).toBe('telegram');
 });
 
 test('mapper.createDraft: draft has non-empty id', () => {

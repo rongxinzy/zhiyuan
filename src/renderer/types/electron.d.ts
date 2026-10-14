@@ -73,7 +73,6 @@ import type {
 } from '../../shared/ollama';
 import type { TriageConfig } from '../../shared/triage';
 import type { CodingAgentProfile, CodingRoomSnapshot } from '../../shared/codingAgent';
-import type { WeixinLoginErrorCode } from '../../shared/ipc/channels';
 
 interface CodingAgentActionResult {
   success: boolean;
@@ -454,47 +453,17 @@ interface IElectronAPI {
     openDevTools: () => Promise<boolean>;
     onStateChanged: (callback: (state: WindowState) => void) => () => void;
   };
-  memory: {
-    list: (
-      input?: import('../../shared/memory').ManagedMemoryListInput,
-    ) => Promise<
-      import('../../shared/memory').MemoryIpcResult<
-        import('../../shared/memory').ManagedMemoryRecord[]
-      >
-    >;
-    resolveSessionTitles: (
-      input: import('../../shared/memory').MemorySessionTitleResolveInput,
-    ) => Promise<
-      import('../../shared/memory').MemoryIpcResult<
-        import('../../shared/memory').MemorySessionTitle[]
-      >
-    >;
-    createManual: (
-      input: import('../../shared/memory').ManualMemoryCreateInput,
-    ) => Promise<
-      import('../../shared/memory').MemoryIpcResult<
-        import('../../shared/memory').ManagedMemoryRecord
-      >
-    >;
-    updateManual: (
-      input: import('../../shared/memory').ManualMemoryUpdateInput,
-    ) => Promise<
-      import('../../shared/memory').MemoryIpcResult<
-        import('../../shared/memory').ManagedMemoryRecord
-      >
-    >;
-    confirmCandidate: (
-      id: string,
-    ) => Promise<import('../../shared/memory').MemoryIpcResult<number | null>>;
-    archive: (id: string) => Promise<import('../../shared/memory').MemoryIpcResult<void>>;
-    restore: (id: string) => Promise<import('../../shared/memory').MemoryIpcResult<void>>;
-    forget: (
-      id: string,
-      hardDelete: boolean,
-    ) => Promise<import('../../shared/memory').MemoryIpcResult<boolean>>;
-    drainOutbox: () => Promise<import('../../shared/memory').MemoryIpcResult<number>>;
-  };
   cowork: {
+    getWorkDocument: (
+      sessionId: string,
+    ) => Promise<import('../../shared/durable/workDocument').WorkDocumentResult>;
+    updateWorkDocument: (
+      sessionId: string,
+      patch: import('../../shared/durable/workDocument').WorkDocumentPatch,
+    ) => Promise<import('../../shared/durable/workDocument').WorkDocumentResult>;
+    onWorkDocumentChanged: (
+      callback: (change: import('../../shared/durable/workDocument').WorkDocumentChanged) => void,
+    ) => () => void;
     getDurableWork: (sessionId: string) => Promise<{
       success: boolean;
       snapshot?: import('../../shared/durable/types').DurableWorkSnapshot;
@@ -658,9 +627,6 @@ interface IElectronAPI {
       options?: { messageLimit?: number | null },
     ) => Promise<{ success: boolean; session?: CoworkSession; error?: string }>;
     getRuntimeSnapshots: (sessionId?: string) => Promise<PiUiRuntimeSnapshot[]>;
-    remoteManaged: (
-      sessionId: string,
-    ) => Promise<{ success: boolean; remoteManaged: boolean; error?: string }>;
     listSessions: (options?: {
       limit?: number;
       offset?: number;
@@ -729,10 +695,6 @@ interface IElectronAPI {
     getDetail: (taskId: string) => Promise<WorkbenchTaskActionResult>;
     listForSession: (sessionId: string) => Promise<WorkbenchTaskListResult>;
     exportAudit: (taskId: string) => Promise<WorkbenchTaskExportResult>;
-    resume: (
-      input: import('../../shared/workbenchTask').WorkbenchTaskResumeInput,
-    ) => Promise<WorkbenchTaskActionResult>;
-    retry: (taskId: string) => Promise<WorkbenchTaskActionResult>;
     accept: (taskId: string) => Promise<WorkbenchTaskActionResult>;
     respondToApproval: (
       input: WorkbenchApprovalResponseInput,
@@ -1105,98 +1067,6 @@ interface IElectronAPI {
     }>;
     fromRenderer: (level: string, tag: string, message: string) => void;
   };
-  im: {
-    getConfig: () => Promise<{ success: boolean; config?: IMGatewayConfig; error?: string }>;
-    setConfig: (
-      config: IMGatewayConfigPatch,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    syncConfig: () => Promise<{ success: boolean; error?: string }>;
-    startGateway: (platform: Platform) => Promise<{ success: boolean; error?: string }>;
-    stopGateway: (platform: Platform) => Promise<{ success: boolean; error?: string }>;
-    testGateway: (
-      platform: Platform,
-      configOverride?: Partial<IMGatewayConfig>,
-      accountId?: string,
-    ) => Promise<{ success: boolean; result?: IMConnectivityTestResult; error?: string }>;
-    getStatus: () => Promise<{ success: boolean; status?: IMGatewayStatus; error?: string }>;
-    getLocalIp: () => Promise<string>;
-    weixinLoginStart: () => Promise<{
-      success: boolean;
-      status?: 'wait';
-      qrcode?: string;
-      qrcodeUrl?: string;
-      errorCode?: WeixinLoginErrorCode;
-    }>;
-    weixinLoginPoll: (qrcode: string) => Promise<{
-      success: boolean;
-      status: 'wait' | 'scaned' | 'confirmed' | 'expired';
-      accountId?: string;
-      errorCode?: WeixinLoginErrorCode;
-    }>;
-    addQQInstance: (
-      name: string,
-      workspaceId: string,
-    ) => Promise<{ success: boolean; instance?: QQInstanceConfig; error?: string }>;
-    deleteQQInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
-    setQQInstanceConfig: (
-      instanceId: string,
-      config: any,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    addFeishuInstance: (
-      name: string,
-      workspaceId: string,
-    ) => Promise<{ success: boolean; instance?: FeishuInstanceConfig; error?: string }>;
-    deleteFeishuInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
-    setFeishuInstanceConfig: (
-      instanceId: string,
-      config: any,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    addDingTalkInstance: (
-      name: string,
-      workspaceId: string,
-    ) => Promise<{ success: boolean; instance?: DingTalkInstanceConfig; error?: string }>;
-    deleteDingTalkInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
-    setDingTalkInstanceConfig: (
-      instanceId: string,
-      config: any,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    addWecomInstance: (
-      name: string,
-      workspaceId: string,
-    ) => Promise<{ success: boolean; instance?: WecomInstanceConfig; error?: string }>;
-    deleteWecomInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
-    setWecomInstanceConfig: (
-      instanceId: string,
-      config: any,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    addTelegramInstance: (
-      name: string,
-      workspaceId: string,
-    ) => Promise<{ success: boolean; instance?: TelegramInstanceConfig; error?: string }>;
-    deleteTelegramInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
-    setTelegramInstanceConfig: (
-      instanceId: string,
-      config: any,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    addDiscordInstance: (
-      name: string,
-      workspaceId: string,
-    ) => Promise<{ success: boolean; instance?: DiscordInstanceConfig; error?: string }>;
-    deleteDiscordInstance: (instanceId: string) => Promise<{ success: boolean; error?: string }>;
-    setDiscordInstanceConfig: (
-      instanceId: string,
-      config: any,
-      options?: { syncGateway?: boolean },
-    ) => Promise<{ success: boolean; error?: string }>;
-    onStatusChange: (callback: (status: IMGatewayStatus) => void) => () => void;
-    onMessageReceived: (callback: (message: IMMessage) => void) => () => void;
-  };
   scheduledTasks: {
     list: () => Promise<{
       success: boolean;
@@ -1233,15 +1103,6 @@ interface IElectronAPI {
     }>;
     runManually: (id: string) => Promise<{ success: boolean; error?: string }>;
     stop: (id: string) => Promise<{ success: boolean; error?: string }>;
-    preflight: (id: string) => Promise<{
-      success: boolean;
-      error?: string;
-      preflight?: {
-        hasChannel: boolean;
-        channel?: string;
-        latestDelivery?: import('../../scheduledTask/types').ScheduledTaskDeliveryRecord | null;
-      };
-    }>;
     listRuns: (
       taskId: string,
       limit?: number,
@@ -1250,11 +1111,6 @@ interface IElectronAPI {
     ) => Promise<{
       success: boolean;
       runs?: import('../../scheduledTask/types').ScheduledTaskRun[];
-      error?: string;
-    }>;
-    listDeliveries: (runId: string) => Promise<{
-      success: boolean;
-      deliveries?: import('../../scheduledTask/types').ScheduledTaskDeliveryRecord[];
       error?: string;
     }>;
     countRuns: (taskId: string) => Promise<{ success: boolean; count?: number; error?: string }>;
@@ -1270,20 +1126,6 @@ interface IElectronAPI {
     resolveSession: (sessionKey: string) => Promise<{
       success: boolean;
       session?: import('./cowork').CoworkSession | null;
-      error?: string;
-    }>;
-    listChannels: () => Promise<{
-      success: boolean;
-      channels?: import('../../scheduledTask/types').ScheduledTaskChannelOption[];
-      error?: string;
-    }>;
-    listChannelConversations?: (
-      channel: string,
-      accountId?: string,
-      filterAccountId?: string,
-    ) => Promise<{
-      success: boolean;
-      conversations?: import('../../scheduledTask/types').ScheduledTaskConversationOption[];
       error?: string;
     }>;
     onStatusUpdate: (
@@ -1380,40 +1222,6 @@ interface IElectronAPI {
     ) => () => void;
   };
   qwen: Record<string, never>;
-  feishu: {
-    install: {
-      verify: (
-        appId: string,
-        appSecret: string,
-      ) => Promise<{
-        success: boolean;
-        error?: string;
-      }>;
-    };
-  };
-  dingtalk: {
-    install: {
-      qrcode: () => Promise<{
-        url: string;
-        deviceCode: string;
-        interval: number;
-        expireIn: number;
-      }>;
-      poll: (deviceCode: string) => Promise<{
-        done: boolean;
-        clientId?: string;
-        clientSecret?: string;
-        error?: string;
-      }>;
-      verify: (
-        clientId: string,
-        clientSecret: string,
-      ) => Promise<{
-        success: boolean;
-        error?: string;
-      }>;
-    };
-  };
   githubCopilot: {
     requestDeviceCode: () => Promise<{
       userCode: string;
@@ -1460,391 +1268,6 @@ interface IElectronAPI {
     list: () => Promise<{ success: boolean; runs: ActivityRun[] }>;
     onUpdated: (callback: (run: ActivityRun) => void) => () => void;
   };
-}
-
-interface IMGatewayConfig {
-  dingtalk: DingTalkMultiInstanceConfig;
-  feishu: FeishuMultiInstanceConfig;
-  telegram: TelegramMultiInstanceConfig;
-  qq: QQMultiInstanceConfig;
-  discord: DiscordMultiInstanceConfig;
-  wecom: WecomMultiInstanceConfig;
-  weixin: WeixinChannelConfig;
-  settings: IMSettings;
-}
-
-type IMGatewayConfigPatch = Omit<Partial<IMGatewayConfig>, 'weixin'> & {
-  weixin?: Partial<WeixinChannelConfig>;
-};
-
-interface DingTalkChannelConfig {
-  enabled: boolean;
-  clientId: string;
-  clientSecret: string;
-  dmPolicy: 'open' | 'pairing' | 'allowlist';
-  allowFrom: string[];
-  groupPolicy: 'open' | 'allowlist';
-  sessionTimeout: number;
-  separateSessionByConversation: boolean;
-  groupSessionScope: 'group' | 'group_sender';
-  sharedMemoryAcrossConversations: boolean;
-  gatewayBaseUrl: string;
-  debug: boolean;
-}
-
-interface DingTalkInstanceConfig extends DingTalkChannelConfig {
-  instanceId: string;
-  instanceName: string;
-  workspaceId: string;
-}
-
-interface DingTalkInstanceStatus extends DingTalkGatewayStatus {
-  instanceId: string;
-  instanceName: string;
-}
-
-interface DingTalkMultiInstanceConfig {
-  instances: DingTalkInstanceConfig[];
-}
-
-interface DingTalkMultiInstanceStatus {
-  instances: DingTalkInstanceStatus[];
-}
-
-interface FeishuChannelGroupConfig {
-  requireMention?: boolean;
-  allowFrom?: string[];
-  systemPrompt?: string;
-}
-
-interface FeishuChannelFooterConfig {
-  status?: boolean;
-  elapsed?: boolean;
-}
-
-interface FeishuChannelBlockStreamingCoalesceConfig {
-  minChars?: number;
-  maxChars?: number;
-  idleMs?: number;
-}
-
-interface FeishuChannelConfig {
-  enabled: boolean;
-  appId: string;
-  appSecret: string;
-  domain: 'feishu' | 'lark' | string;
-  dmPolicy: 'pairing' | 'allowlist' | 'open' | 'disabled';
-  allowFrom: string[];
-  groupPolicy: 'allowlist' | 'open' | 'disabled';
-  groupAllowFrom: string[];
-  groups: Record<string, FeishuChannelGroupConfig>;
-  historyLimit: number;
-  streaming: boolean;
-  replyMode: 'auto' | 'static' | 'streaming';
-  blockStreaming: boolean;
-  footer: FeishuChannelFooterConfig;
-  blockStreamingCoalesce?: FeishuChannelBlockStreamingCoalesceConfig;
-  mediaMaxMb: number;
-  debug: boolean;
-}
-
-interface FeishuInstanceConfig extends FeishuChannelConfig {
-  instanceId: string;
-  instanceName: string;
-  workspaceId: string;
-}
-
-interface FeishuInstanceStatus extends FeishuGatewayStatus {
-  instanceId: string;
-  instanceName: string;
-}
-
-interface FeishuMultiInstanceConfig {
-  instances: FeishuInstanceConfig[];
-}
-
-interface FeishuMultiInstanceStatus {
-  instances: FeishuInstanceStatus[];
-}
-
-interface TelegramChannelGroupConfig {
-  requireMention?: boolean;
-  allowFrom?: string[];
-  systemPrompt?: string;
-}
-
-interface TelegramChannelConfig {
-  enabled: boolean;
-  botToken: string;
-  dmPolicy: 'pairing' | 'allowlist' | 'open' | 'disabled';
-  allowFrom: string[];
-  groupPolicy: 'allowlist' | 'open' | 'disabled';
-  groupAllowFrom: string[];
-  groups: Record<string, TelegramChannelGroupConfig>;
-  historyLimit: number;
-  replyToMode: 'off' | 'first' | 'all';
-  linkPreview: boolean;
-  streaming: 'off' | 'partial' | 'block' | 'progress';
-  mediaMaxMb: number;
-  proxy: string;
-  webhookUrl: string;
-  webhookSecret: string;
-  debug: boolean;
-}
-
-interface TelegramInstanceConfig extends TelegramChannelConfig {
-  instanceId: string;
-  instanceName: string;
-  workspaceId: string;
-}
-
-interface TelegramInstanceStatus extends TelegramGatewayStatus {
-  instanceId: string;
-  instanceName: string;
-}
-
-interface TelegramMultiInstanceConfig {
-  instances: TelegramInstanceConfig[];
-}
-
-interface TelegramMultiInstanceStatus {
-  instances: TelegramInstanceStatus[];
-}
-
-interface DiscordChannelGuildConfig {
-  requireMention?: boolean;
-  allowFrom?: string[];
-  systemPrompt?: string;
-}
-
-interface DiscordChannelConfig {
-  enabled: boolean;
-  botToken: string;
-  dmPolicy: 'pairing' | 'allowlist' | 'open' | 'disabled';
-  allowFrom: string[];
-  groupPolicy: 'allowlist' | 'open' | 'disabled';
-  groupAllowFrom: string[];
-  guilds: Record<string, DiscordChannelGuildConfig>;
-  historyLimit: number;
-  streaming: 'off' | 'partial' | 'block' | 'progress';
-  mediaMaxMb: number;
-  proxy: string;
-  debug: boolean;
-}
-
-interface QQConfig {
-  enabled: boolean;
-  appId: string;
-  appSecret: string;
-  dmPolicy: 'open' | 'pairing' | 'allowlist';
-  allowFrom: string[];
-  groupPolicy: 'open' | 'allowlist' | 'disabled';
-  groupAllowFrom: string[];
-  historyLimit: number;
-  markdownSupport: boolean;
-  imageServerBaseUrl: string;
-  debug: boolean;
-}
-
-interface QQInstanceConfig extends QQConfig {
-  instanceId: string;
-  instanceName: string;
-  workspaceId: string;
-}
-
-interface QQMultiInstanceConfig {
-  instances: QQInstanceConfig[];
-}
-
-interface QQInstanceStatus extends QQGatewayStatus {
-  instanceId: string;
-  instanceName: string;
-}
-
-interface QQMultiInstanceStatus {
-  instances: QQInstanceStatus[];
-}
-
-interface WecomConfig {
-  enabled: boolean;
-  botId: string;
-  secret: string;
-  dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
-  allowFrom: string[];
-  groupPolicy: 'open' | 'allowlist' | 'disabled';
-  groupAllowFrom: string[];
-  sendThinkingMessage: boolean;
-  debug: boolean;
-}
-
-interface WecomInstanceConfig extends WecomConfig {
-  instanceId: string;
-  instanceName: string;
-  workspaceId: string;
-}
-
-interface WecomMultiInstanceConfig {
-  instances: WecomInstanceConfig[];
-}
-
-interface WecomInstanceStatus extends WecomGatewayStatus {
-  instanceId: string;
-  instanceName: string;
-}
-
-interface WecomMultiInstanceStatus {
-  instances: WecomInstanceStatus[];
-}
-
-interface WeixinChannelConfig {
-  enabled: boolean;
-  accountId: string;
-  workspaceId: string;
-  token: string;
-  baseUrl: string;
-  dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
-  allowFrom: string[];
-  groupPolicy: 'open' | 'allowlist' | 'disabled';
-  groupAllowFrom: string[];
-  debug: boolean;
-}
-
-interface IMSettings {
-  systemPrompt?: string;
-  skillsEnabled: boolean;
-}
-
-interface IMGatewayStatus {
-  dingtalk: DingTalkMultiInstanceStatus;
-  feishu: FeishuMultiInstanceStatus;
-  qq: QQMultiInstanceStatus;
-  telegram: TelegramMultiInstanceStatus;
-  discord: DiscordMultiInstanceStatus;
-  wecom: WecomMultiInstanceStatus;
-  weixin: WeixinGatewayStatus;
-}
-
-type IMConnectivityVerdict = 'pass' | 'warn' | 'fail';
-
-type IMConnectivityCheckLevel = 'pass' | 'info' | 'warn' | 'fail';
-
-type IMConnectivityCheckCode =
-  | 'missing_credentials'
-  | 'auth_check'
-  | 'gateway_running'
-  | 'inbound_activity'
-  | 'outbound_activity'
-  | 'platform_last_error'
-  | 'feishu_group_requires_mention'
-  | 'feishu_event_subscription_required'
-  | 'discord_group_requires_mention'
-  | 'telegram_privacy_mode_hint'
-  | 'dingtalk_bot_membership_hint'
-  | 'qq_guild_mention_hint';
-
-interface IMConnectivityCheck {
-  code: IMConnectivityCheckCode;
-  level: IMConnectivityCheckLevel;
-  message: string;
-  suggestion?: string;
-}
-
-interface IMConnectivityTestResult {
-  platform: Platform;
-  testedAt: number;
-  verdict: IMConnectivityVerdict;
-  checks: IMConnectivityCheck[];
-}
-
-interface DingTalkGatewayStatus {
-  connected: boolean;
-  startedAt: number | null;
-  lastError: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface FeishuGatewayStatus {
-  connected: boolean;
-  startedAt: string | null;
-  botOpenId: string | null;
-  error: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface TelegramGatewayStatus {
-  connected: boolean;
-  startedAt: number | null;
-  lastError: string | null;
-  botUsername: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface DiscordGatewayStatus {
-  connected: boolean;
-  starting: boolean;
-  startedAt: number | null;
-  lastError: string | null;
-  botUsername: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface DiscordInstanceConfig extends DiscordChannelConfig {
-  instanceId: string;
-  instanceName: string;
-  workspaceId: string;
-}
-
-interface DiscordInstanceStatus extends DiscordGatewayStatus {
-  instanceId: string;
-  instanceName: string;
-}
-
-interface DiscordMultiInstanceConfig {
-  instances: DiscordInstanceConfig[];
-}
-
-interface DiscordMultiInstanceStatus {
-  instances: DiscordInstanceStatus[];
-}
-
-interface QQGatewayStatus {
-  connected: boolean;
-  startedAt: number | null;
-  lastError: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface WecomGatewayStatus {
-  connected: boolean;
-  startedAt: number | null;
-  lastError: string | null;
-  botId: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface WeixinGatewayStatus {
-  connected: boolean;
-  startedAt: number | null;
-  lastError: string | null;
-  lastInboundAt: number | null;
-  lastOutboundAt: number | null;
-}
-
-interface IMMessage {
-  platform: Platform;
-  messageId: string;
-  conversationId: string;
-  senderId: string;
-  senderName?: string;
-  content: string;
-  chatType: 'direct' | 'group';
-  timestamp: number;
 }
 
 declare global {

@@ -1,15 +1,12 @@
 import { Button } from '@shared/components/ui/button';
 import { cn } from '@shared/lib/utils';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSelector } from 'react-redux';
 
 import { isProviderEnabled, ProviderName } from '../../../shared/providers';
 import type { EnterpriseRendererSettingsPage } from '../../../shared/enterpriseRenderer';
 import { defaultConfig } from '../../config';
 import { configService } from '../../services/config';
-import { coworkService } from '../../services/cowork';
 import { i18nService, type LanguageType } from '../../services/i18n';
-import { imService } from '../../services/im';
 import { reconcileDefaultModelConfig } from '../../services/modelConfigReconciliation';
 import { resolveManagedModelSettingsTab } from '../../services/managedModelUiPolicy';
 import {
@@ -17,7 +14,6 @@ import {
   getSettingsSaveErrorMessage,
 } from '../../services/settingsSave';
 import { themeService } from '../../services/theme';
-import { selectCoworkConfig } from '../../store/selectors/coworkSelectors';
 import ErrorMessage from '../ErrorMessage';
 import { EnterpriseSettingsPage } from '../enterprise/EnterpriseSettingsPage';
 import { localInferenceCompactButtonClass } from '../localInference/constants';
@@ -25,8 +21,6 @@ import PageHeader from '../PageHeader';
 import AboutSettingsPanel from './about/AboutSettingsPanel';
 import { AppearanceSettingsPanel } from './appearance/AppearanceSettingsPanel';
 import GeneralSettingsPanel from './general/GeneralSettingsPanel';
-import ImSettingsPanel from './im/ImSettingsPanel';
-import { ManagedMemorySettings } from './memory/ManagedMemorySettings';
 import ModelSettingsPanel, { type ModelSettingsHandle } from './model/ModelSettingsPanel';
 import type { ProvidersConfig, ProviderType } from './model/constants';
 import {
@@ -85,8 +79,6 @@ export default function SettingsPage({
   }, [notice, noticeExtra, noticeI18nKey]);
 
   const [noticeMessage, setNoticeMessage] = useState<string | null>(() => buildNoticeMessage());
-  const [themeStyle, setThemeStyle] = useState(themeService.getStyle());
-  const initialThemeStyleRef = useRef(themeService.getStyle());
   const initialThemeRef = useRef<'light' | 'dark' | 'system'>(themeService.getTheme());
   const initialLanguageRef = useRef<LanguageType>(i18nService.getLanguage());
   const didSaveRef = useRef(false);
@@ -114,46 +106,6 @@ export default function SettingsPage({
     ...defaultConfig.shortcuts!,
   });
 
-  const coworkConfig = useSelector(selectCoworkConfig);
-
-  const [embeddingEnabled, setEmbeddingEnabled] = useState<boolean>(
-    coworkConfig.embeddingEnabled ?? false,
-  );
-  const [embeddingProvider, setEmbeddingProvider] = useState<string>(
-    coworkConfig.embeddingProvider ?? 'openai',
-  );
-  const [embeddingModel, setEmbeddingModel] = useState<string>(coworkConfig.embeddingModel ?? '');
-  const [embeddingLocalModelPath, setEmbeddingLocalModelPath] = useState<string>(
-    coworkConfig.embeddingLocalModelPath ?? '',
-  );
-  const [embeddingVectorWeight, setEmbeddingVectorWeight] = useState<number>(
-    coworkConfig.embeddingVectorWeight ?? 0.7,
-  );
-  const [embeddingRemoteBaseUrl, setEmbeddingRemoteBaseUrl] = useState<string>(
-    coworkConfig.embeddingRemoteBaseUrl ?? '',
-  );
-  const [embeddingRemoteApiKey, setEmbeddingRemoteApiKey] = useState<string>(
-    coworkConfig.embeddingRemoteApiKey ?? '',
-  );
-
-  useEffect(() => {
-    setEmbeddingEnabled(coworkConfig.embeddingEnabled ?? false);
-    setEmbeddingProvider(coworkConfig.embeddingProvider ?? 'openai');
-    setEmbeddingModel(coworkConfig.embeddingModel ?? '');
-    setEmbeddingLocalModelPath(coworkConfig.embeddingLocalModelPath ?? '');
-    setEmbeddingVectorWeight(coworkConfig.embeddingVectorWeight ?? 0.7);
-    setEmbeddingRemoteBaseUrl(coworkConfig.embeddingRemoteBaseUrl ?? '');
-    setEmbeddingRemoteApiKey(coworkConfig.embeddingRemoteApiKey ?? '');
-  }, [
-    coworkConfig.embeddingEnabled,
-    coworkConfig.embeddingProvider,
-    coworkConfig.embeddingModel,
-    coworkConfig.embeddingLocalModelPath,
-    coworkConfig.embeddingVectorWeight,
-    coworkConfig.embeddingRemoteBaseUrl,
-    coworkConfig.embeddingRemoteApiKey,
-  ]);
-
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -165,7 +117,6 @@ export default function SettingsPage({
         initialThemeRef.current = config.theme;
         initialLanguageRef.current = config.language;
         setTheme(config.theme);
-        setThemeStyle(themeService.getStyle());
         setLanguage(config.language);
         setUseSystemProxy(config.useSystemProxy ?? false);
         setSqliteAutoBackupEnabled(config.sqliteAutoBackupEnabled === true);
@@ -191,13 +142,11 @@ export default function SettingsPage({
 
   useEffect(() => {
     const initialTheme = initialThemeRef.current;
-    const initialThemeStyle = initialThemeStyleRef.current;
     const initialLanguage = initialLanguageRef.current;
     return () => {
       if (didSaveRef.current) {
         return;
       }
-      themeService.setStyle(initialThemeStyle);
       themeService.setTheme(initialTheme);
       i18nService.setLanguage(initialLanguage, { persist: false });
     };
@@ -232,15 +181,6 @@ export default function SettingsPage({
     });
     return unsubscribe;
   }, [noticeI18nKey, noticeExtra]);
-
-  const hasCoworkConfigChanges =
-    embeddingEnabled !== (coworkConfig.embeddingEnabled ?? false) ||
-    embeddingProvider !== (coworkConfig.embeddingProvider ?? 'openai') ||
-    embeddingModel !== (coworkConfig.embeddingModel ?? '') ||
-    embeddingLocalModelPath !== (coworkConfig.embeddingLocalModelPath ?? '') ||
-    embeddingVectorWeight !== (coworkConfig.embeddingVectorWeight ?? 0.7) ||
-    embeddingRemoteBaseUrl !== (coworkConfig.embeddingRemoteBaseUrl ?? '') ||
-    embeddingRemoteApiKey !== (coworkConfig.embeddingRemoteApiKey ?? '');
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -307,7 +247,6 @@ export default function SettingsPage({
       const appConfigPatch = buildAppSettingsSavePatch({
         current: currentAppConfig,
         theme,
-        themeStyle,
         language,
         useSystemProxy,
         sqliteAutoBackupEnabled,
@@ -325,31 +264,10 @@ export default function SettingsPage({
       }
 
       // 应用主题
-      themeService.setStyle(themeStyle);
       themeService.setTheme(theme);
 
       // 应用语言
       i18nService.setLanguage(language, { persist: false });
-
-      if (hasCoworkConfigChanges) {
-        const updated = await coworkService.updateConfig({
-          embeddingEnabled,
-          embeddingProvider,
-          embeddingModel,
-          embeddingLocalModelPath,
-          embeddingVectorWeight,
-          embeddingRemoteBaseUrl,
-          embeddingRemoteApiKey,
-        });
-        if (!updated) {
-          throw new Error(i18nService.t('coworkConfigSaveFailed'));
-        }
-      }
-
-      const channelConfigSynced = await imService.syncPendingConfig();
-      if (!channelConfigSynced) {
-        throw new Error(i18nService.t('coworkConfigSaveFailed'));
-      }
 
       didSaveRef.current = true;
       onClose();
@@ -446,20 +364,12 @@ export default function SettingsPage({
         return (
           <AppearanceSettingsPanel
             appearance={theme}
-            styleId={themeStyle}
             onAppearanceChange={mode => {
               setTheme(mode);
               themeService.setTheme(mode);
             }}
-            onStyleChange={id => {
-              setThemeStyle(id);
-              themeService.setStyle(id);
-            }}
           />
         );
-
-      case 'coworkMemory':
-        return <ManagedMemorySettings workingDirectory={coworkConfig.workingDirectory} />;
 
       case 'triage':
         return <TriageSettingsPanel />;
@@ -468,9 +378,6 @@ export default function SettingsPage({
         return (
           <ShortcutsSettingsPanel shortcuts={shortcuts} onShortcutChange={handleShortcutChange} />
         );
-
-      case 'im':
-        return <ImSettingsPanel />;
 
       case 'about':
         return (

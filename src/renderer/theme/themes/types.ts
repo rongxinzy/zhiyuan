@@ -1,5 +1,4 @@
 import type { ComponentAppearances } from '../components/contract';
-import type { ThemeBackground } from '../background/background';
 import type { TokenName } from '../tokens/contract';
 
 export interface ThemeMeta {
@@ -15,6 +14,5 @@ export type ThemeTokens = Record<TokenName, string>;
 export interface ThemeDefinition {
   meta: ThemeMeta;
   tokens: ThemeTokens;
-  background?: ThemeBackground;
   components: ComponentAppearances;
 }

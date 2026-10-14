@@ -10,14 +10,13 @@ const mainSource = readSource('../../main.ts');
 const coworkViewSource = readSource('../../../renderer/components/cowork/CoworkView.tsx');
 const coworkServiceSource = readSource('../../../renderer/services/cowork.ts');
 const piRuntimeAdapterSource = readSource('./piRuntimeAdapter.ts');
-const ccConnectPiBridgeSource = readSource('../../im/ccConnectPiBridge.ts');
 const runtimeTypesSource = readSource('./types.ts');
 
 describe('Pi runtime isolation', () => {
   test('Pi is the sole agent runtime contract', () => {
     expect(piRuntimeAdapterSource).not.toContain("from './types'");
     expect(piRuntimeAdapterSource).not.toContain('CoworkRuntime');
-    expect(piRuntimeAdapterSource).toContain('implements PiRuntime');
+    expect(piRuntimeAdapterSource).toContain('new DurableRuntimeHost(');
     expect(runtimeTypesSource).toContain('PiRuntime');
     expect(runtimeTypesSource).not.toContain('CoworkRuntime');
   });
@@ -29,10 +28,8 @@ describe('Pi runtime isolation', () => {
     expect(mainSource).not.toContain("webContents.send('cowork:stream:");
   });
 
-  test('routes cc-connect turns directly into Pi', () => {
-    expect(ccConnectPiBridgeSource).toContain('runtime: PiRuntimeAdapter');
-    expect(ccConnectPiBridgeSource).toContain('coworkRuntime: options.runtime');
-    expect(ccConnectPiBridgeSource).not.toContain('CoworkRuntime');
+  test('does not bootstrap removed external messaging transports', () => {
+    expect(mainSource).not.toMatch(/CcConnect|ccConnect|imGatewayManager|startCcConnectBridge/u);
   });
 
   test('does not couple CoworkView initialization to a separate gateway state', () => {

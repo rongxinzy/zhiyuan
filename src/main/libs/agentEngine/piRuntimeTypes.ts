@@ -39,6 +39,9 @@ export interface PiPermissionRequest {
 }
 
 export interface PiRuntimeEvents {
+  workDocumentChanged: (
+    event: import('../../../shared/durable/workDocument').WorkDocumentChanged,
+  ) => void;
   executionEvent: (sessionId: string, event: PiRunProgressEvent) => void;
   started: (sessionId: string) => void;
   message: (sessionId: string, message: CoworkMessage) => void;
@@ -203,6 +206,12 @@ export interface PiRuntime {
   on<U extends keyof PiRuntimeEvents>(event: U, listener: PiRuntimeEvents[U]): this;
   off<U extends keyof PiRuntimeEvents>(event: U, listener: PiRuntimeEvents[U]): this;
   startSession(sessionId: string, prompt: string, options?: PiStartOptions): Promise<void>;
+  cancelScheduledTask(sessionId: string): Promise<void>;
+  runScheduledTask(
+    sessionId: string,
+    prompt: string,
+    options: PiStartOptions & { requestId: string },
+  ): Promise<{ submissionId: number; conversationId: number }>;
   continueSession(sessionId: string, prompt: string, options?: PiContinueOptions): Promise<void>;
   patchSession?(sessionId: string, patch: PiSessionPatch): Promise<void>;
   stopSession(sessionId: string): void;
@@ -244,4 +253,12 @@ export interface PiRuntime {
   ): Promise<{ success: boolean; item?: CoworkPendingMessage; error?: string }>;
   getSessionConfirmationMode(sessionId: string): 'modal' | 'text' | null;
   onSessionDeleted?(sessionId: string): void;
+}
+
+/** The host closed; persisted native work has not reached a terminal state. */
+export class DurableWorkDetachedError extends Error {
+  constructor() {
+    super('Work remains saved while the application is closed.');
+    this.name = 'DurableWorkDetachedError';
+  }
 }

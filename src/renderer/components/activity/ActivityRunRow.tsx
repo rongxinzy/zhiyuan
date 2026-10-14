@@ -4,8 +4,6 @@ import { motion, useReducedMotion } from 'motion/react';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { ActivitySource, ActivityStatus } from '../../../shared/activity/constants';
-import { PlatformRegistry, type Platform } from '../../../shared/platform';
-import { imPlatformLogo } from '../../assets/imLogos';
 import { i18nService } from '../../services/i18n';
 // 2026/09/23 活动失败行复用对话侧的 JSON message 提取，避免直接展示原始 payload
 import { extractUserFacingErrorMessage } from '../../services/coworkTerminalError';
@@ -28,7 +26,7 @@ const sourceLabel = (run: ActivityRun): string => {
   if (run.source === ActivitySource.ScheduledTask) {
     return run.taskName || i18nService.t('activityTriggerCron');
   }
-  return run.platform ? i18nService.t(run.platform) : i18nService.t('activityTriggerChannel');
+  return i18nService.t('activityTriggerChannel');
 };
 
 const ActivityRunRow: React.FC<ActivityRunRowProps> = ({ run, animateEntrance }) => {
@@ -49,12 +47,6 @@ const ActivityRunRow: React.FC<ActivityRunRowProps> = ({ run, animateEntrance })
   const hasBody = bodyText.length > 0;
   const hasExpandableBody = hasBody && isBodyOverflowing;
   const TriggerIcon = run.source === ActivitySource.ScheduledTask ? CalendarClock : MessageSquare;
-  const platform =
-    run.source === ActivitySource.Channel &&
-    PlatformRegistry.platforms.includes(run.platform as Platform)
-      ? (run.platform as Platform)
-      : null;
-
   useEffect(() => {
     if (!hasBody) {
       setIsBodyOverflowing(false);
@@ -137,15 +129,7 @@ const ActivityRunRow: React.FC<ActivityRunRowProps> = ({ run, animateEntrance })
         )}
       </span>
 
-      {platform ? (
-        <img
-          src={imPlatformLogo(platform)}
-          alt={i18nService.t(platform)}
-          className="mt-0.5 size-4 shrink-0 rounded object-contain"
-        />
-      ) : (
-        <TriggerIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-      )}
+      <TriggerIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3 min-w-0">

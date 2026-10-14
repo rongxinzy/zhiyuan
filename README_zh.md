@@ -39,7 +39,6 @@
 | 文本与数据 | 使用本机已有工具创建和编辑文件 |
 | 代码工作 | 选择项目目录，阅读仓库、修改代码、运行命令并检查产物 |
 | 日常任务 | 用待办记录工作，通过定时任务安排简报、报告和其他重复流程 |
-| 消息协作 | 配置微信、企业微信、钉钉、飞书/Lark 或 QQ，在已接入的渠道中使用智能体 |
 
 原有内置技能、MCP 集成及托管工具环境已移除，准备整体重新设计；对应设置页面和任务模板不再提供。既有会话、模型服务配置和本地模型管理保留。
 
@@ -56,7 +55,7 @@
 
 在「本地推理」中浏览模型市场，选择适合设备的 GGUF 模型及量化版本，安装后启动服务。工作台提供上下文长度、GPU 分配、线程等设置，可将运行中的本地模型用于智能体任务。
 
-本地运行模型可以减少对云端推理的依赖。模型下载和消息渠道仍需要对应网络服务。
+本地运行模型可以减少对云端推理的依赖。模型下载仍需要网络服务。
 
 ### 数据与权限
 
@@ -64,20 +63,11 @@
 
 工具执行遵循当前权限模式。需要审批的操作会显示授权请求；开启自动授权后，部分操作可直接执行。任务执行过程和结果可以在工作台中查看。
 
-## 选择一套喜欢的界面
+## 工作区外观
 
-知远提供 **Codex**、**大明风华**、**长安风物** 与 **未央金石** 四套主题。Codex 使用中性色与紧凑控件；大明风华以纸白、朱红与墨色为主；长安风物采用绢白、孔雀青、暖金和圆润控件，并提供墨青色的夜间外观；未央金石采用黑金、石白与静态云气纹。
+知远保留一套默认界面。在「设置 → 外观」选择浅色、深色或跟随系统。共享组件 recipe 统一控件外观，不再提供主题包管理或导入。
 
-在「设置 → 外观」直接选择主题预览卡片，再选择浅色、深色或跟随系统。所有卡片随模式同步更新。背景、纹理、字体、圆角、控件与交互状态由整套主题统一定义。
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/theme-previews/appearance-settings-dark.png">
-    <img src="docs/theme-previews/appearance-settings-light.png" alt="外观设置组件：上方选择主题预览卡片，下方统一切换明暗模式" width="760">
-  </picture>
-</p>
-
-主题作者可从[主题开发文档](src/renderer/theme/README.md)和[设计规范](DESIGN.md)开始。主题包提供展示数据，业务组件继续负责交互与状态。
+开发说明见[外观与组件 recipe 文档](src/renderer/theme/README.md)和[设计规范](DESIGN.md)。
 
 ## 开发者快速开始
 
@@ -90,7 +80,7 @@ bun install
 bun run electron:dev
 ```
 
-开发启动脚本会准备消息渠道和记忆运行时，启动 Vite 与 Electron。首次准备运行时需要联网。若需要本地推理，可单独下载当前主机的推理运行时：
+开发启动脚本会启动 Vite 与 Electron。若需要本地推理，可单独下载当前主机的推理运行时：
 
 ```bash
 bun run llamacpp:runtime:download
@@ -105,7 +95,7 @@ bun run llamacpp:runtime:download
 | `bun run lint` | 代码检查、主题生成一致性与样式归属审计 |
 | `bun run format:check` | 检查代码格式 |
 | `bun run test:bundle-budget` | 检查已构建的渲染端包体积 |
-| `bun run theme:generate` | 修改主题定义后重新生成 CSS |
+| `bun run theme:generate` | 修改默认明暗 token 或 recipe 后重新生成 CSS |
 | `bun run compile:electron` | 编译 Electron 主进程，含原生依赖准备 |
 
 发行打包命令为 `bun run dist:mac`、`bun run dist:win`、`bun run dist:linux`。它们还涉及平台运行时、资源与签名配置，详见[贡献指南](CONTRIBUTING.md)及 [`package.json`](package.json)。
@@ -118,7 +108,7 @@ bun run llamacpp:runtime:download
 | [`src/shared`](src/shared) | 共享 UI、类型与通信契约 |
 | [`src/main`](src/main) | 桌面生命周期、任务执行、存储与系统服务 |
 | [`src/main/preload.ts`](src/main/preload.ts) | 通过 `contextBridge` 暴露受控 IPC |
-| [`src/renderer/theme`](src/renderer/theme) | 主题契约、组件外观、背景与生成器 |
+| [`src/renderer/theme`](src/renderer/theme) | 默认明暗 token、组件 recipe 与 CSS 生成 |
 | [`.github/workflows`](.github/workflows) | 测试、安装验收和发布流程 |
 
 技术栈包括 Electron、React、TypeScript、Vite、Tailwind CSS、Redux Toolkit 和 SQLite，具体版本以 [`package.json`](package.json) 与 [`bun.lock`](bun.lock) 为准。
@@ -130,7 +120,7 @@ bun run llamacpp:runtime:download
   <img src="public/readme/zhiyuan_agent_architecture_zh.svg" alt="知远桌面架构与模块关系" width="760">
 </p>
 
-渲染进程负责界面，Preload 提供通信边界，主进程负责会话、执行、数据与服务生命周期。任务消息、工具状态和授权请求通过事件回到界面；本地推理和消息渠道由对应服务管理。
+渲染进程负责界面，Preload 提供通信边界，主进程负责会话、执行、数据与服务生命周期。任务消息、工具状态和授权请求通过事件回到界面；本地推理由对应服务管理。
 
 </details>
 

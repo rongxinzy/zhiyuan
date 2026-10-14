@@ -9,15 +9,6 @@ test('registry: returns LegacyTaskPolicy for legacy origin', () => {
   expect(policy.kind).toBe(OriginKind.Legacy);
 });
 
-test('registry: returns IMTaskPolicy for im origin', () => {
-  const policy = taskPolicyRegistry.get({
-    kind: OriginKind.IM,
-    platform: 'telegram',
-    conversationId: 'c1',
-  });
-  expect(policy.kind).toBe(OriginKind.IM);
-});
-
 test('registry: returns CoworkTaskPolicy for cowork origin', () => {
   const policy = taskPolicyRegistry.get({ kind: OriginKind.Cowork, sessionId: 's1' });
   expect(policy.kind).toBe(OriginKind.Cowork);

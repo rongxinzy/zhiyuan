@@ -6,7 +6,7 @@ import {
 } from '@earendil-works/pi-ai/providers/faux';
 import { expect, test } from 'vitest';
 
-import { SessionMemoryCompletionRole } from '../../memory/sessionMemoryExtractor';
+import { BackgroundCompletionRole } from './piBackgroundCompletion';
 import {
   buildPiBackgroundCompletionContext,
   extractPiBackgroundCompletionText,
@@ -15,9 +15,9 @@ import {
 test('builds a Pi context with system instructions outside conversation messages', () => {
   const context = buildPiBackgroundCompletionContext(
     [
-      { role: SessionMemoryCompletionRole.System, content: 'Return JSON only.' },
-      { role: SessionMemoryCompletionRole.System, content: 'Use supplied evidence.' },
-      { role: SessionMemoryCompletionRole.User, content: '{"conversation":[]}' },
+      { role: BackgroundCompletionRole.System, content: 'Return JSON only.' },
+      { role: BackgroundCompletionRole.System, content: 'Use supplied evidence.' },
+      { role: BackgroundCompletionRole.User, content: '{"conversation":[]}' },
     ],
     () => 42,
   );
@@ -26,7 +26,7 @@ test('builds a Pi context with system instructions outside conversation messages
     systemPrompt: 'Return JSON only.\n\nUse supplied evidence.',
     messages: [
       {
-        role: SessionMemoryCompletionRole.User,
+        role: BackgroundCompletionRole.User,
         content: '{"conversation":[]}',
         timestamp: 42,
       },
@@ -45,7 +45,7 @@ test('uses a context accepted by the real Pi faux provider', async () => {
       expect(getCurrentSystemPrompt(context.messages)).toBe('Extract semantic memory.');
       expect(context.messages.filter(m => m.role !== 'system')).toEqual([
         {
-          role: SessionMemoryCompletionRole.User,
+          role: BackgroundCompletionRole.User,
           content: 'Conversation evidence',
           timestamp: 7,
         },
@@ -58,8 +58,8 @@ test('uses a context accepted by the real Pi faux provider', async () => {
     faux.getModel(),
     buildPiBackgroundCompletionContext(
       [
-        { role: SessionMemoryCompletionRole.System, content: 'Extract semantic memory.' },
-        { role: SessionMemoryCompletionRole.User, content: 'Conversation evidence' },
+        { role: BackgroundCompletionRole.System, content: 'Extract semantic memory.' },
+        { role: BackgroundCompletionRole.User, content: 'Conversation evidence' },
       ],
       () => 7,
     ),
@@ -88,7 +88,7 @@ test('rejects reasoning-only responses without treating them as empty provider e
 test('rejects completion requests without a user message', () => {
   expect(() =>
     buildPiBackgroundCompletionContext([
-      { role: SessionMemoryCompletionRole.System, content: 'Extract semantic memory.' },
+      { role: BackgroundCompletionRole.System, content: 'Extract semantic memory.' },
     ]),
   ).toThrow('Background completion requires at least one user message.');
 });

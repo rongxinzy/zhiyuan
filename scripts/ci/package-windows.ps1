@@ -27,10 +27,9 @@ Remove-DirectoryIfExists 'dist'
 Remove-DirectoryIfExists 'dist-electron'
 Remove-DirectoryIfExists 'release'
 
-# 某些自托管 Runner 上，Windows Defender 可能锁定或隔离生成的网关 bundle。
+# 某些自托管 Runner 上，Windows Defender 可能锁定或隔离生成的安装包。
 # 添加排除目录需要权限，因此这里是尽力而为，失败不阻断构建。
 try {
-  Add-MpPreference -ExclusionPath "$env:CI_PROJECT_DIR\vendor\channel-runtime" -ErrorAction Stop
   Add-MpPreference -ExclusionPath "$env:CI_PROJECT_DIR\build-tar" -ErrorAction Stop
   Write-Host 'Defender exclusions added for build directories'
 } catch {
@@ -119,7 +118,7 @@ if (-not $isRelease) {
 $distWinCommand = 'dist:win:offline'
 
 # 完整 Windows 打包流程由 npm run dist:win:* 编排：
-# 应用构建、Channel 运行时以及 electron-builder NSIS 输出。
+# 应用构建、离线命令运行环境以及 electron-builder NSIS 输出。
 $env:DEBUG = 'electron-builder'
 npm run $distWinCommand
 $builderExit = $LASTEXITCODE

@@ -2,7 +2,6 @@ import { CoworkMessageType, CoworkDisplayItemType } from '../../../../shared/cow
 import { ReasoningContent, ReasoningTrigger } from '@shared/components/ai-elements/reasoning';
 import { ToolOutput } from '@shared/components/ai-elements/tool';
 import { Alert, AlertDescription } from '@shared/components/ui/alert';
-import { Button } from '@shared/components/ui/button';
 import { Info, TriangleAlert } from 'lucide-react';
 import React from 'react';
 
@@ -112,10 +111,6 @@ const TurnBlockComponent: React.FC<{
   showCopyButtons?: boolean;
   isTurnComplete?: boolean;
   toolActivities?: CoworkToolActivity[];
-  recoverableTaskId?: string | null;
-  resumeTaskId?: string | null;
-  resumeDisabled?: boolean;
-  onResumeTask?: (interruption: CoworkSessionInterruption) => void;
   hideDefaultAssistantHeader?: boolean;
   pendingPermission?: CoworkPermissionRequest | null;
   onRespondToPermission?: (result: CoworkPermissionResult) => void;
@@ -131,10 +126,6 @@ const TurnBlockComponent: React.FC<{
   showCopyButtons = true,
   isTurnComplete = true,
   toolActivities = [],
-  recoverableTaskId,
-  resumeTaskId,
-  resumeDisabled = false,
-  onResumeTask,
   hideDefaultAssistantHeader = false,
   pendingPermission = null,
   onRespondToPermission,
@@ -192,24 +183,11 @@ const TurnBlockComponent: React.FC<{
     const normalized = getScheduledReminderDisplayText(raw) ?? raw;
     const content = mapDisplayText ? mapDisplayText(normalized) : normalized;
     if (!content.trim()) return null;
-    const canResume = Boolean(
-      interruption?.recoverable && interruption.taskId && interruption.taskId === recoverableTaskId,
-    );
     return (
       <Alert key={message.id}>
         {isError ? <TriangleAlert /> : <Info />}
         <AlertDescription className="flex flex-wrap items-center gap-2">
           <span className="whitespace-pre-wrap">{content}</span>
-          {canResume && interruption && onResumeTask && (
-            <Button
-              type="button"
-              size="sm"
-              disabled={resumeDisabled || resumeTaskId === interruption.taskId}
-              onClick={() => onResumeTask(interruption)}
-            >
-              {i18nService.t('coworkResumeTaskAction')}
-            </Button>
-          )}
         </AlertDescription>
       </Alert>
     );

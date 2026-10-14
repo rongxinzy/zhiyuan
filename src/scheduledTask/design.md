@@ -1,71 +1,31 @@
-# 定时任务：Canonical Scheduler
+# 定时任务：本地时间触发与原生持久执行
 
-## 目标
+## 所有权
 
-定时任务的定义、执行状态和审计记录全部由知远本地 SQLite 持有。`cc-connect` 是可丢弃的协议/时钟 sidecar，只能在到点时发送无负载 trigger；Pi 是唯一的 Agent 执行器。不存在旧调度系统的兼容或回退路径。
+- SQLite 保存任务配置、下次执行时间和运行记录，供应用列表、历史和 Activity 展示。
+- LocalSchedulerRuntime 只负责 `at`、`every`、带时区的 `cron` 时间触发，以及原生结果的展示投影。
+- Pi Durable Task 负责输入去重、执行、检查点、进程恢复和 replay。宿主不添加执行租约、重试队列或第二套检查点。
+- 不再启动外部时钟进程、回环触发桥或任何 IM 投递。
 
-```mermaid
-flowchart LR
-  UI["Renderer / IPC"] --> Service["CanonicalScheduledTaskService"]
-  Service --> Store[("SQLite: Tasks + Runs")]
-  Service --> Runtime["CcConnectSchedulerRuntime"]
-  Runtime --> Projection["cc-connect trigger projection"]
-  Projection --> Clock["scheduler-only sidecar"]
-  Clock -->|"authenticated trigger"| Runtime
-  Runtime --> Pi["PiRuntimeAdapter"]
-  Pi --> Store
-```
+## 每次执行
 
-## 所有权与边界
+每个 occurrence 对应一个运行记录，使用稳定的 `scheduled:${run.id}` 请求标识以及专用 `scheduled-run:${run.id}` 会话。重启后重新附着同一原生请求，不依赖 UI complete 事件推断结果，也不因应用退出把进行中的原生任务标成失败。
 
-| 部分 | 责任 | 明确不负责 |
-| --- | --- | --- |
-| `SqliteScheduledTaskStore` | Task、Run、去重 claim、崩溃恢复 | 时钟、Agent 执行 |
-| `CcConnectSchedulerRuntime` | SQLite 与 trigger 投影的协调 | 持久化任务、解释 payload |
-| `cc-connect` sidecar | `at` / `every` / `cron` 到点 trigger | shell/exec、Agent、任务状态、投递内容 |
-| `PiScheduledTaskExecutor` | 创建/恢复 Pi 会话并执行 | 触发判定、任务持久化 |  
+新会话可以继承任务所选工作区、会话的系统提示、技能和模型配置，但不在用户正在交互的会话内执行。原生取消只作用于该运行的专用会话，必须等待 native abort。默认审批策略是 Ask + unattended；时间触发本身不授予自动执行敏感操作的权限。超时在创建运行记录时快照为 deadline_at_ms，编辑任务不改变已有运行的期限，重启后沿用同一期限触发 native abort，完成状态仍以原生 submission 为准。旧运行没有快照时不补造期限。
 
-## 会话绑定策略
+## 时间语义
 
-任务执行支持三种绑定方式：
+- `at`：在指定时间触发一次；同一时间点不会因重启或重新启用再次生成 occurrence。
+- `every`：按明确 anchor 或创建时间计算边界。
+- `cron`：复用 cron-parser，遵守任务时区；可选 stagger 使用稳定的任务偏移。
+- 停机或休眠错过多个边界只补发一次，然后安排当前时间之后的下一边界，不积累无限补跑队列。
+- 关闭、修改、删除任务撤销旧 timer；手动运行仍可触发已暂停的任务。
+- startPolling / stopPolling 真正控制本地 timer 生命周期。
 
-1. `per-run`：每次触发创建新的 `Scheduled` 会话，适合互相独立的报告和提醒。
-2. `task`：按任务 ID 创建一个稳定的专属会话，后续 Run 继续该会话；同一任务的执行在执行器内串行化。
-3. `existing`：通过 `Main + zhiyuan:<sessionId>` 绑定已有 UI/IM 会话，运行结果追加到该会话。
+## 存储
 
-三种方式都保留独立的 canonical Run 记录；会话是否复用不影响 Run 级审计、状态和投递记录。
+应用内已有任务和运行记录继续可见。废弃的投递表原地保留但不创建、不查询；现有任务表中的旧投递列只写空对象，不读取或传递任何路由数据。旧版任务表不再导入。
 
-## Trigger 契约
+## 验证
 
-sidecar 向回环 bridge 发送：
-
-```json
-{
-  "requestId": "...",
-  "accountId": "__zhiyuan_scheduler__",
-  "taskId": "...",
-  "scheduleVersion": "sha256...",
-  "scheduledAt": "2026-08-11T01:00:00.000Z"
-}
-```
-
-`accountId` 必须是内部专用的 `__zhiyuan_scheduler__`。投递账号不参与时钟身份：它仅用于任务执行后的渠道/会话路由。Runtime 先校验时钟身份与 `scheduleVersion`，再以 `(taskId, scheduleVersion, scheduledAt)` 原子 claim Run；重复、过期或来自渠道 sidecar 的 trigger 不会执行 Pi。
-
-## 进程恢复
-
-1. 应用启动时，`recoverInterruptedRuns()` 将遗留 `running` Run 记为 error。
-2. 默认 scheduler-only sidecar 在本地随机回环端口启动，控制面须通过 bridge token 的健康检查。
-3. 健康检查成功后，从 SQLite 全量重协调 trigger 投影。sidecar 自身不保存任务状态。
-4. sidecar 退出时解绑控制客户端，按指数退避重启；重新附着后再次全量重协调。
-5. `at`、`every` 与 cron 的单任务 timer 在设备从休眠醒来后对已到期的等待补发一次；cron 随后按声明的时区计算下一次触发。
-
-## 迁移
-
-旧 `scheduled_tasks` / `scheduled_task_runs` 只导入 `zhiyuan_scheduled_tasks` / `zhiyuan_scheduled_task_runs`。迁移不写 Agent runtime，也不创建外部 JSONL 状态。旧的一次性 `at` 任务会保留在 SQLite，以便 UI 和审计可见。
-
-## 验证重点
-
-- 账号不匹配、版本陈旧和重复 trigger 都不创建新 Run。
-- 关闭/重启 sidecar 后，SQLite 中启用任务会再次投影。
-- Pi 成功、失败及进程中断都更新同一条 canonical Run。
-- sidecar 控制 API 只接受 schedule 描述，拒绝未知字段、payload 和 exec。
+覆盖 at 单次、每隔周期、cron 时区、暂停/恢复、任务修改、删除、手动执行、停机/时钟前跳的单次补发、原 run ID 重附、真实原生取消、下一次执行投影及失败结果。

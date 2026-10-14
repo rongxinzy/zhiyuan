@@ -10,7 +10,6 @@ import { app } from 'electron';
 import type { CoworkStore } from '../../coworkStore';
 import { WorkbenchApprovalMode } from '../../../shared/workbenchTask';
 import type { CoworkPendingMessage } from '../../../shared/cowork/pendingMessageQueue';
-import type { SessionMemoryCompletion } from '../../memory/sessionMemoryExtractor';
 import {
   buildPiBackgroundCompletionContext,
   extractPiBackgroundCompletionText,
@@ -23,6 +22,7 @@ import type {
   PiPermissionResult,
 } from './piRuntimeTypes';
 import { DurableRuntimeHost } from './durable/runtimeHost';
+import { DurableWorkDetachedError } from './piRuntimeTypes';
 import { DurableApprovalBroker } from './durable/approvalBroker';
 import { buildDurableConfiguration } from './durable/configuration';
 import { resolveDurableProvider } from './durable/provider';
@@ -30,6 +30,11 @@ import { resolveDurableProvider } from './durable/provider';
 export class PiRuntimeAdapter extends EventEmitter {
   private host?: DurableRuntimeHost;
   private store?: CoworkStore;
+  private closing = false;
+  private readonly scheduledAdmissions = new Map<
+    string,
+    Promise<import('@earendil-works/pi-durable').Submission>
+  >();
   private readonly approvalModes = new Map<string, WorkbenchApprovalMode>();
   private readonly confirmationModes = new Map<string, 'modal' | 'text'>();
   private readonly approvals = new DurableApprovalBroker(
@@ -86,6 +91,32 @@ export class PiRuntimeAdapter extends EventEmitter {
     await this.runtime().submit(sessionId, prompt, options);
   }
 
+  /** A scheduled occurrence waits on its native submission, not UI completion events. */
+  async runScheduledTask(
+    sessionId: string,
+    prompt: string,
+    options: PiStartOptions & { requestId: string },
+  ): Promise<{ submissionId: number; conversationId: number }> {
+    this.approvalModes.set(sessionId, options.approvalMode ?? WorkbenchApprovalMode.Ask);
+    const admission = this.runtime().submit(sessionId, prompt, { ...options, unattended: true });
+    // Register synchronously so Stop cannot finish before a pending admission.
+    this.scheduledAdmissions.set(sessionId, admission);
+    try {
+      const submission = await admission;
+      const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
+      const record = await submission.wait(BACKGROUND_CONTEXT);
+      if (record.status !== 'done')
+        throw new Error('reason' in record ? record.reason : 'Scheduled work did not complete.');
+      return { submissionId: record.id, conversationId: record.conversationId };
+    } catch (error) {
+      if (this.closing) throw new DurableWorkDetachedError();
+      throw error;
+    } finally {
+      if (this.scheduledAdmissions.get(sessionId) === admission)
+        this.scheduledAdmissions.delete(sessionId);
+    }
+  }
+
   async continueSession(
     sessionId: string,
     prompt: string,
@@ -129,12 +160,17 @@ export class PiRuntimeAdapter extends EventEmitter {
   async resumeDurableWork(sessionId: string): Promise<void> {
     await this.runtime().runner.resume(sessionId);
   }
+  async cancelScheduledTask(sessionId: string): Promise<void> {
+    await this.scheduledAdmissions.get(sessionId)?.catch((): void => {});
+    await this.runtime().runner.abort(sessionId);
+  }
   stopSession(sessionId: string): void {
     void this.runtime()
       .runner.abort(sessionId)
       .catch(error => console.error('[DurableRuntime] Failed to stop work:', error));
   }
   async close(): Promise<void> {
+    this.closing = true;
     await this.host?.runner.close();
   }
   stopAllSessions(): void {
@@ -293,17 +329,13 @@ export class PiRuntimeAdapter extends EventEmitter {
     );
     return extractPiBackgroundCompletionText(result);
   }
-  getSessionMemoryCompletion(sessionId: string): SessionMemoryCompletion | null {
-    const session = this.store?.getSession(sessionId);
-    if (!session) return null;
-    return async messages => {
-      const provider = await resolveDurableProvider(sessionId, session.modelOverride, session.mode);
-      return extractPiBackgroundCompletionText(
-        await provider.models.completeSimple(
-          provider.modelObject,
-          buildPiBackgroundCompletionContext(messages),
-        ),
-      );
-    };
+  getWorkDocument(sessionId: string) {
+    return this.runtime().runner.getWorkDocument(sessionId);
+  }
+  updateWorkDocument(
+    sessionId: string,
+    patch: import('../../../shared/durable/workDocument').WorkDocumentPatch,
+  ) {
+    return this.runtime().runner.updateWorkDocument(sessionId, patch);
   }
 }

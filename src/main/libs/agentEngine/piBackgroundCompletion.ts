@@ -1,9 +1,7 @@
 import type { AssistantMessage, Context, TextContent } from '@earendil-works/pi-ai';
 
-import {
-  SessionMemoryCompletionRole,
-  type SessionMemoryCompletionMessage,
-} from '../../memory/sessionMemoryExtractor';
+export const BackgroundCompletionRole = { System: 'system', User: 'user' } as const;
+export type BackgroundCompletionMessage = { role: 'system' | 'user'; content: string };
 
 const PiBackgroundCompletionStopReason = {
   Aborted: 'aborted',
@@ -20,19 +18,19 @@ export type PiBackgroundCompletionResult = Pick<AssistantMessage, 'content'> &
   Partial<Pick<AssistantMessage, 'errorMessage' | 'stopReason'>>;
 
 export function buildPiBackgroundCompletionContext(
-  messages: readonly SessionMemoryCompletionMessage[],
+  messages: readonly BackgroundCompletionMessage[],
   now: () => number = Date.now,
 ): Context {
   const systemPrompts: string[] = [];
   const userMessages: Context['messages'] = [];
 
   for (const message of messages) {
-    if (message.role === SessionMemoryCompletionRole.System) {
+    if (message.role === BackgroundCompletionRole.System) {
       if (message.content.trim()) systemPrompts.push(message.content);
       continue;
     }
     userMessages.push({
-      role: SessionMemoryCompletionRole.User,
+      role: BackgroundCompletionRole.User,
       content: message.content,
       timestamp: now(),
     });

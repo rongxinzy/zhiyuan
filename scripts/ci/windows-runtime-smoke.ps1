@@ -60,8 +60,8 @@ $componentManifest = Get-Content -LiteralPath $componentManifestPath -Raw -Encod
 if ($componentManifest.offline -ne $true) {
   throw 'Windows component manifest must declare offline=true'
 }
-if (@($componentManifest.components).Count -ne 2) {
-  throw "Windows component manifest must contain exactly 2 components"
+if (@($componentManifest.components).Count -ne 1 -or $componentManifest.components[0].key -ne 'portable-git') {
+  throw "Windows component manifest must contain only PortableGit"
 }
 
 $systemTar = Join-Path $env:SystemRoot 'System32\tar.exe'
@@ -97,8 +97,6 @@ try {
   }
 
   $resourcesRoot = $smokeRoot
-  Assert-Path (Join-Path $resourcesRoot 'channel-runtime\cc-connect-sidecar.exe') 'bundled channel runtime'
-  Assert-Path (Join-Path $ProjectRoot 'release\win-unpacked\resources\memory\engram.exe') 'bundled memory runtime'
   $bash = Join-Path $resourcesRoot 'mingit\usr\bin\bash.exe'
   if (-not (Test-Path -LiteralPath $bash)) {
     $bash = Join-Path $resourcesRoot 'mingit\bin\bash.exe'

@@ -16,17 +16,18 @@ function resourceSources(config: { extraResources?: Array<{ from?: string }> }):
 
 test('desktop packages exclude removed managed tool resources', () => {
   const config = JSON.parse(readFileSync(path.join(root, 'electron-builder.json'), 'utf8')) as {
+    extraResources?: Array<{ from?: string }>;
     mac: { extraResources?: Array<{ from?: string }> };
     linux: { extraResources?: Array<{ from?: string }> };
     win: { extraResources?: Array<{ from?: string }> };
   };
-  for (const target of [config.mac, config.linux, config.win]) {
+  for (const target of [config, config.mac, config.linux, config.win]) {
     for (const source of resourceSources(target)) {
       assert.doesNotMatch(source, /(?:SKILLs|MCPs|resources\/(?:python|skill-python|uv)(?:-|$))/);
     }
   }
-  for (const target of [config.mac, config.linux]) {
-    assert.ok(resourceSources(target).includes('vendor/channel-runtime/current'));
+  for (const target of [config, config.mac, config.linux, config.win]) {
+    assert.ok(!resourceSources(target).some(source => source.startsWith('vendor/')));
   }
   const hooks = readFileSync(path.join(root, 'scripts', 'electron-builder-hooks.cjs'), 'utf8');
   assert.doesNotMatch(hooks, /setup-(?:python|mac-python|uv|mac-uv|skill-python)-runtime/);

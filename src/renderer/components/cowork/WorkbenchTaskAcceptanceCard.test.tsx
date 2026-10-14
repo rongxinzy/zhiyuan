@@ -79,7 +79,7 @@ test('renders the acceptance card when the task awaits manual acceptance', async
     expect(screen.getByText(i18nService.t('workbenchTaskAcceptanceCardTitle'))).toBeTruthy();
   });
   expect(screen.getByText(i18nService.t('workbenchTaskAccept'))).toBeTruthy();
-  expect(screen.getByText(i18nService.t('workbenchTaskRetry'))).toBeTruthy();
+  expect(screen.queryByText(i18nService.t('workbenchTaskRetry'))).toBeNull();
   expect(screen.getByText('The result requires explicit user acceptance.')).toBeTruthy();
 });
 

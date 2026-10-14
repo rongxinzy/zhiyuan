@@ -1,15 +1,7 @@
 import type { AppUpdateRuntimeState } from '../../../shared/appUpdate/constants';
 import type { ProviderType } from './model/constants';
 
-export type TabType =
-  | 'general'
-  | 'appearance'
-  | 'model'
-  | 'triage'
-  | 'coworkMemory'
-  | 'shortcuts'
-  | 'im'
-  | 'about';
+export type TabType = 'general' | 'appearance' | 'model' | 'triage' | 'shortcuts' | 'about';
 export type EnterpriseTabType = `extension:${string}`;
 export type SettingsTabType = TabType | EnterpriseTabType;
 

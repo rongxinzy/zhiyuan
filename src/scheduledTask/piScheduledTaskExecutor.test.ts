@@ -1,17 +1,9 @@
-import { EventEmitter } from 'node:events';
-import { expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
+import type { CoworkSession } from '../main/coworkStore';
 import { CoworkSessionSource } from '../shared/cowork/constants';
 import { WorkbenchApprovalMode } from '../shared/workbenchTask';
-
-import {
-  DeliveryMode,
-  PayloadKind,
-  ScheduleKind,
-  SessionTarget,
-  TaskStatus,
-  WakeMode,
-} from './constants';
+import { PayloadKind, ScheduleKind, SessionTarget, TaskStatus, WakeMode } from './constants';
 import { PiScheduledTaskExecutor } from './piScheduledTaskExecutor';
 import type { ScheduledTask, ScheduledTaskRun } from './types';
 
@@ -22,9 +14,8 @@ const task: ScheduledTask = {
   enabled: true,
   schedule: { kind: ScheduleKind.Every, everyMs: 60_000 },
   sessionTarget: SessionTarget.Isolated,
-  wakeMode: WakeMode.NextHeartbeat,
+  wakeMode: WakeMode.Now,
   payload: { kind: PayloadKind.AgentTurn, message: 'run' },
-  delivery: { mode: DeliveryMode.None },
   workspaceId: 'finance-workspace',
   sessionKey: null,
   state: {
@@ -45,263 +36,192 @@ const run: ScheduledTaskRun = {
   sessionId: null,
   sessionKey: null,
   status: TaskStatus.Running,
-  startedAt: '',
+  startedAt: new Date().toISOString(),
   finishedAt: null,
   durationMs: null,
   error: null,
 };
 
-function createCoworkStore() {
-  const session = {
-    id: 'cowork-1',
-    systemPrompt: 'Finance agent prompt',
-    activeSkillIds: ['daily-trending'],
-    cwd: 'D:/finance',
-    mode: 'work' as const,
-    agentId: 'main',
-    workspaceId: task.workspaceId,
-    modelOverride: 'provider/model',
-    experts: [],
+function setup() {
+  const sessions = new Map<string, CoworkSession>();
+  const createSession = vi.fn((...args: unknown[]) => {
+    const session = {
+      id: args[8],
+      cwd: args[1],
+      systemPrompt: args[2],
+      executionMode: args[3],
+      activeSkillIds: args[4],
+      agentId: args[5],
+      modelOverride: args[6],
+      mode: args[7],
+      workspaceId: args[9],
+      experts: args[10],
+      source: args[11],
+      messages: [{ id: 'answer', type: 'assistant', content: 'done', timestamp: 1 }],
+    } as CoworkSession;
+    sessions.set(session.id, session);
+    return session;
+  });
+  const store = {
+    getConfig: () => ({ systemPrompt: 'Default prompt', executionMode: 'local' }),
+    getWorkspace: () => ({ id: task.workspaceId, path: '/finance' }),
+    createSession,
+    getSession: (id: string) => sessions.get(id) ?? null,
   };
-  return {
-    session,
-    store: {
-      getConfig: () => ({
-        workingDirectory: process.cwd(),
-        systemPrompt: 'Default prompt',
-        executionMode: 'local',
-      }),
-      getWorkspace: () => ({ id: task.workspaceId, path: session.cwd }),
-      createSession: vi.fn(() => session),
-      getSession: (id: string) =>
-        id === session.id
-          ? {
-              ...session,
-              messages: [
-                {
-                  id: 'answer',
-                  type: 'assistant',
-                  content: 'done',
-                  timestamp: 1,
-                  metadata: { isFinalAnswer: true },
-                },
-              ],
-            }
-          : null,
-    },
+  const runtime = {
+    runScheduledTask: vi.fn(async () => ({ submissionId: 1, conversationId: 2 })),
+    cancelScheduledTask: vi.fn(async () => undefined),
   };
+  const bindRunSession = vi.fn();
+  const executor = new PiScheduledTaskExecutor(runtime as never, store as never, bindRunSession);
+  return { executor, store, runtime, sessions, bindRunSession };
 }
 
-test('runs a canonical task in its workspace and waits for complete', async () => {
-  const startSession = vi.fn(async (id: string) => {
-    queueMicrotask(() => runtime.emit('complete', id));
+test('submits a stable per-run native request with normal unattended approval rules', async () => {
+  const { executor, runtime, store, bindRunSession } = setup();
+  await expect(executor.execute(task, run)).resolves.toEqual({
+    sessionId: 'scheduled-run:run',
+    output: 'done',
   });
-  const runtime = Object.assign(new EventEmitter(), {
-    isSessionActive: () => false,
-    startSession,
-    continueSession: async () => undefined,
-    stopSession: () => undefined,
-  });
-  const { session, store } = createCoworkStore();
-
-  await expect(
-    new PiScheduledTaskExecutor(runtime as never, store as never).execute(task, run),
-  ).resolves.toEqual({ sessionId: session.id, output: 'done' });
+  expect(runtime.runScheduledTask).toHaveBeenCalledWith(
+    'scheduled-run:run',
+    'run',
+    expect.objectContaining({
+      requestId: 'scheduled:run',
+      approvalMode: WorkbenchApprovalMode.Ask,
+      unattended: true,
+      workspaceRoot: '/finance',
+    }),
+  );
   expect(store.createSession).toHaveBeenCalledWith(
     '[定时]task',
-    session.cwd,
+    '/finance',
     'Default prompt',
     'local',
     [],
     'main',
     '',
     'work',
-    undefined,
+    'scheduled-run:run',
     task.workspaceId,
     [],
     CoworkSessionSource.Scheduled,
   );
-  expect(startSession).toHaveBeenCalledWith(
-    session.id,
+  expect(bindRunSession).toHaveBeenCalledWith('run', 'scheduled-run:run');
+});
+
+test('reattaching the same run preserves original session configuration and request identity', async () => {
+  const { executor, runtime, store } = setup();
+  await executor.execute(task, run);
+  await executor.execute(
+    {
+      ...task,
+      workspaceId: 'changed',
+      payload: { kind: PayloadKind.AgentTurn, message: 'changed', model: 'changed' },
+    },
+    { ...run, sessionId: 'scheduled-run:run' },
+  );
+  expect(store.createSession).toHaveBeenCalledOnce();
+  expect(runtime.runScheduledTask).toHaveBeenLastCalledWith(
+    'scheduled-run:run',
+    'changed',
+    expect.objectContaining({
+      requestId: 'scheduled:run',
+      workspaceRoot: '/finance',
+      systemPrompt: 'Default prompt',
+      modelOverride: undefined,
+    }),
+  );
+});
+
+test('each occurrence gets a separate native conversation even when task binding is selected', async () => {
+  const { executor, runtime, store } = setup();
+  await executor.execute({ ...task, sessionTarget: SessionTarget.Task }, run);
+  await executor.execute({ ...task, sessionTarget: SessionTarget.Task }, { ...run, id: 'run-2' });
+  expect(store.createSession).toHaveBeenCalledTimes(2);
+  expect(runtime.runScheduledTask.mock.calls.map(call => call[0])).toEqual([
+    'scheduled-run:run',
+    'scheduled-run:run-2',
+  ]);
+});
+
+test('inherits selected chat configuration without executing in or cancelling that chat', async () => {
+  const { executor, sessions, runtime } = setup();
+  sessions.set('chat', {
+    id: 'chat',
+    cwd: '/original',
+    systemPrompt: 'Original prompt',
+    executionMode: 'local',
+    activeSkillIds: ['skill'],
+    modelOverride: 'model',
+    mode: 'work',
+    experts: [],
+    workspaceId: 'source-workspace',
+  } as unknown as CoworkSession);
+  await executor.execute(
+    { ...task, sessionTarget: SessionTarget.Main, sessionKey: 'zhiyuan:chat' },
+    run,
+  );
+  expect(runtime.runScheduledTask).toHaveBeenCalledWith(
+    'scheduled-run:run',
     'run',
     expect.objectContaining({
-      approvalMode: WorkbenchApprovalMode.AllowAll,
-      unattended: true,
-      skillIds: session.activeSkillIds,
-      modelOverride: session.modelOverride,
+      workspaceRoot: '/original',
+      systemPrompt: 'Original prompt',
+      skillIds: ['skill'],
+      modelOverride: 'model',
     }),
   );
-  expect(startSession.mock.calls[0]?.[2]).not.toHaveProperty('confirmationMode');
+  await executor.cancel({ ...run, sessionId: 'chat' });
+  expect(runtime.cancelScheduledTask).toHaveBeenCalledWith('scheduled-run:run');
 });
 
-test('reuses the workspace session referenced by a managed session key', async () => {
-  const startSession = vi.fn(async (id: string) => {
-    queueMicrotask(() => runtime.emit('complete', id));
-  });
-  const runtime = Object.assign(new EventEmitter(), {
-    isSessionActive: () => false,
-    startSession,
-    continueSession: async () => undefined,
-    stopSession: () => undefined,
-  });
-  const { session, store } = createCoworkStore();
-  const mainSessionTask = {
-    ...task,
-    sessionTarget: SessionTarget.Main,
-    sessionKey: `zhiyuan:${session.id}`,
-  };
-
-  await expect(
-    new PiScheduledTaskExecutor(runtime as never, store as never).execute(mainSessionTask, run),
-  ).resolves.toEqual({ sessionId: session.id, output: 'done' });
-  expect(store.createSession).not.toHaveBeenCalled();
-  expect(startSession).toHaveBeenCalledWith(
-    session.id,
-    'run',
-    expect.objectContaining({ workspaceRoot: session.cwd }),
+test('completion waits for native submission and propagates native cancellation', async () => {
+  const { executor, runtime } = setup();
+  let reject!: (error: Error) => void;
+  runtime.runScheduledTask.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, rejectPromise) => {
+        reject = rejectPromise;
+      }),
   );
-});
-
-test('reuses one stable dedicated session for every run of a task-bound task', async () => {
-  const startSession = vi.fn(async (id: string) => {
-    runtimeActive = true;
-    queueMicrotask(() => runtime.emit('complete', id));
-  });
-  let runtimeActive = false;
-  const runtime = Object.assign(new EventEmitter(), {
-    isSessionActive: () => runtimeActive,
-    startSession,
-    continueSession: vi.fn(async (id: string) => {
-      queueMicrotask(() => runtime.emit('complete', id));
-    }),
-    stopSession: () => undefined,
-  });
-  const { session, store } = createCoworkStore();
-  const taskBoundTask = { ...task, sessionTarget: SessionTarget.Task };
-  let dedicatedExists = false;
-  store.createSession.mockImplementation((...args) => {
-    dedicatedExists = true;
-    return { ...session, id: args[8] ?? `scheduled-task:${task.id}` };
-  });
-  store.getSession = (id: string) =>
-    id === `scheduled-task:${task.id}` && dedicatedExists
-      ? {
-          ...session,
-          id,
-          messages: [{ id: 'answer', type: 'assistant', content: 'done', timestamp: 1 }],
-        }
-      : null;
-
-  await new PiScheduledTaskExecutor(runtime as never, store as never).execute(taskBoundTask, run);
-  expect(store.createSession).toHaveBeenCalledWith(
-    '[定时]task',
-    session.cwd,
-    'Default prompt',
-    'local',
-    [],
-    'main',
-    '',
-    'work',
-    `scheduled-task:${task.id}`,
-    task.workspaceId,
-    [],
-    CoworkSessionSource.Scheduled,
-  );
-  expect(startSession).toHaveBeenCalledWith(`scheduled-task:${task.id}`, 'run', expect.anything());
-
-  await new PiScheduledTaskExecutor(runtime as never, store as never).execute(taskBoundTask, run);
-  expect(store.createSession).toHaveBeenCalledTimes(1);
-  expect(runtime.continueSession).toHaveBeenCalledWith(
-    `scheduled-task:${task.id}`,
-    'run',
-    expect.objectContaining({
-      approvalMode: WorkbenchApprovalMode.AllowAll,
-      unattended: true,
-    }),
-  );
-});
-
-test('serializes overlapping runs for a task-bound session', async () => {
-  let runtimeActive = false;
-  let dedicatedExists = false;
-  let releaseFirst: (() => void) | null = null;
-  const startSession = vi.fn(async (id: string) => {
-    runtimeActive = true;
-    await new Promise<void>(resolve => {
-      releaseFirst = resolve;
-    });
-    queueMicrotask(() => runtime.emit('complete', id));
-  });
-  const runtime = Object.assign(new EventEmitter(), {
-    isSessionActive: () => runtimeActive,
-    startSession,
-    continueSession: vi.fn(async (id: string) => {
-      queueMicrotask(() => runtime.emit('complete', id));
-    }),
-    stopSession: () => undefined,
-  });
-  const { session, store } = createCoworkStore();
-  const taskBoundTask = { ...task, sessionTarget: SessionTarget.Task };
-  store.createSession.mockImplementation((...args) => {
-    dedicatedExists = true;
-    return { ...session, id: args[8] ?? `scheduled-task:${task.id}` };
-  });
-  store.getSession = (id: string) =>
-    id === `scheduled-task:${task.id}` && dedicatedExists ? { ...session, id, messages: [] } : null;
-
-  const executor = new PiScheduledTaskExecutor(runtime as never, store as never);
-  const first = executor.execute(taskBoundTask, run);
-  await new Promise(resolve => setTimeout(resolve, 0));
-  const second = executor.execute(taskBoundTask, { ...run, id: 'run-2' });
-  await new Promise(resolve => setTimeout(resolve, 0));
-
-  expect(startSession).toHaveBeenCalledTimes(1);
-  expect(runtime.continueSession).not.toHaveBeenCalled();
-
-  releaseFirst?.();
-  await first;
-  await second;
-  expect(runtime.continueSession).toHaveBeenCalledWith(
-    `scheduled-task:${task.id}`,
-    'run',
-    expect.anything(),
-  );
-});
-
-test('rejects immediately and removes listeners when Pi stops before completion', async () => {
-  const runtime = Object.assign(new EventEmitter(), {
-    isSessionActive: () => false,
-    startSession: async (id: string) => {
-      queueMicrotask(() => runtime.emit('sessionStopped', id));
+  const running = executor.execute(task, run);
+  let completed = false;
+  void running.then(
+    () => {
+      completed = true;
     },
-    continueSession: async () => undefined,
-    stopSession: vi.fn(),
-  });
-  const { session, store } = createCoworkStore();
-
-  await expect(
-    new PiScheduledTaskExecutor(runtime as never, store as never).execute(task, run),
-  ).rejects.toThrow(`Scheduled task Pi session stopped before completion: ${session.id}`);
-  expect(runtime.listenerCount('complete')).toBe(0);
-  expect(runtime.listenerCount('error')).toBe(0);
-  expect(runtime.listenerCount('sessionStopped')).toBe(0);
+    () => undefined,
+  );
+  await Promise.resolve();
+  expect(completed).toBe(false);
+  reject(new Error('Native submission aborted'));
+  await expect(running).rejects.toThrow('Native submission aborted');
 });
 
-test('removes completion listeners when starting Pi fails', async () => {
-  const runtime = Object.assign(new EventEmitter(), {
-    isSessionActive: () => false,
-    startSession: async () => {
-      throw new Error('model unavailable');
-    },
-    continueSession: async () => undefined,
-    stopSession: vi.fn(),
-  });
-  const { store } = createCoworkStore();
+afterEach(() => vi.useRealTimers());
 
-  await expect(
-    new PiScheduledTaskExecutor(runtime as never, store as never).execute(task, run),
-  ).rejects.toThrow('model unavailable');
-  expect(runtime.listenerCount('complete')).toBe(0);
-  expect(runtime.listenerCount('error')).toBe(0);
-  expect(runtime.listenerCount('sessionStopped')).toBe(0);
+test('deadline aborts the native run without synthesizing a host completion and keeps the original deadline on restart', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime('2026-10-14T00:04:00Z');
+  const { executor, runtime } = setup();
+  let reject!: (error: Error) => void;
+  runtime.runScheduledTask.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, rejectPromise) => {
+        reject = rejectPromise;
+      }),
+  );
+  const running = executor.execute(task, {
+    ...run,
+    startedAt: '2026-10-14T00:00:00Z',
+    deadlineAtMs: Date.parse('2026-10-14T00:05:00Z'),
+  });
+  await vi.advanceTimersByTimeAsync(59_999);
+  expect(runtime.cancelScheduledTask).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(runtime.cancelScheduledTask).toHaveBeenCalledWith('scheduled-run:run');
+  reject(new Error('Native submission aborted'));
+  await expect(running).rejects.toThrow('Native submission aborted');
+  expect(vi.getTimerCount()).toBe(0);
 });

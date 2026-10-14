@@ -1,39 +1,43 @@
-import { CcConnectSchedulerRuntime } from './ccConnectSchedulerRuntime';
+import type { SchedulerRuntime } from './schedulerRuntime';
+import { nextScheduleTime } from './scheduleTime';
 import { SqliteScheduledTaskStore } from './sqliteScheduledTaskStore';
 import type { ScheduledTaskService } from './scheduledTaskService';
 import type {
   ScheduledTask,
-  ScheduledTaskDeliveryRecord,
   ScheduledTaskInput,
   ScheduledTaskRun,
   ScheduledTaskRunWithName,
   RunFilter,
 } from './types';
 
-/** SQLite-backed user-facing service. cc-connect remains only a trigger projection. */
+/** SQLite-backed user-facing service. Pi owns durable execution. */
 export class CanonicalScheduledTaskService implements ScheduledTaskService {
   constructor(
     private readonly store: SqliteScheduledTaskStore,
-    private readonly runtime: CcConnectSchedulerRuntime,
+    private readonly runtime: SchedulerRuntime,
   ) {}
 
   async addJob(input: ScheduledTaskInput): Promise<ScheduledTask> {
+    // Validate before persisting: an invalid schedule must not look enabled.
+    nextScheduleTime(
+      { ...input, id: 'validation', createdAt: new Date().toISOString() },
+      Date.now(),
+    );
     const task = this.store.create(input);
-    await this.projectBestEffort(task);
-    return task;
+    await this.runtime.register(task);
+    return this.store.get(task.id)!;
   }
   async updateJob(id: string, input: Partial<ScheduledTaskInput>): Promise<ScheduledTask> {
+    const current = this.store.get(id);
+    if (!current) throw new Error(`Scheduled task not found: ${id}`);
+    nextScheduleTime({ ...current, ...input }, Date.now());
     const task = this.store.update(id, input);
-    await this.projectBestEffort(task);
-    return task;
+    await this.runtime.register(task);
+    return this.store.get(task.id)!;
   }
   async removeJob(id: string): Promise<void> {
+    await this.runtime.remove(id);
     this.store.remove(id);
-    try {
-      await this.runtime.removeProjection(id);
-    } catch (error) {
-      console.warn(`[Scheduler] failed to remove disposable projection for task ${id}:`, error);
-    }
   }
   async listJobs(): Promise<ScheduledTask[]> {
     return this.store.list();
@@ -47,6 +51,9 @@ export class CanonicalScheduledTaskService implements ScheduledTaskService {
   async runJob(id: string): Promise<void> {
     await this.runtime.runNow(id);
   }
+  async stopJob(id: string): Promise<boolean> {
+    return this.runtime.stopRun(id);
+  }
   async listRuns(
     taskId: string,
     limit = 20,
@@ -54,9 +61,6 @@ export class CanonicalScheduledTaskService implements ScheduledTaskService {
     filter?: RunFilter,
   ): Promise<ScheduledTaskRun[]> {
     return filterRuns(this.store.listRuns(taskId), filter).slice(offset, offset + limit);
-  }
-  async listDeliveries(runId: string): Promise<ScheduledTaskDeliveryRecord[]> {
-    return this.store.listDeliveries(runId);
   }
   async countRuns(taskId: string): Promise<number> {
     return this.store.listRuns(taskId).length;
@@ -74,19 +78,11 @@ export class CanonicalScheduledTaskService implements ScheduledTaskService {
   hasRunningJobs(): boolean {
     return this.store.list().some(task => task.state.runningAtMs !== null);
   }
-  /** State is pushed by the sidecar; no runtime polling is needed. */
-  startPolling(): void {}
-  stopPolling(): void {}
-
-  private async projectBestEffort(task: ScheduledTask): Promise<void> {
-    try {
-      await this.runtime.register(task);
-    } catch (error) {
-      console.warn(
-        `[Scheduler] canonical task ${task.id} is waiting for sidecar reconciliation:`,
-        error,
-      );
-    }
+  startPolling(): void {
+    this.runtime.start();
+  }
+  stopPolling(): void {
+    this.runtime.stop();
   }
 }
 

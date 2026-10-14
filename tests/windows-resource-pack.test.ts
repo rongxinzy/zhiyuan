@@ -38,13 +38,13 @@ afterEach(() => {
 });
 
 describe('Windows offline component identity', () => {
-  test('uses cc-connect as the first of exactly two cached components', () => {
+  test('uses PortableGit as the only cached component', () => {
     const components = getWindowsResourceComponents(process.cwd());
-    expect(components).toHaveLength(2);
+    expect(components).toHaveLength(1);
     expect(components[0]).toMatchObject({
-      key: 'channel-runtime',
-      prefix: 'channel-runtime',
-      sentinel: 'channel-runtime/cc-connect-sidecar.exe',
+      key: 'portable-git',
+      prefix: 'mingit',
+      sentinel: 'mingit/usr/bin/bash.exe',
     });
     expect(components.map(component => component.key)).not.toContain('openclaw');
   });
@@ -59,7 +59,6 @@ describe('Windows offline component identity', () => {
     );
 
     expect(compressionByKey).toMatchObject({
-      'channel-runtime': 'lzma2-mx9-nonsolid-v1',
       'portable-git': 'lzma-bcj2-d128m-mx9-solid-v1',
     });
   });

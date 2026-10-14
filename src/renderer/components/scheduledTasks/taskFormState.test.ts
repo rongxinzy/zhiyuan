@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  PayloadKind,
-  SessionBindingStrategy,
-  SessionTarget,
-} from '../../../scheduledTask/constants';
+import { PayloadKind, SessionTarget } from '../../../scheduledTask/constants';
 import type { ScheduledTask } from '../../../scheduledTask/types';
 import { buildScheduleInput, buildTaskInput, createFormState } from './taskFormState';
 import type { TaskCreationValues as TaskTemplateValues } from './TaskCreationValues';
@@ -52,7 +48,6 @@ function taskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     sessionTarget: SessionTarget.Isolated,
     wakeMode: 'now',
     payload: { kind: PayloadKind.AgentTurn, message: 'go' },
-    delivery: { mode: 'none' },
     workspaceId: 'workspace-1',
     sessionKey: null,
     state: {
@@ -80,17 +75,16 @@ describe('buildTaskInput', () => {
     expect(input.payload).toEqual({ kind: PayloadKind.AgentTurn, message: 'updated prompt' });
   });
 
-  test('detaches an existing session when the binding is not session-based', () => {
+  test('always isolates a run even when editing a formerly shared task', () => {
     const task = taskFixture({
       sessionKey: 'zhiyuan:session-1',
       sessionTarget: SessionTarget.Main,
     });
     const form = {
       ...createFormState(task),
-      sessionBinding: SessionBindingStrategy.PerRun,
-      boundSessionId: 'session-1',
     };
     expect(buildTaskInput(form, { mode: 'edit', task }).sessionKey).toBeNull();
+    expect(buildTaskInput(form, { mode: 'edit', task }).sessionTarget).toBe(SessionTarget.Isolated);
   });
 
   test('creates an enabled task with the template description', () => {

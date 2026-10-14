@@ -28,7 +28,7 @@ describe('NSIS offline resource and local inference flow', () => {
     );
     expect(cacheMissIndex).toBeGreaterThan(-1);
     expect(payloadIndex).toBeGreaterThan(cacheMissIndex);
-    expect(installerScript.match(/!insertmacro QueueOfflineComponent /g)).toHaveLength(2);
+    expect(installerScript.match(/!insertmacro QueueOfflineComponent /g)).toHaveLength(1);
     expect(installerScript).toContain('phase=component-cache-hit');
     expect(installerScript).toContain('component-${KEY}.sentinel-sha256');
     expect(installerScript).toContain('File /oname=7za.exe');
@@ -207,11 +207,6 @@ describe('NSIS offline resource and local inference flow', () => {
       'New-Item -ItemType Junction -Path $next -Target $target -Force -ErrorAction Stop',
     );
     expect(offlineComponents).toEqual([
-      {
-        key: 'channel-runtime',
-        prefix: 'channel-runtime',
-        sentinel: 'channel-runtime\\cc-connect-sidecar.exe',
-      },
       { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\usr\\bin\\bash.exe' },
     ]);
   });

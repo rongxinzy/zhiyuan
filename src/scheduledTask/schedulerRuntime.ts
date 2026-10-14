@@ -1,24 +1,12 @@
-import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from './types';
+import type { ScheduledTask } from './types';
 
-/** Transport-neutral scheduler boundary. ZhiYuan owns task and run records. */
+/** Host clock boundary. Pi Durable Task remains the execution owner. */
 export interface SchedulerRuntime {
+  start(): void;
+  stop(): void;
   reconcile(tasks: readonly ScheduledTask[]): Promise<void>;
   register(task: ScheduledTask): Promise<void>;
   remove(taskId: string): Promise<void>;
   runNow(taskId: string): Promise<void>;
-  handleTrigger(input: {
-    accountId: string;
-    taskId: string;
-    scheduleVersion: string;
-    scheduledAt: string;
-  }): Promise<void>;
-}
-
-export interface ScheduledTaskStore {
-  create(input: ScheduledTaskInput): Promise<ScheduledTask>;
-  update(id: string, input: Partial<ScheduledTaskInput>): Promise<ScheduledTask>;
-  remove(id: string): Promise<void>;
-  list(): Promise<ScheduledTask[]>;
-  get(id: string): Promise<ScheduledTask | null>;
-  listRuns(taskId: string): Promise<ScheduledTaskRun[]>;
+  stopRun(taskId: string): Promise<boolean>;
 }

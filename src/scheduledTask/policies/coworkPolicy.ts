@@ -1,21 +1,7 @@
-import { buildManagedSessionKey } from '../../main/libs/channelSessionKey';
-import {
-  BindingKind,
-  DeliveryChannel,
-  DeliveryMode,
-  OriginKind,
-  RunBehavior,
-  SessionTarget,
-  WakeMode,
-} from '../constants';
+import { buildManagedSessionKey } from '../../main/libs/managedSessionKey';
+import { BindingKind, OriginKind, RunBehavior, SessionTarget, WakeMode } from '../constants';
 import type { ExecutionBinding, TaskOrigin } from '../origin';
-import type {
-  PolicyDelivery,
-  PolicyTaskInput,
-  PolicyTaskModel,
-  TaskPolicy,
-  WireBinding,
-} from './types';
+import type { PolicyTaskInput, PolicyTaskModel, TaskPolicy, WireBinding } from './types';
 
 export class CoworkTaskPolicy implements TaskPolicy {
   readonly kind = OriginKind.Cowork;
@@ -27,17 +13,11 @@ export class CoworkTaskPolicy implements TaskPolicy {
     return {
       sessionTarget: SessionTarget.Main,
       wakeMode: WakeMode.Now,
-      delivery: { mode: DeliveryMode.Announce, channel: DeliveryChannel.Last },
     };
   }
 
   normalizeDraft(draft: PolicyTaskModel): PolicyTaskModel {
     return draft;
-  }
-
-  onDeliveryChanged(draft: PolicyTaskModel, newDelivery: PolicyDelivery): PolicyTaskModel {
-    // Cowork tasks: delivery change does NOT affect binding (always bound to original session)
-    return { ...draft, delivery: newDelivery };
   }
 
   toWireBinding(binding: ExecutionBinding): WireBinding {

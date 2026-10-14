@@ -83,11 +83,6 @@
     {
       "from": "resources/acp/registry.json",
       "to": "acp/registry.json"
-    },
-    {
-      "from": "vendor/engram-runtime/current",
-      "to": "memory",
-      "filter": ["engram", "engram.exe", "runtime-build-info.json", "LICENSE"]
     }
   ],
   "protocols": [
@@ -114,44 +109,12 @@
       "NSCalendarsUsageDescription": "知远需要访问您的日历来帮助您查看和管理日程安排，例如查找事件、创建会议等。",
       "NSRemindersUsageDescription": "知远需要访问您的提醒事项来帮助您管理待办事项。",
       "NSAppleEventsUsageDescription": "知远需要使用 Apple Events 来控制 Calendar 应用执行自动化操作。"
-    },
-    "extraResources": [
-      {
-        "from": "vendor/channel-runtime/current",
-        "to": "channel-runtime",
-        "filter": [
-          "**/*",
-          "!**/*.map",
-          "!**/*.d.ts",
-          "!**/*.d.cts",
-          "!**/*.d.mts",
-          "!**/README.md",
-          "!**/README",
-          "!**/readme.md",
-          "!**/CHANGELOG.md",
-          "!**/CHANGELOG",
-          "!**/HISTORY.md",
-          "!**/LICENSE",
-          "!**/LICENSE.md",
-          "!**/LICENSE.txt",
-          "!**/.eslintrc*",
-          "!**/.prettierrc*",
-          "!**/tsconfig.json",
-          "!**/tsconfig.*.json",
-          "!**/*.test.*",
-          "!**/*.spec.*",
-          "!**/tests/**",
-          "!**/test/**",
-          "!**/__tests__/**"
-        ]
-      }
-    ]
+    }
   },
   "dmg": {
     "sign": false
   },
   "win": {
-    "signExts": ["!engram.exe"],
     "target": ["nsis"],
     "publish": [
       {
@@ -182,38 +145,7 @@
     ],
     "icon": "build/icons/png",
     "category": "Utility",
-    "artifactName": "${productName}-${version}-${arch}.${ext}",
-    "extraResources": [
-      {
-        "from": "vendor/channel-runtime/current",
-        "to": "channel-runtime",
-        "filter": [
-          "**/*",
-          "!**/*.map",
-          "!**/*.d.ts",
-          "!**/*.d.cts",
-          "!**/*.d.mts",
-          "!**/README.md",
-          "!**/README",
-          "!**/readme.md",
-          "!**/CHANGELOG.md",
-          "!**/CHANGELOG",
-          "!**/HISTORY.md",
-          "!**/LICENSE",
-          "!**/LICENSE.md",
-          "!**/LICENSE.txt",
-          "!**/.eslintrc*",
-          "!**/.prettierrc*",
-          "!**/tsconfig.json",
-          "!**/tsconfig.*.json",
-          "!**/*.test.*",
-          "!**/*.spec.*",
-          "!**/tests/**",
-          "!**/test/**",
-          "!**/__tests__/**"
-        ]
-      }
-    ]
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
   },
   "nsis": {
     "oneClick": false,

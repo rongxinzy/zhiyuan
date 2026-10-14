@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterEach, expect, test } from 'vitest';
 
-import type { ProjectIdentity } from '../memory/projectIdentity';
+import type { ProjectIdentity } from './projectIdentity';
 import { ConversationHistoryExcludedMessageType, ConversationHistoryRole } from './constants';
 import { ConversationHistoryService } from './service';
 

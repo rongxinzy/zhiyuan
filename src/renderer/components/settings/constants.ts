@@ -1,9 +1,7 @@
 import {
   Box,
-  Brain,
   CircleHelp,
   Keyboard,
-  MessageCircleMore,
   Route,
   SlidersHorizontal,
   SunMedium,
@@ -23,8 +21,6 @@ export const SETTINGS_TAB_METAS: Record<TabType, SettingsTabMeta> = {
   shortcuts: { labelKey: 'shortcuts', icon: Keyboard },
   model: { labelKey: 'model', icon: Box },
   triage: { labelKey: 'modelTriageTitle', icon: Route },
-  coworkMemory: { labelKey: 'coworkMemoryTitle', icon: Brain },
-  im: { labelKey: 'imBot', icon: MessageCircleMore },
   about: { labelKey: 'about', icon: CircleHelp },
 };
 
@@ -41,8 +37,7 @@ export interface SettingsNavGroupDef {
  */
 export const SETTINGS_NAV_GROUPS: SettingsNavGroupDef[] = [
   { titleKey: 'settingsGroupGeneral', tabs: ['general', 'appearance', 'shortcuts'] },
-  { titleKey: 'settingsGroupModel', tabs: ['model', 'triage', 'coworkMemory'] },
-  { titleKey: 'settingsGroupChannels', tabs: ['im'] },
+  { titleKey: 'settingsGroupModel', tabs: ['model', 'triage'] },
   { titleKey: null, tabs: ['about'] },
 ];
 

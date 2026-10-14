@@ -1,8 +1,11 @@
+import { WorkDocumentDoc, commitWorkDocument } from './workDocument';
+import type { WorkDocument, WorkDocumentPatch } from '../../../../shared/durable/workDocument';
 import type { AgentChange, ConversationView, SubmissionDraft } from '@earendil-works/pi-durable';
 import type { DurableWorkSnapshot } from '../../../../shared/durable/types';
 import { DurableSessionOwner, type DurableSession } from './sessionOwner';
 
 export interface DurableConversationObserver {
+  documentChanged?(sessionId: string, document: WorkDocument): void;
   changed(sessionId: string, view: ConversationView): void;
   settled(sessionId: string, success: boolean, reason?: string): void;
 }
@@ -23,6 +26,21 @@ export class DurableConversationRunner {
     if (!pending) {
       pending = (async () => {
         const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
+        await session.conversation.commit(async tx => {
+          await tx.doc(WorkDocumentDoc, session.conversation.id);
+        }, BACKGROUND_CONTEXT);
+        const documentWatch = await session.harness.watchDoc(
+          WorkDocumentDoc,
+          session.conversation.id,
+          BACKGROUND_CONTEXT,
+        );
+        if (documentWatch) {
+          if (documentWatch.value)
+            this.observer.documentChanged?.(session.sessionId, documentWatch.value);
+          documentWatch.start(async document => {
+            if (document) this.observer.documentChanged?.(session.sessionId, document);
+          });
+        }
         const watch = await session.conversation.watch(BACKGROUND_CONTEXT);
         this.observer.changed(session.sessionId, watch.value);
         watch.start(async value => this.observer.changed(session.sessionId, value));
@@ -75,6 +93,35 @@ export class DurableConversationRunner {
         },
       )
       .finally(() => this.observing.delete(key));
+  }
+
+  async getWorkDocument(sessionId: string): Promise<WorkDocument> {
+    if (!(await this.owner.exists(sessionId)))
+      throw new Error(
+        'This historical work has no native document. Start a new work to use its archive.',
+      );
+    const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
+    const session = await this.owner.open(sessionId);
+    await this.attach(session);
+    return (await session.harness.snapshot(
+      WorkDocumentDoc,
+      session.conversation.id,
+      BACKGROUND_CONTEXT,
+    ))!;
+  }
+
+  async updateWorkDocument(sessionId: string, patch: WorkDocumentPatch): Promise<WorkDocument> {
+    if (!(await this.owner.exists(sessionId)))
+      throw new Error(
+        'This historical work has no native document. Start a new work to use its archive.',
+      );
+    const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
+    const session = await this.owner.open(sessionId);
+    await this.attach(session);
+    return session.conversation.commit(
+      tx => commitWorkDocument(tx, session.conversation.id, patch),
+      BACKGROUND_CONTEXT,
+    );
   }
 
   detach(sessionId: string): void {

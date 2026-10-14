@@ -2,10 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import type Database from 'better-sqlite3';
 
-import { DeliveryMode, TaskStatus } from './constants';
+import { PayloadKind, TaskStatus } from './constants';
 import type {
   ScheduledTask,
-  ScheduledTaskDeliveryRecord,
   ScheduledTaskInput,
   ScheduledTaskRun,
   ScheduledTaskRunWithName,
@@ -21,7 +20,6 @@ type TaskRow = {
   session_target: string;
   wake_mode: string;
   payload_json: string;
-  delivery_json: string;
   workspace_id: string | null;
   session_key: string | null;
   schedule_version: string;
@@ -38,24 +36,14 @@ type RunRow = {
   session_key: string | null;
   status: string;
   started_at: string;
+  deadline_at_ms: number | null;
   finished_at: string | null;
   duration_ms: number | null;
   error: string | null;
 };
-type DeliveryRow = {
-  id: string;
-  run_id: string;
-  task_id: string;
-  mode: string;
-  channel: string | null;
-  destination: string | null;
-  account_id: string | null;
-  status: string;
-  attempted_at: string;
-  delivered_at: string | null;
-  receipt_id: string | null;
-  error: string | null;
-};
+
+const TASK_COLUMNS =
+  'id, name, description, enabled, schedule_json, session_target, wake_mode, payload_json, workspace_id, session_key, schedule_version, state_json, created_at, updated_at';
 
 const initialState = (): TaskState => ({
   nextRunAtMs: null,
@@ -67,10 +55,7 @@ const initialState = (): TaskState => ({
   consecutiveErrors: 0,
 });
 
-/**
- * Canonical durable scheduler state. cc-connect is deliberately not referenced
- * here: it receives only reconciled trigger registrations from this store.
- */
+/** Schedule configuration and UI run projections. Pi owns durable execution state. */
 export class SqliteScheduledTaskStore {
   constructor(private readonly db: Database.Database) {
     this.ensureSchema();
@@ -88,31 +73,22 @@ export class SqliteScheduledTaskStore {
       CREATE TABLE IF NOT EXISTS zhiyuan_scheduled_task_runs (
         id TEXT PRIMARY KEY, task_id TEXT NOT NULL, schedule_version TEXT NOT NULL,
         scheduled_at TEXT, session_id TEXT, session_key TEXT, status TEXT NOT NULL,
-        started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER, error TEXT,
+        started_at TEXT NOT NULL, deadline_at_ms INTEGER, finished_at TEXT, duration_ms INTEGER, error TEXT,
         UNIQUE(task_id, schedule_version, scheduled_at)
       );
       CREATE INDEX IF NOT EXISTS idx_zhiyuan_scheduled_task_runs_task_started
         ON zhiyuan_scheduled_task_runs(task_id, started_at DESC);
-      CREATE TABLE IF NOT EXISTS zhiyuan_scheduled_task_deliveries (
-        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, task_id TEXT NOT NULL,
-        mode TEXT NOT NULL, channel TEXT, destination TEXT, account_id TEXT,
-        status TEXT NOT NULL, attempted_at TEXT NOT NULL, delivered_at TEXT,
-        receipt_id TEXT, error TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_zhiyuan_scheduled_task_deliveries_run
-        ON zhiyuan_scheduled_task_deliveries(run_id, attempted_at DESC);
     `);
+    const columns = this.db
+      .prepare('PRAGMA table_info(zhiyuan_scheduled_task_runs)')
+      .all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === 'deadline_at_ms')) {
+      this.db.exec('ALTER TABLE zhiyuan_scheduled_task_runs ADD COLUMN deadline_at_ms INTEGER');
+    }
   }
 
   create(input: ScheduledTaskInput): ScheduledTask {
     return this.createWithId(randomUUID(), input);
-  }
-
-  /** Imports a legacy task with its stable id so existing Run history remains addressable. */
-  importLegacy(id: string, input: ScheduledTaskInput): ScheduledTask {
-    const existing = this.get(id);
-    if (existing) return existing;
-    return this.createWithId(id, input);
   }
 
   private createWithId(id: string, input: ScheduledTaskInput): ScheduledTask {
@@ -126,7 +102,6 @@ export class SqliteScheduledTaskStore {
       sessionTarget: input.sessionTarget,
       wakeMode: input.wakeMode,
       payload: input.payload,
-      delivery: input.delivery ?? { mode: DeliveryMode.None },
       workspaceId: input.workspaceId ?? null,
       sessionKey: input.sessionKey ?? null,
       state: initialState(),
@@ -144,9 +119,10 @@ export class SqliteScheduledTaskStore {
     const next = this.toTask({
       ...current,
       ...patch,
-      delivery: patch.delivery ?? current.delivery,
       sessionKey: patch.sessionKey === undefined ? current.sessionKey : patch.sessionKey,
-      ...(triggerDefinitionChanged ? { scheduleVersion: undefined } : {}),
+      ...(triggerDefinitionChanged
+        ? { scheduleVersion: undefined, state: { ...current.state, nextRunAtMs: null } }
+        : {}),
       updatedAt: new Date().toISOString(),
     });
     this.insert(next);
@@ -158,22 +134,23 @@ export class SqliteScheduledTaskStore {
   }
 
   get(id: string): ScheduledTask | null {
-    const row = this.db.prepare('SELECT * FROM zhiyuan_scheduled_tasks WHERE id = ?').get(id) as
-      | TaskRow
-      | undefined;
+    const row = this.db
+      .prepare(`SELECT ${TASK_COLUMNS} FROM zhiyuan_scheduled_tasks WHERE id = ?`)
+      .get(id) as TaskRow | undefined;
     return row ? this.fromRow(row) : null;
   }
 
   list(): ScheduledTask[] {
     return (
       this.db
-        .prepare('SELECT * FROM zhiyuan_scheduled_tasks ORDER BY created_at DESC')
+        .prepare(`SELECT ${TASK_COLUMNS} FROM zhiyuan_scheduled_tasks ORDER BY created_at DESC`)
         .all() as TaskRow[]
     ).map(row => this.fromRow(row));
   }
 
   /**
-   * Atomically rejects a duplicate sidecar trigger before a Pi Run is created.
+   * Records one occurrence for display and derives its stable native request identity.
+   * Execution admission and replay are handled by Pi, not this projection.
    * Manual invocations may run a paused task exactly once, so they opt out of
    * the enabled guard while still taking a unique Run slot.
    */
@@ -189,13 +166,20 @@ export class SqliteScheduledTaskStore {
     if (!task) return null;
     if (!task.enabled && !options.allowDisabled) return null;
     if (task.scheduleVersion !== input.scheduleVersion) return null;
+    const startedAt = new Date().toISOString();
+    const timeoutSeconds =
+      task.payload.kind === PayloadKind.AgentTurn ? task.payload.timeoutSeconds : undefined;
+    const deadlineAtMs = Date.parse(startedAt) + Math.max(1, timeoutSeconds ?? 300) * 1000;
+    if (!Number.isFinite(deadlineAtMs))
+      throw new Error(`Invalid timeout for scheduled task ${task.id}`);
     const run: ScheduledTaskRun = {
       id: randomUUID(),
       taskId: task.id,
       sessionId: null,
       sessionKey: task.sessionKey,
-      status: 'running' as TaskStatus,
-      startedAt: new Date().toISOString(),
+      status: TaskStatus.Running,
+      startedAt,
+      deadlineAtMs,
       finishedAt: null,
       durationMs: null,
       error: null,
@@ -204,8 +188,8 @@ export class SqliteScheduledTaskStore {
       this.db.transaction(() => {
         this.db
           .prepare(`INSERT INTO zhiyuan_scheduled_task_runs
-        (id, task_id, schedule_version, scheduled_at, session_id, session_key, status, started_at, finished_at, duration_ms, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        (id, task_id, schedule_version, scheduled_at, session_id, session_key, status, started_at, deadline_at_ms, finished_at, duration_ms, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             run.id,
             run.taskId,
@@ -215,6 +199,7 @@ export class SqliteScheduledTaskStore {
             run.sessionKey,
             run.status,
             run.startedAt,
+            run.deadlineAtMs ?? null,
             null,
             null,
             null,
@@ -229,6 +214,12 @@ export class SqliteScheduledTaskStore {
       throw error;
     }
     return run;
+  }
+
+  setRunSession(runId: string, sessionId: string): void {
+    this.db
+      .prepare('UPDATE zhiyuan_scheduled_task_runs SET session_id = ? WHERE id = ?')
+      .run(sessionId, runId);
   }
 
   finishRun(
@@ -246,14 +237,19 @@ export class SqliteScheduledTaskStore {
       SET status = ?, session_id = ?, finished_at = ?, duration_ms = ?, error = ? WHERE id = ?`)
       .run(
         result.status,
-        result.sessionId ?? null,
+        result.sessionId ?? row.session_id,
         finishedAt,
         durationMs,
         result.error ?? null,
         id,
       );
     const state = this.get(row.task_id)?.state ?? initialState();
-    state.runningAtMs = null;
+    const pending = this.db
+      .prepare(
+        'SELECT started_at FROM zhiyuan_scheduled_task_runs WHERE task_id = ? AND status = ? ORDER BY started_at LIMIT 1',
+      )
+      .get(row.task_id, TaskStatus.Running) as { started_at: string } | undefined;
+    state.runningAtMs = pending ? Date.parse(pending.started_at) : null;
     state.lastRunAtMs = Date.parse(finishedAt);
     state.lastStatus = result.status;
     state.lastError = result.error ?? null;
@@ -265,35 +261,15 @@ export class SqliteScheduledTaskStore {
     return {
       id,
       taskId: row.task_id,
-      sessionId: result.sessionId ?? null,
+      sessionId: result.sessionId ?? row.session_id,
       sessionKey: row.session_key,
       status: result.status,
       startedAt: row.started_at,
+      deadlineAtMs: row.deadline_at_ms,
       finishedAt,
       durationMs,
       error: result.error ?? null,
     };
-  }
-
-  /** Imports immutable historical Run data without invoking a runtime. */
-  importLegacyRun(run: ScheduledTaskRun): void {
-    this.db
-      .prepare(`INSERT OR IGNORE INTO zhiyuan_scheduled_task_runs
-      (id, task_id, schedule_version, scheduled_at, session_id, session_key, status, started_at, finished_at, duration_ms, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        run.id,
-        run.taskId,
-        'legacy',
-        run.startedAt,
-        run.sessionId,
-        run.sessionKey,
-        run.status,
-        run.startedAt,
-        run.finishedAt,
-        run.durationMs,
-        run.error,
-      );
   }
 
   listRuns(taskId: string): ScheduledTaskRun[] {
@@ -306,66 +282,6 @@ export class SqliteScheduledTaskStore {
     ).map(row => this.runFromRow(row));
   }
 
-  createDelivery(
-    input: Omit<ScheduledTaskDeliveryRecord, 'id' | 'attemptedAt'> & { attemptedAt?: string },
-  ): ScheduledTaskDeliveryRecord {
-    const delivery: ScheduledTaskDeliveryRecord = {
-      ...input,
-      id: randomUUID(),
-      attemptedAt: input.attemptedAt ?? new Date().toISOString(),
-    };
-    this.db
-      .prepare(`INSERT INTO zhiyuan_scheduled_task_deliveries
-      (id, run_id, task_id, mode, channel, destination, account_id, status, attempted_at, delivered_at, receipt_id, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        delivery.id,
-        delivery.runId,
-        delivery.taskId,
-        delivery.mode,
-        delivery.channel,
-        delivery.to,
-        delivery.accountId,
-        delivery.status,
-        delivery.attemptedAt,
-        delivery.deliveredAt,
-        delivery.receiptId,
-        delivery.error,
-      );
-    return delivery;
-  }
-
-  listDeliveries(runId: string): ScheduledTaskDeliveryRecord[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT * FROM zhiyuan_scheduled_task_deliveries WHERE run_id = ? ORDER BY attempted_at DESC',
-        )
-        .all(runId) as DeliveryRow[]
-    ).map(row => this.deliveryFromRow(row));
-  }
-
-  finishDelivery(
-    id: string,
-    result: Pick<ScheduledTaskDeliveryRecord, 'status' | 'deliveredAt' | 'receiptId' | 'error'>,
-  ): ScheduledTaskDeliveryRecord {
-    const row = this.db
-      .prepare('SELECT * FROM zhiyuan_scheduled_task_deliveries WHERE id = ?')
-      .get(id) as DeliveryRow | undefined;
-    if (!row) throw new Error(`Scheduled task delivery not found: ${id}`);
-    this.db
-      .prepare(`UPDATE zhiyuan_scheduled_task_deliveries
-      SET status = ?, delivered_at = ?, receipt_id = ?, error = ? WHERE id = ?`)
-      .run(result.status, result.deliveredAt, result.receiptId, result.error, id);
-    return this.deliveryFromRow({
-      ...row,
-      status: result.status,
-      delivered_at: result.deliveredAt,
-      receipt_id: result.receiptId,
-      error: result.error,
-    });
-  }
-
   listRunsWithName(): ScheduledTaskRunWithName[] {
     const rows = this.db
       .prepare(`SELECT r.*, t.name FROM zhiyuan_scheduled_task_runs r
@@ -374,44 +290,31 @@ export class SqliteScheduledTaskStore {
     return rows.map(row => ({ ...this.runFromRow(row), taskName: row.name }));
   }
 
-  /** Makes crash-interrupted execution visible instead of leaving a permanent running Run. */
-  recoverInterruptedRuns(onRecovered?: (run: ScheduledTaskRun) => void): number {
-    const finishedAt = new Date().toISOString();
-    const rows = this.db
-      .prepare("SELECT * FROM zhiyuan_scheduled_task_runs WHERE status = 'running'")
-      .all() as RunRow[];
-    for (const row of rows) {
-      const durationMs = Math.max(0, Date.parse(finishedAt) - Date.parse(row.started_at));
-      const error = 'Scheduler interrupted before Pi completion';
+  /** Pending projections are reattached to the same native request after restart. */
+  listPendingRuns(): ScheduledTaskRun[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM zhiyuan_scheduled_task_runs WHERE status = ?')
+        .all(TaskStatus.Running) as RunRow[]
+    ).map(row => this.runFromRow(row));
+  }
+
+  hasTrigger(taskId: string, scheduleVersion: string, scheduledAt: string): boolean {
+    return Boolean(
       this.db
         .prepare(
-          'UPDATE zhiyuan_scheduled_task_runs SET status = ?, finished_at = ?, duration_ms = ?, error = ? WHERE id = ?',
+          'SELECT 1 FROM zhiyuan_scheduled_task_runs WHERE task_id = ? AND schedule_version = ? AND scheduled_at = ?',
         )
-        .run(TaskStatus.Error, finishedAt, durationMs, error, row.id);
-      onRecovered?.({
-        ...this.runFromRow(row),
-        status: TaskStatus.Error,
-        finishedAt,
-        durationMs,
-        error,
-      });
-      const task = this.get(row.task_id);
-      if (task) {
-        const state: TaskState = {
-          ...task.state,
-          runningAtMs: null,
-          lastRunAtMs: Date.parse(finishedAt),
-          lastStatus: TaskStatus.Error,
-          lastError: error,
-          lastDurationMs: durationMs,
-          consecutiveErrors: task.state.consecutiveErrors + 1,
-        };
-        this.db
-          .prepare('UPDATE zhiyuan_scheduled_tasks SET state_json = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify(state), finishedAt, task.id);
-      }
-    }
-    return rows.length;
+        .get(taskId, scheduleVersion, scheduledAt),
+    );
+  }
+
+  setNextRunAt(taskId: string, nextRunAtMs: number | null): void {
+    const task = this.get(taskId);
+    if (!task || task.state.nextRunAtMs === nextRunAtMs) return;
+    this.db
+      .prepare('UPDATE zhiyuan_scheduled_tasks SET state_json = ? WHERE id = ?')
+      .run(JSON.stringify({ ...task.state, nextRunAtMs }), taskId);
   }
 
   private insert(task: ScheduledTask): void {
@@ -421,7 +324,7 @@ export class SqliteScheduledTaskStore {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, enabled=excluded.enabled,
       schedule_json=excluded.schedule_json, session_target=excluded.session_target, wake_mode=excluded.wake_mode,
-      payload_json=excluded.payload_json, delivery_json=excluded.delivery_json, workspace_id=excluded.workspace_id,
+      payload_json=excluded.payload_json, workspace_id=excluded.workspace_id,
       session_key=excluded.session_key, schedule_version=excluded.schedule_version, state_json=excluded.state_json, updated_at=excluded.updated_at`)
       .run(
         task.id,
@@ -432,7 +335,7 @@ export class SqliteScheduledTaskStore {
         task.sessionTarget,
         task.wakeMode,
         JSON.stringify(task.payload),
-        JSON.stringify(task.delivery),
+        '{}', // Retired column remains inert in existing databases; no routing data is read.
         task.workspaceId,
         task.sessionKey,
         task.scheduleVersion,
@@ -460,7 +363,6 @@ export class SqliteScheduledTaskStore {
       sessionTarget: row.session_target as ScheduledTask['sessionTarget'],
       wakeMode: row.wake_mode as ScheduledTask['wakeMode'],
       payload: JSON.parse(row.payload_json),
-      delivery: JSON.parse(row.delivery_json),
       workspaceId: row.workspace_id,
       sessionKey: row.session_key,
       scheduleVersion: row.schedule_version,
@@ -477,24 +379,9 @@ export class SqliteScheduledTaskStore {
       sessionKey: row.session_key,
       status: row.status as TaskStatus,
       startedAt: row.started_at,
+      deadlineAtMs: row.deadline_at_ms,
       finishedAt: row.finished_at,
       durationMs: row.duration_ms,
-      error: row.error,
-    };
-  }
-  private deliveryFromRow(row: DeliveryRow): ScheduledTaskDeliveryRecord {
-    return {
-      id: row.id,
-      runId: row.run_id,
-      taskId: row.task_id,
-      mode: row.mode as DeliveryMode,
-      channel: row.channel,
-      to: row.destination,
-      accountId: row.account_id,
-      status: row.status as ScheduledTaskDeliveryRecord['status'],
-      attemptedAt: row.attempted_at,
-      deliveredAt: row.delivered_at,
-      receiptId: row.receipt_id,
       error: row.error,
     };
   }

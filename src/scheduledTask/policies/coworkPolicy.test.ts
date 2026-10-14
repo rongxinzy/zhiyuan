@@ -1,21 +1,8 @@
 import { expect, test } from 'vitest';
 
-import {
-  BindingKind,
-  DeliveryChannel,
-  DeliveryMode,
-  OriginKind,
-  SessionTarget,
-} from '../constants';
+import { BindingKind, OriginKind, SessionTarget } from '../constants';
 import { makeModel } from '../fixtures';
 import { CoworkTaskPolicy } from './coworkPolicy';
-
-test('CoworkPolicy.getCreateDefaults: with cowork origin -> sessionTarget main + channel last', () => {
-  const policy = new CoworkTaskPolicy();
-  const defaults = policy.getCreateDefaults({ kind: OriginKind.Cowork, sessionId: 's1' });
-  expect(defaults.sessionTarget).toBe(SessionTarget.Main);
-  expect(defaults.delivery!.channel).toBe(DeliveryChannel.Last);
-});
 
 test('CoworkPolicy.getCreateDefaults: with non-cowork origin -> throws Error', () => {
   const policy = new CoworkTaskPolicy();
@@ -24,63 +11,14 @@ test('CoworkPolicy.getCreateDefaults: with non-cowork origin -> throws Error', (
   );
 });
 
-test('CoworkPolicy.getCreateDefaults: with im origin -> throws Error', () => {
-  const policy = new CoworkTaskPolicy();
-  expect(() =>
-    policy.getCreateDefaults({
-      kind: OriginKind.IM,
-      platform: 'telegram',
-      conversationId: 'c1',
-    } as any),
-  ).toThrow(/Invalid origin/);
-});
-
 test('CoworkPolicy.normalizeDraft: any draft -> returns unchanged', () => {
   const policy = new CoworkTaskPolicy();
   const draft = makeModel({
     origin: { kind: OriginKind.Cowork, sessionId: 's1' },
     binding: { kind: BindingKind.UISession, sessionId: 's1' },
-    delivery: { mode: DeliveryMode.Announce, channel: DeliveryChannel.Last },
   });
   const result = policy.normalizeDraft(draft);
   expect(result).toEqual(draft);
-});
-
-test('CoworkPolicy.normalizeDraft: with im delivery -> still returns unchanged', () => {
-  const policy = new CoworkTaskPolicy();
-  const draft = makeModel({
-    origin: { kind: OriginKind.Cowork, sessionId: 's1' },
-    binding: { kind: BindingKind.UISession, sessionId: 's1' },
-    delivery: { mode: DeliveryMode.Announce, channel: 'telegram' },
-  });
-  const result = policy.normalizeDraft(draft);
-  expect(result).toEqual(draft);
-});
-
-test('CoworkPolicy.onDeliveryChanged: any delivery change -> binding unchanged', () => {
-  const policy = new CoworkTaskPolicy();
-  const draft = makeModel({
-    origin: { kind: OriginKind.Cowork, sessionId: 'sess-1' },
-    binding: { kind: BindingKind.UISession, sessionId: 'sess-1' },
-    delivery: { mode: DeliveryMode.None },
-  });
-  const result = policy.onDeliveryChanged(draft, {
-    mode: DeliveryMode.Announce,
-    channel: 'telegram',
-  });
-  expect(result.binding).toEqual(draft.binding);
-  expect(result.delivery).toEqual({ mode: DeliveryMode.Announce, channel: 'telegram' });
-});
-
-test('CoworkPolicy.onDeliveryChanged: webhook delivery -> binding still unchanged', () => {
-  const policy = new CoworkTaskPolicy();
-  const draft = makeModel({
-    origin: { kind: OriginKind.Cowork, sessionId: 's1' },
-    binding: { kind: BindingKind.UISession, sessionId: 's1' },
-    delivery: { mode: DeliveryMode.Announce, channel: 'discord' },
-  });
-  const result = policy.onDeliveryChanged(draft, { mode: DeliveryMode.Webhook });
-  expect(result.binding).toEqual(draft.binding);
 });
 
 test('CoworkPolicy.toWireBinding: ui_session binding -> managed sessionKey', () => {

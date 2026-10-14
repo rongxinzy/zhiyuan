@@ -22,7 +22,6 @@ export const selectIsStreaming = (state: RootState) => {
   return state.cowork.streamingSessionIds.includes(session.id);
 };
 export const selectIsCoworkActive = (state: RootState) => state.cowork.isCoworkActive;
-export const selectRemoteManaged = (state: RootState) => state.cowork.remoteManaged;
 export const selectCoworkConfig = (state: RootState) => state.cowork.config;
 export const selectDraftPrompts = (state: RootState) => state.cowork.draftPrompts;
 export const selectPendingPermissions = (state: RootState) => state.cowork.pendingPermissions;

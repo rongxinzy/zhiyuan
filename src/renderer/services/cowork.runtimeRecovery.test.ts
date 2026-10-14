@@ -5,7 +5,6 @@ import coworkReducer, {
   addSession,
   recoverSession,
   setDraftPrompt,
-  setRemoteManaged,
   updateSessionStatus,
 } from '../store/slices/coworkSlice';
 import {
@@ -115,7 +114,6 @@ test('lost completion is recovered and background resync preserves all user sele
   await coworkService.init();
   state.dispatch(addSession(session('A')));
   state.dispatch(setDraftPrompt({ sessionId: 'A', draft: 'unsent' }));
-  state.dispatch(setRemoteManaged(true));
   publish(sequencer.next({ type: PiUiEventType.Started, sessionId: 'B' }));
   publish(sequencer.next({ type: PiUiEventType.Completed, sessionId: 'B' }), true);
   publish(sequencer.next({ type: PiUiEventType.QueueUpdated, sessionId: 'B', items: [] }));
@@ -123,7 +121,6 @@ test('lost completion is recovered and background resync preserves all user sele
   expect(state.getState().cowork.currentSessionId).toBe('A');
   expect(state.getState().cowork.currentSession?.id).toBe('A');
   expect(state.getState().cowork.draftPrompts.A).toBe('unsent');
-  expect(state.getState().cowork.remoteManaged).toBe(true);
   expect(state.getState().workspace.currentWorkspaceId).toBe('workspace-A');
   expect(state.getState().agent.currentAgentId).toBe('agent-A');
   expect(workspaceService.selectWorkspace).not.toHaveBeenCalled();

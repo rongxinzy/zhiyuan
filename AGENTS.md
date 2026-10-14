@@ -4,7 +4,7 @@
 
 ## 核心原则
 
-1. **Pi First。** `src/main/libs/agentEngine/piRuntimeAdapter.ts` 是唯一执行内核（Work/Chat/Channel/Cron 全走它）。新能力优先用 Pi 原生机制，不在 harness 层重造。
+1. **Pi First。** `src/main/libs/agentEngine/piRuntimeAdapter.ts` 是进入 Pi Durable 的应用适配层（Work/Chat/Cron 全走原生执行）。新能力优先用 Pi 原生机制，不在 harness 层重造。
 2. **Harness 不得劣化 Pi。** 提示注入、工具包装、闸门、拦截、强制纠偏等不得浪费 token、制造模型摩擦或扭曲行为基线；被证明劣化的机制直接移除，不加固。反例：强制模型先调 `set_task_output` 声明交付物（#786 引入、#917 移除），不得重新引入。
 3. **设计合规是前端 P0 门禁。** 见下文「前端设计规则」。设计违规即阻断缺陷，功能可用或测试通过不能抵消。
 
@@ -26,17 +26,17 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 
 ## 产品与品牌
 
-知远智能体 (ZhiYuan Agent)：Electron + React 本地优先 AI Agent 桌面应用（Cowork 会话、本地推理、Skills/MCP、Artifacts 预览）。
+知远智能体 (ZhiYuan Agent)：Electron + React 本地优先 AI Agent 桌面应用（Cowork 会话、本地推理、计划任务、Artifacts 预览）。
 
-- 对外文案只用「知远智能体 (ZhiYuan Agent)」，旧名不得复活。Pi、cc-connect、llama.cpp 是内部细节，不得出现在用户可见文案；对外称全栈自研。
+- 对外文案只用「知远智能体 (ZhiYuan Agent)」，旧名不得复活。Pi、llama.cpp 是内部细节，不得出现在用户可见文案；对外称全栈自研。
 - **焦土政策**：旧标识、旧运行时、旧库文件不做迁移、兼容层、读取、启动、打包或回退；旧数据原地弃置，不主动删除。不做用户未要求的向后兼容。
 
 ## 架构
 
 ### 进程
 
-- **Main**（`src/main/main.ts`）：窗口、SQLite（better-sqlite3，`sqliteStore.ts`，库文件 userData/`zhiyuan.sqlite`）、Pi 运行时、llama.cpp 生命周期（`libs/llamacppManager.ts`、`src/shared/llamacpp/`）、Skill 管理（`skillManager.ts`）、MCP、IPC handler。安全：contextIsolation 开、nodeIntegration 关、sandbox 开。
-- **Channel/Cron 传输**（`src/main/libs/ccConnect*`、`src/main/im/`）：只搬运事件与 cron 触发，不执行 Agent、不持有任务状态。对外渠道：微信、企业微信、钉钉、飞书/Lark、QQ、Email；旧 connector 不得在 UI/文档重新暴露。
+- **Main**（`src/main/main.ts`）：窗口、SQLite（better-sqlite3，`sqliteStore.ts`，库文件 userData/`zhiyuan.sqlite`）、Pi Durable 运行时、llama.cpp 生命周期（`libs/llamacppManager.ts`、`src/shared/llamacpp/`）、IPC handler。安全：contextIsolation 开、nodeIntegration 关、sandbox 开。
+- **计划任务**（`src/scheduledTask/`）：宿主时钟只负责到点触发，执行、恢复与去重使用原生 Durable Task；SQLite 保留任务设置与运行结果投影。外部 IM 渠道与 cc-connect 传输已移除。
 - **Preload**（`src/main/preload.ts`）：`window.electron`，含 `cowork` 命名空间。
 - **Renderer**（`src/renderer/`）：全部 UI 与业务逻辑，只经 IPC 访问主进程；非 UI 逻辑放 `src/renderer/services/`。
 
@@ -46,43 +46,33 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 
 - Worker 要求：入出参可序列化、隔离可变状态、有界池 ≤2、可取消、限输入/队列、结构化错误、尽量传 ArrayBuffer。主进程负责校验路径与结果、执行写操作、维护用户可见状态，并记录新任务排队/运行耗时。
 - 永不进 Worker：Electron API、SQLite 连接/事务、agent 会话生命周期、工具审批、流排序、密钥、renderer/DOM。
-- **Touch-to-refactor**：改动含阻塞扫描/哈希/解析/转换的组件（Skill 安全扫描、artifact 收集哈希、备份快照哈希、模型目录扫描、大 artifact 解析等）时，同 PR 抽到 Worker，附边界测试与前后耗时/事件循环延迟证据；不可分离的部分在 PR 说明保留边界。
+- **Touch-to-refactor**：改动含阻塞扫描/哈希/解析/转换的组件（artifact 收集哈希、备份快照哈希、模型目录扫描、大 artifact 解析等）时，同 PR 抽到 Worker，附边界测试与前后耗时/事件循环延迟证据；不可分离的部分在 PR 说明保留边界。
 
 ### Cowork 与数据流
 
 - `App.tsx` → `coworkService.init()` → IPC 加载配置/会话 → 流监听；`startSession()` → IPC → `PiRuntimeAdapter` → 流事件 → Redux。
 - 流事件：`message` / `messageUpdate` / `permissionRequest` / `complete` / `error`。权限请求经 `CoworkPermissionModal` 回传引擎。
-- IPC：`cowork:startSession`、`continueSession`、`stopSession`、`getSession`、`listSessions`、`deleteSession`、`respondToPermission`、`getConfig`、`setConfig`。`cowork:stream:*` 承载 Work/Chat；Channel/Cron run 以只读 activity 投影暴露。
+- IPC：`cowork:startSession`、`continueSession`、`stopSession`、`getSession`、`listSessions`、`deleteSession`、`respondToPermission`、`getConfig`、`setConfig`。`cowork:stream:*` 承载 Work/Chat；计划任务运行结果以只读 activity 投影暴露。
 - 执行模式 `CoworkExecutionMode`：`auto` / `local`。
-- 存储：`cowork_sessions` / `cowork_messages`；应用配置在 `kv`；Cowork 配置在 `cowork_config`；Task/Run/Delivery/ChannelAccount/ChannelSession 以 ZhiYuan SQLite 为准。
+- 存储：`cowork_sessions` / `cowork_messages`；应用配置在 `kv`；Cowork 配置在 `cowork_config`；原生 Durable 保存执行事实；应用 SQLite 保存配置、历史展示及计划任务设置投影。
 - 认证：deep-link `authCode` 换 2h access + 30d refresh token（`auth_tokens`）；`fetchWithAuth()` 在 401 或剩余 <5 分钟时刷新并轮换。见 `src/renderer/services/api.ts`。
 
-### 托管 Python 运行时
+### 原生工具与工作文档
 
-首启同步到 `userData/runtimes/`，两层：
-
-- `resources/python-win|mac|linux`：便携 CPython（uv 管理），agent shell PATH 基础解释器，`UV_PYTHON` 绑定。
-- `resources/skill-python/layers/shared`：合并所有内置 Skill requirements 的单个 uv venv，经 `applyManagedPythonEnv`（`src/main/libs/managedPythonEnv.ts`）前置到 PATH。Windows 需 `python3.exe` 别名（安装脚本创建，`ensureSharedSkillWindowsPython3Alias` 自愈）。`run_skill_script` 经 `findSkillPythonExecutable` 解析并强制 per-Skill `requirementsSha256` manifest 门。
-- **模型面策略三处必须同步**：`SYSTEM_PROMPT.md`（托管环境与工具节）、`piPythonEnvGuidelines.ts`（`python-runtime` contribution，用户覆盖系统提示后仍生效）、`piBashToolGuidelines.ts` 的 `getPiBashPythonEnvViolation`（拦截向托管解释器 pip install、直接 `python` 调内置 Skill 脚本）。
-
-### 记忆系统
-
-本地 Engram（`vendor/engram-runtime`）+ SQLite 投影表 `memory_links` / `memory_candidates` / `memory_outbox`。
-
-- 作用域：`project`（id = `workspace-` + sha256(cwd)，见 `src/main/workspaceUtils.ts`、`src/shared/memory/constants.ts`）；`personal`（`personal://zhiyuan-agent/user`，写入进候选队列，用户确认后生效）；`session`（摘要，30 天 TTL）。
-- 写入：Work 模式 `memory` 工具（`src/main/memory/piMemoryTool.ts`）先经 `AtomicMemoryExtractor`；每轮后 `runPostTurnMemoryMaintenance`。
-- 注入：每轮前 `buildProjectMemoryContextSafe`，预算 project/personal/session = 900/250/350 token。Chat 不用记忆；IM/Cron 同 Work。旧 `MEMORY.md` 只在启动时导入为候选，永不注入 prompt。
+- 基础执行工具使用官方 CodingTools 的 `read` / `write` / `edit` / `bash`，在宿主环境和项目工作目录执行。不要假设解释器、包管理器或第三方库已安装。
+- 旧 Skill/MCP 管理、托管 Python/uv、自动安装与 IM 渠道已经移除；不得恢复旧目录读取、启动、环境注入或安装链。旧用户数据原地保留，不主动清理。
+- 工作文档由 `src/main/libs/agentEngine/durable/workDocument.ts` 中的 `WorkDocumentDoc` 承载，属于 conversation scope，支持 rewind/asOf。`WorkDocumentExtension` 提供 `update_work_document` 与提示上下文。
+- `src/shared/durable/workDocument.ts` 定义 goal / agreements / decisions / progress 及 revision / updatedAt；UI 修改带 expectedRevision，避免覆盖并发更新。不要重建 Engram 或独立记忆投影与自动抽取链。
 
 ### 其他
 
 - **Artifacts**：HTML/React 跑隔离 iframe，SVG 经 DOMPurify，Mermaid 严格安全模式——改渲染器不得破坏这些边界。
 - **TS**：`tsconfig.json`（renderer）、`electron-tsconfig.json`（主进程，CommonJS → `dist-electron/`）；别名 `@` → `src/renderer/`。
-- **Skills**：`SKILLs/` 是 Pi 运行时的内置 skill（经 `skills.config.json`），不是 IDE/agent 插件 skill。
 - **llama.cpp**：服务级选项管 `llama-server` 进程，模型级选项在加载/运行时传入。
 
 ### 企业扩展（enterprise/）
 
-- `enterprise/` 是知远企业客户端扩展（自 zhiyuanAaaS 仓库迁入，源提交 `7adec4a`）：企业会话、托管模型投影、Agent 控制循环、托管 Skill 与企业设置渲染器。迁移代码保持原仓库结构（`enterprise/src/`），不适用本仓 renderer 的主题与设计体系。
+- `enterprise/` 是知远企业客户端扩展（自 zhiyuanAaaS 仓库迁入，源提交 `7adec4a`）：企业会话、托管模型投影与企业设置渲染器。迁移代码保持原仓库结构（`enterprise/src/`），不适用本仓 renderer 的主题与设计体系。
 - 独立构建：`bun run build:enterprise` 产出 `enterprise/dist/extension.cjs`（tsup 单文件 CJS）与 `enterprise/dist/ui/`；测试 `bun run test:enterprise`，类型检查 `bun run typecheck:enterprise`，包体验证 `bun run verify:enterprise:bundle`。根 `npm test` 的 include 不覆盖 `enterprise/`。
 - 宿主经 `src/main/enterpriseExtension` 契约加载：打包产物位于 `resources/zhiyuan-enterprise/extension.cjs`，开发覆盖用 `ZHIYUAN_ENTERPRISE_EXTENSION_DEV_PATH` 指向本地 bundle。UI bundle 是独立 document，不进入主渲染器主题系统。
 - 企业版 Windows 打包走手动 workflow「Build Zhiyuan Enterprise Windows package (manual)」（输入 version 与 aep_base_url），overlay 配置是 `electron-builder.enterprise.cjs`（社区流程 `electron-builder.json` 不加载它），本地入口 `bun run dist:win:enterprise`。打包产物有意不含 Admin Console bundle（控制台仍是 zhiyuanAaaS 的 Web 部署应用）。
@@ -96,7 +86,7 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 - 视觉规范唯一来源是 [DESIGN.md](DESIGN.md)，具体数值只在那里维护。优先级：AGENTS.md / DESIGN.md > 项目 UI skills（`frontend-ui-change-strategy`、`rongxinai-ui-adapter`）> `design-taste-frontend` > `high-end-visual-design` > 组件库默认、历史代码、个人审美。规范间有实质冲突时指出冲突点，不得自选较宽松的一方。
 - 改 UI 前必须读 DESIGN.md 相关章节、受影响组件及其 token/recipe，并看下方范例。「原来就是这么写的」不是理由。
 - 「美化/优化/现代化」不是自由发挥许可。禁止擅自新增色系、字号/圆角/阴影档、装饰光晕、动画、嵌套卡片、Hero、导航层级或虚构状态。
-- 新视觉语义：先更新 DESIGN.md 与契约，再实现全部主题；禁止先实现再改规范背书。
+- 新视觉语义：先更新 DESIGN.md 与契约，再实现默认浅深外观；禁止先实现再改规范背书。
 - 偏离已批准设计须取得用户明确授权（本轮已授权的不重复问），写入 DESIGN.md 并在 PR 列出。其他 agent 同意或工具默认不算授权。
 - 禁止绕过验收：不删弱检查项、不关审计、不扩白名单、不加无依据例外、不未经用户验收覆盖基准截图。
 
@@ -120,7 +110,7 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 
 ### 组件
 
-先查再写，禁止自造轮子。用户只能选整套主题 + 浅色/深色/跟随系统，不加其他独立样式设置。
+先查再写，禁止自造轮子。用户只能选默认外观的浅色/深色/跟随系统，不加其他独立样式设置。
 
 - **shadcn/ui**（`src/shared/components/ui/`）：页面 tab 只用 `PageTabs`（放 PageHeader tabs 槽），分段/筛选只用 `FluidTabs`，删除确认只用 `DestructiveConfirmDialog`。
 - **ai-elements**（`src/shared/components/ai-elements/`）：聊天/推理/工具/附件/代码等展示必须用它。
@@ -129,25 +119,22 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 - Button 的 className 只许布局类（`w-full`、`justify-start`、`gap-*`），外观走 variant/size。行级可点区域不用裸 `div onClick`（见 DESIGN.md「Button 使用纪律」）。
 - 结构组合用 Tailwind `className` + `cn()`（`@shared/lib/utils`）。Tailwind v4，无 `tailwind.config.js`；优先 shorthand variant（`data-active:` 而非 `data-[active]:`）。
 
-### 主题系统
+### 默认外观与组件 recipe
 
-主题包是仓库内注册的展示数据，不是插件或用户 CSS。详见 `src/renderer/theme/README.md`。
+产品只保留默认一套浅色/深色外观，支持跟随系统。没有多主题注册、主题包管理、导入导出、动态样式注入或背景定制。
 
-- 入口：`themes/plugins.ts`（注册；每套主题必须提供完整 light/dark）、`themes/types.ts`（`ThemeDefinition`）、`tokens/contract.ts`、`components/contract.ts`（hook/状态/属性白名单）、`theme/components/`（控件 recipe）、`engine/` + `components/css.ts`（生成与原位应用）。
-- `css/themes.css` 只由 `bun run theme:generate` 生成，禁止手改或全局覆盖。
-- **布局归组件**（DOM、排列、滚动、命中区、键盘、焦点、禁用语义、父容器填充、flex 收缩）；**外观归 recipe**（控件自身尺寸、内边距、字体、边框、圆角、阴影、透明度、状态动效）。禁止在页面/包装组件/原生控件/运行时 DOM 写局部颜色、圆角、阴影、字号、尺寸或状态样式；语义色 utility 也不得绕过 recipe。
-- 改外观先找现有 recipe；新语义先扩共享 variant/size 或注册 hook，再补齐所有主题。
-- 每个 hook 声明 `COMPONENT_STATES` 全部状态（无独立视觉用 `recipe()` 补空对象）。主题只能填白名单属性，禁止任意选择器、脚本、事件、IPC、CSS 注入、未登记变量。稳定 hook 不依赖会被包装层替换的 `data-slot`；第三方样式优先级只在引擎固定集成点处理，禁止提权重或 `!important`。
-- 切主题不得改 React key、重建编辑器、清草稿，不改变焦点、滚动、选中、弹层、事件和持久化；动效遵守 `prefers-reduced-motion`。
-- 背景由主题包提供，不新增用户侧设置、存储键或覆盖入口。
+- `themes/classic-light.ts` / `classic-dark.ts` 为默认 token，`tokens/contract.ts` 与 `components/contract.ts` 保留共享契约。
+- `theme/components/` 保留组件 recipe；改外观优先修改现有 recipe，兼顾默认浅深两种外观。
+- `css/themes.css` 由 `bun run theme:generate` 编译生成；运行时只改根元素明暗标识，不重建组件、不清输入或焦点。
+- 已存历史主题标识与文件不删除、不加载；不得恢复主题包或用户 CSS 入口。
 
 ### 前端工作流程
 
 1. **改前**：列出涉及的 DESIGN.md 章节、复用组件、token/recipe 入口、受影响页面/状态。
 2. **委派**：传递规范、范例与验收条件；委派方负责最终逐项验收，不只接受「已完成」。
 3. **改后**：逐项完成 DESIGN.md「十、落地检查清单」，每项标「通过 / 不适用（理由）/ 未通过（问题）」，未通过继续修。
-4. **实际渲染**（`bun run electron:dev`）：light/dark；适用状态（hover/pressed/selected/disabled/invalid/open）；键盘焦点；窄窗口、长文本、动态内容、portal；reduced-motion；用改了 recipe 的主题热切换，确认新值生效且草稿/焦点/选中/弹层/滚动保留；检查实际尺寸与溢出。
-5. **自查要点**：视觉中心与主动作是否清楚、分组是否靠留白与字阶；是否新增多余颜色/边框/阴影/动效/卡片层/重复标题；是否有调用点绕过 recipe 或只适配单一主题。
+4. **实际渲染**（`bun run electron:dev`）：light/dark；适用状态（hover/pressed/selected/disabled/invalid/open）；键盘焦点；窄窗口、长文本、动态内容、portal；reduced-motion；切换默认浅深外观，确认新值生效且草稿/焦点/选中/弹层/滚动保留；检查实际尺寸与溢出。
+5. **自查要点**：视觉中心与主动作是否清楚、分组是否靠留白与字阶；是否新增多余颜色/边框/阴影/动效/卡片层/重复标题；是否有调用点绕过 recipe 或漏掉浅色或深色外观。
 
 截图、测试、lint 各证明不同事项，互不替代；自动检查不覆盖设计判断。纯文档改动只做一致性与链接检查，不宣称 UI 验收。
 
@@ -194,9 +181,9 @@ export type SessionTarget = (typeof SessionTarget)[keyof typeof SessionTarget];
 ## 测试与验证
 
 - 代码改动后跑 `bun run lint` 并清零警告；提交前 `bun run format:check`。
-- 改 token/recipe/生成器：`bun run theme:generate`。改共享契约/主题引擎：另跑 `bunx vitest run src/renderer src/shared`、`bun run build`、`bun run test:bundle-budget`。
+- 改 token/recipe/生成器：`bun run theme:generate`。改共享契约/外观生成器：另跑 `bunx vitest run src/renderer src/shared`、`bun run build`、`bun run test:bundle-budget`。
 - 单测与源码同目录，只用 `.test.ts`，`import { test, expect } from 'vitest'`；避免 import Electron-only API（如 electron-log）。新建/修改的测试必须跑到通过。
-- 全量测试有少量环境相关存量失败（skill smoke、release manifest 等）。遇失败用 `git stash` 对照 HEAD 判断是否由你引入。
+- 全量测试有少量环境相关存量失败（release manifest 等）。遇失败用 `git stash` 对照 HEAD 判断是否由你引入。
 - **Provider 回放**：`tests/piLongTaskReplay.test.ts` 用录制磁带（`tests/replay/tapes/longtask-32doc.jsonl.gz`）对完整 Pi adapter 栈跑 32 文档长任务，做严格 seq+hash 匹配，prompt 组装、工具接线或完成语义漂移即失败。prompt/场景有意变更后重录：`AB_LONGTASK=record AB_LONGTASK_UPSTREAM_API_KEY=<token> bunx vitest run tests/abLongTask.harness.test.ts`（live 上游与模型见 `tests/replay/piLongTaskScenario.ts`；2026-10 起算力为 64K 上下文单模型部署，场景规模据此定为 32 文档）。
 - UI 改动在 `bun run electron:dev` 验证关键流程：Cowork（发 prompt、批准/拒绝权限、停止）、Artifacts（HTML/SVG/Mermaid/React）、Settings（主题/语言切换）；console 无新增警告/错误。
 
@@ -226,7 +213,7 @@ export type SessionTarget = (typeof SessionTarget)[keyof typeof SessionTarget];
 
 ## 外部 Skills
 
-- 产品界面（Work/Chat/Settings/MCP/Skills/本地推理等）以 DESIGN.md + 共享组件 + `rongxinai-ui-adapter` 为准，不套营销页默认。landing/营销/品牌页用 `design-taste-frontend`；明确需要高级视觉或复杂动效才读 `high-end-visual-design`。可选 `shadcn/ui`、`vercel/ai-elements`、impeccable（`bunx impeccable install`，`/impeccable`）。
+- 产品界面（Work/Chat/Settings/本地推理等）以 DESIGN.md + 共享组件 + `rongxinai-ui-adapter` 为准，不套营销页默认。landing/营销/品牌页用 `design-taste-frontend`；明确需要高级视觉或复杂动效才读 `high-end-visual-design`。可选 `shadcn/ui`、`vercel/ai-elements`、impeccable（`bunx impeccable install`，`/impeccable`）。
 - 任何 skill 只补充本文件，不能取消设计自查或绕过已验收基准。
 
 ## 跨仓协作规范

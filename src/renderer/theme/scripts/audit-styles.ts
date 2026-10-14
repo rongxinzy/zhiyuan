@@ -118,5 +118,5 @@ for (const match of editorSource.matchAll(/'(\.cm-search-[^']+)'\s*:\s*\{([^}]+)
 }
 if (violations.length) throw new Error(violations.join('\n'));
 console.log(
-  `[Theme] ${scanned} component modules audited; color sources belong to theme plugins or documented content artwork.`,
+  `[Theme] ${scanned} component modules audited; color sources belong to default appearance recipes or documented content artwork.`,
 );

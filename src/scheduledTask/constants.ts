@@ -1,7 +1,7 @@
 /**
  * Centralized constants for the scheduledTask module.
  *
- * Every discriminated-union kind value, delivery mode, session target, wake mode,
+ * Every discriminated-union kind value, session target, wake mode,
  * status code, IPC channel name, and magic string lives here as an `as const`
  * object.  Types are derived from these objects so that values and types share
  * a single source of truth.
@@ -25,19 +25,6 @@ export const PayloadKind = {
   SystemEvent: 'systemEvent',
 } as const;
 export type PayloadKind = (typeof PayloadKind)[keyof typeof PayloadKind];
-
-// ─── Delivery Mode ──────────────────────────────────────────────────────────
-export const DeliveryMode = {
-  None: 'none',
-  Announce: 'announce',
-  Webhook: 'webhook',
-} as const;
-export type DeliveryMode = (typeof DeliveryMode)[keyof typeof DeliveryMode];
-
-// ─── Delivery Channel (magic values) ────────────────────────────────────────
-export const DeliveryChannel = {
-  Last: 'last',
-} as const;
 
 // ─── Session Target ─────────────────────────────────────────────────────────
 export const SessionTarget = {
@@ -69,7 +56,6 @@ export type WakeMode = (typeof WakeMode)[keyof typeof WakeMode];
 // ─── Task Origin Kind ───────────────────────────────────────────────────────
 export const OriginKind = {
   Legacy: 'legacy',
-  IM: 'im',
   Cowork: 'cowork',
   Manual: 'manual',
 } as const;
@@ -79,7 +65,6 @@ export type OriginKind = (typeof OriginKind)[keyof typeof OriginKind];
 export const BindingKind = {
   NewSession: 'new_session',
   UISession: 'ui_session',
-  IMSession: 'im_session',
   SessionKey: 'session_key',
 } as const;
 export type BindingKind = (typeof BindingKind)[keyof typeof BindingKind];
@@ -93,21 +78,12 @@ export const TaskStatus = {
 } as const;
 export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
 
-export const DeliveryStatus = {
-  Pending: 'pending',
-  Success: 'success',
-  Error: 'error',
-  Skipped: 'skipped',
-} as const;
-export type DeliveryStatus = (typeof DeliveryStatus)[keyof typeof DeliveryStatus];
-
 // ─── Default Agent ID ───────────────────────────────────────────────────────
 
 // ─── Policy Run-Behavior Descriptions ───────────────────────────────────────
 export const RunBehavior = {
   newSession: 'Creates a new session on each trigger',
   uiSession: 'Runs within the associated UI session',
-  imSession: (platform: string) => `Triggers and delivers results via ${platform}`,
   sessionKey: 'Runs with an explicit managed session key',
 } as const;
 
@@ -122,13 +98,9 @@ export const IpcChannel = {
   RunManually: 'scheduledTask:runManually',
   Stop: 'scheduledTask:stop',
   ListRuns: 'scheduledTask:listRuns',
-  ListDeliveries: 'scheduledTask:listDeliveries',
   CountRuns: 'scheduledTask:countRuns',
   ListAllRuns: 'scheduledTask:listAllRuns',
   ResolveSession: 'scheduledTask:resolveSession',
-  ListChannels: 'scheduledTask:listChannels',
-  ListChannelConversations: 'scheduledTask:listChannelConversations',
-  Preflight: 'scheduledTask:preflight',
   StatusUpdate: 'scheduledTask:statusUpdate',
   RunUpdate: 'scheduledTask:runUpdate',
   Refresh: 'scheduledTask:refresh',
