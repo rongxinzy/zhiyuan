@@ -14,7 +14,13 @@ concurrency:
 jobs:
   windows-job-object:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      HUSKY: '0'
+      PYTHON_RUNTIME_INTEGRATION: '1'
+      PYTHON_RUNTIME_RUNNER: '${{ github.workspace }}/dist-electron/python-runtime-runner.js'
+      PYTHON_RUNTIME_JOB_HELPER: '${{ github.workspace }}/resources/python-runtime/job-runner.exe'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -26,6 +32,15 @@ jobs:
         run: ./scripts/python-runtime/build-job-runner.ps1
       - name: Verify descendant containment and parent-death cleanup
         run: node --test scripts/python-runtime/job-runner.test.cjs
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run apply:patches
+      - name: Bundle the independent Runner
+        run: bun build src/main/pythonRuntime/runner.ts --target=node --format=cjs --outfile=dist-electron/python-runtime-runner.js
+      - name: Verify Windows standalone Python and real uv wheel environments
+        run: bun x --no-install vitest run src/main/pythonRuntime/runtime.integration.test.ts --maxWorkers=1
   linux-standalone-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 20
