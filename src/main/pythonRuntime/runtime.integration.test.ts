@@ -1,5 +1,5 @@
 import { fork } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -40,7 +40,9 @@ describe.skipIf(!enabled)('real standalone Python + uv workspace runtime', () =>
       timeoutMs: 300000,
     });
     expect(result.stdout).toContain('(3, 12)');
-    expect(result.stdout).toContain(workspace);
+    // Windows TEMP can use an 8.3 alias while Python reports the canonical long path.
+    const reportedCwd = result.stdout.trim().split(/\r?\n/)[1];
+    expect(await realpath(reportedCwd)).toBe(await realpath(workspace));
     expect(result.stderr).toContain('stderr');
     expect(result.exitCode).toBe(9);
   }, 310000);
