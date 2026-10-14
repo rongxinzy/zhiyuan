@@ -146,14 +146,16 @@
 - 本地完整 renderer/shared 260 套 / 1439 项通过；综合原生 / 内容回放 / Coding / 当前打包契约 22 套 / 194 项通过。双类型、lint / 格式、清洁总 build、生产-only 目录解析与包预算通过。原 8 项过时打包失败已迁为 14 项当前合同并通过，纳入现行 CI；不再作为未解决失败保留。
 - [代码已发布](https://github.com/rongxinzy/zhiyuan/commit/bcf948b7e4870c786ebd0394ec1d535d6db29b3b)，[本批 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38553560618)：renderer/shared 1439 项、原生执行 67 项、内容回放 / Coding 113 项、历史 25 项、侧车与当前打包契约 106 项通过，5 项平台 / opt-in 跳过；总 build、包预算与隔离 production-only 安装解析通过。云端缺少真实 Magpie 平台产物、Windows Job helper 和 Electron 可执行文件，未进行完整安装包解包 / 启动验收；已有安全限制不绕过，视觉 / 安装包手工验收仍未完成。
 
-## 15. Windows x64 可验收安装包 — 实施中
+## 15. Windows x64 可验收安装包 — 已生成，实际安装与自动验收通过
 
-- 用户要求准备好后提供 CI 中的 exe 下载，不以源码构建成功替代安装验收。新增独立按需 Windows CI：手动触发或验收脚本变更时运行，不恢复旧签名 / 发布自动化。
-- 无签名 NSIS 安装包；固定原样 Magpie 与 MIT / 哈希、Windows Job Object、包内 Runner / SQLite / WASM 需实际检查。Python 继续现有首次使用联网下载固定 PBS / uv 并校验的路径，不宣称离线预装。
-- 计划验收：清洁总 build、隔离生产依赖解析、安装到 CI 临时目录、真实 Electron 窗口及预加载接口、包内 Magpie 启停、包内 Python 最小执行；使用临时用户数据，不登录真实账号或调用付费模型。
-- 完整验收通过后才上传 exe、SHA-256、源提交与日志 / 截图，保留 14 天；失败只上传诊断。完成前不提供可验收下载链接。实际 Windows 结果待本批 CI，不沿用源码测试冒充。
-- 用户追加要求：Windows Agent 采用 Pi 1.2 原生 PowerShell 工具，优先 pwsh、回退系统 Windows PowerShell；Unix 保持 Bash。Git CLI 单独提供，不能把 Git Bash 当成 Windows Agent 必需条件。此项正在接入同一权限桥与安装后真实工具验收，未以旧 Bash 诊断包交付。
-- 已确认并修复的 Windows 集成阻断：ASAR 路径分隔符、大小写文件名碰撞、Git 归档 CRLF 造成的固定哈希差异、NSIS 可选按钮回调、旧七组件硬编码及 PowerShell 模块路径下的哈希调用。当前安装已实际成功且真实设置页已渲染；最终 PowerShell / Magpie / Python 全链路验收仍待完成。
+- [验收代码 c71f42c2](https://github.com/rongxinzy/zhiyuan/commit/c71f42c2aadc68d0ac0681f5d235f8380700896a) 的[完整 Windows CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38586504578)与[源码 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38586504365)均成功。独立按需流水线不使用签名秘密、不发布 Release；只有实际安装后全链通过才上传 exe。
+- [验收 artifact](https://github.com/rongxinzy/zhiyuan/actions/runs/38586504578/artifacts/11906239721) 是 ZIP，内含 `ZhiYuan-Agent-Acceptance-2026.7.16-x64.exe`、源提交、校验清单、日志与真实窗口截图；保留至 2026-10-28 15:25:20 UTC。实际下载并重新计算 exe SHA-256：`5f839757d03e2b7ad938be86f235f1c773ba57363b708fe40cb25530bbc61374`，与构建 manifest 一致。
+- 清洁总 build、隔离 production-only 依赖解析、固定原样 Magpie / MIT / 哈希、包内 Runner / Job Object / SQLite / WASM 检查通过。实际 NSIS 安装 exit 0；安装后的 Electron 首页可加载及交互，无记录的主进程 / 渲染崩溃。真实截图保存在 artifact 的 evidence 中，不能据此宣称所有页面 / 窄窗 / 深色均已视觉验收。
+- 安装产物原位调用 Magpie 正常启停；Python Runner 使用真实 Windows Job Object，首次联网下载并校验固定 PBS 3.12.15 / uv，在独立 venv 执行得到 42。首次 Python 使用需要网络，不宣称离线预装。
+- Windows Agent 使用 Pi 1.2 原生 PowerShell 工具，优先 pwsh、回退系统 Windows PowerShell；Unix 保持 Bash。安装后在无系统 Git PATH 的环境分别通过 PowerShell 7.6 / 5.1 的 Unicode、引号、空格工作目录、非零退出、审批拒绝不执行、主动停止杀子进程、Git worktree 检查。Git 精确解析到安装包管理的 PortableGit；完整 Git 发行包含的 Bash 文件不是 Windows Agent 默认工具要求。
+- 修复了真实 Windows 集成阻断：ASAR 路径分隔符、大小写文件名碰撞、Git 归档 CRLF 导致固定哈希差异、NSIS 可选回调、旧七组件硬编码、模块路径下哈希调用与首次浏览反复跳设置。PATHEXT 缺失属于验收隔离环境缺项，已补标准值；不误称生产 Git 缺陷。
+- 此 CI 机器系统 5.1 的四次独立 profile / 交叉对照启动约 25.4–27.0 秒，和 Electron 环境标志无相关差异。因此仅系统 5.1 验收普通命令预算调整为 60 秒；生产工具超时及 pwsh 预算不变，取消后的子进程退出仍须 10 秒内验证。该机器性能不代表所有用户机器。
+- 安装包无签名，可能显示系统信誉 / 未验证发布者提示。没有真实账户登录、付费模型调用或用户桌面操作；签名 / 发行认证、用户实机手工验收、完整视觉矩阵与真实 GPU 工作负载仍未完成。
 
 ## 六阶段基线验证与剩余验收
 
@@ -161,8 +163,8 @@
 
 - [全库轻量 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38520513595)：双类型检查、renderer/shared 1831 项、原生执行与档案 53 项、侧车与打包契约 23 项、renderer 构建。侧车 2 项 opt-in / 平台测试跳过；Linux 原样 Go 进程纵切已另行实际执行。
 - [Python Linux / Windows 专项 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38520513522)：使用真实下载校验后的运行时和真实系统进程，不以 mock 代替安装或进程清理。
-- 尚未做：Electron 桌面视觉与完整重启手工验收；最终安装包、签名、公证与发行；macOS / ARM64 Python 运行矩阵；真实 GPU 工作负载；全链路离线验收。
-- 能力边界：进程与依赖隔离不是文件系统 / 网络沙箱；外部工具副作用不保证 exactly-once；不承诺跨工作长期记忆；Magpie 非 Linux 平台目前只有原样交叉编译与哈希校验。
+- 尚未做：完整 Electron 视觉矩阵与重启手工验收、签名 / 公证 / 正式发行、macOS / ARM64 Python 运行矩阵、真实 GPU 工作负载、全链路离线验收。Windows x64 实际安装及自动化原位运行已在第 15 项通过。
+- 能力边界：进程与依赖隔离不是文件系统 / 网络沙箱；外部工具副作用不保证 exactly-once；不承诺跨工作长期记忆；Magpie Windows x64 已在第 15 项实际安装启停，其余非 Linux 平台仍只有原样交叉编译与哈希校验。
 
 ## 发布与验收规则
 
