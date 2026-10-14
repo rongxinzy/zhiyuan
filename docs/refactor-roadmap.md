@@ -38,23 +38,25 @@
 - 本项是用户最新明确方向，覆盖旧 AGENTS 的保留全部主题要求。
 - 验证：24 项主题回归、静态生成检查与样式审计通过；CSS 由约 2.98 MB 降至 0.80 MB。实际桌面视觉检查尚未执行。[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/ff6e9dd370f5293c42122c8ac9278ae2dba8d30e)。
 
-## 5. Magpie 本地 Coding Agent 管理 — 已实现，发布确认中
+## 5. Magpie 本地 Coding Agent 管理 — 已发布并通过 CI
 
 依赖：2；现有 Coding 正常功能保留。
 
 - [上游 Magpie](https://github.com/yetone/magpie/blob/main/README.zh-CN.md) 固定源码版本，Go 代码原样编译为随包独立二进制，不修改或重写上游 Go 引擎。
 - 前端可移植；保留 MIT 许可与归属。管理本地 agent、版本与模型配置的具体范围按核实后的上游能力实施。
 - 已固定上游 f074996d93b87b17ea682c4b5951d52794bb28cb，Go 1.26.8 原样交叉编译六个平台；MIT、源码归档与产物哈希随构建留存。默认不启动，启用须用户明确确认本机 CLI 配置同步。
-- 验证：Linux 真实二进制发现临时 Codex 配置、官方 API 更改模型、停止进程通过；Main/Preload/哈希 Worker 构建及 Worker 实际校验通过；18 项打包测试通过、1 项 Windows 专属测试跳过。其余平台只有交叉编译结果，未冒充实机运行。待远端发布确认。
+- 验证：Linux 真实二进制发现临时 Codex 配置、官方 API 更改模型、停止进程通过；Main/Preload/哈希 Worker 构建及 Worker 实际校验通过；18 项打包测试通过、1 项 Windows 专属测试跳过。其余平台只有交叉编译结果，未冒充实机运行。[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/145102b1fffa9e5aa649a14f2b2a9a34f37ab685)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38518213887)。
 
-## 6. 新 Python Runtime — 实现中
+## 6. 新 Python Runtime — 已接入，平台验证中
 
 依赖：1、2；不恢复旧 managedPython / Skill 环境。
 
 - python-build-standalone，固定 Python 3.12.x 并按兼容矩阵升级；uv；不使用 Git Bash。
 - workspace 独立 venv；Main Process 调度独立 Runner；Windows Job Object 管理进程树。
 - 提供 python.execute / python.install，运行时版本化及环境重建。
-- 验证要求：平台兼容矩阵、依赖安装权限、取消/超时/退出进程清理、工作区隔离、重建与版本升级、实际 Windows 验证。未发布。
+- 实际工作入口已注册 Python 工具，复用原生审批；通过 Main 的惰性服务启动独立 Runner。模型协议使用 python_execute / python_install，避免工具名中的点被 provider 拒绝。
+- Linux 已验证固定 3.12.15、uv 安装 packaging 与 NumPy 原生 wheel、工作区隔离、失败保留原环境、冻结依赖重建、取消和超时清理进程树；实际会话入口回归证明批准前不执行。双类型检查和 lint 通过。
+- Windows Job Object 源码与真实父/孙进程 CI 已加入，仍待 Windows 执行结果；Windows ARM64 无当前固定版本资产，明确不支持。macOS 资产已固定，尚未实机验证。Runner 被强制杀死时的 Linux 清理边界正在补强。
 
 第二批远端验证：[IM / Cron / Document / 单主题 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38517317459)。
 

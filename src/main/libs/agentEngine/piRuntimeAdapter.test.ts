@@ -8,9 +8,14 @@ const fixture = vi.hoisted(() => ({
   directory: '',
   calls: 0,
   tools: false,
+  python: false,
   hold: false,
   failFirst: false,
   release: undefined as undefined | (() => void),
+}));
+const pythonExecute = vi.hoisted(() => vi.fn());
+vi.mock('../../pythonRuntime/host', () => ({
+  getPythonRuntimeService: () => ({ execute: pythonExecute }),
 }));
 vi.mock('electron', () => ({ app: { getPath: () => fixture.directory } }));
 vi.mock('./durable/provider', () => ({
@@ -42,8 +47,10 @@ vi.mock('./durable/provider', () => ({
                 {
                   type: 'toolCall',
                   id: 'write-1',
-                  name: 'write',
-                  arguments: { path: join(fixture.directory, 'result.txt'), content: 'approved' },
+                  name: fixture.python ? 'python_execute' : 'write',
+                  arguments: fixture.python
+                    ? { code: 'print(6)' }
+                    : { path: join(fixture.directory, 'result.txt'), content: 'approved' },
                 },
               ]
             : [{ type: 'text', text: 'Native answer' }],
@@ -91,6 +98,10 @@ beforeEach(async () => {
   fixture.directory = await mkdtemp(join(tmpdir(), 'zhiyuan-native-entry-'));
   fixture.calls = 0;
   fixture.tools = false;
+  fixture.python = false;
+  pythonExecute
+    .mockReset()
+    .mockResolvedValue({ stdout: '6\n', stderr: '', exitCode: 0, environmentId: 'fixture-env' });
   fixture.hold = false;
   fixture.failFirst = false;
   fixture.release = undefined;
@@ -295,4 +306,32 @@ test('closing the app detaches a scheduled waiter without declaring durable fail
   await expect.poll(() => fixture.calls).toBe(1);
   await runtime.close();
   await detached;
+});
+
+test('actual native work exposes Python and waits for approval before dispatching its Runner', async () => {
+  fixture.tools = true;
+  fixture.python = true;
+  const permission = vi.fn();
+  const complete = vi.fn();
+  runtime.on('permissionRequest', permission);
+  runtime.on('complete', complete);
+  await runtime.startSession('python-entry', 'Calculate with Python', {
+    workspaceRoot: fixture.directory,
+    sessionMode: 'work',
+  });
+  await expect.poll(() => permission.mock.calls.length).toBe(1);
+  expect(pythonExecute).not.toHaveBeenCalled();
+  const request = permission.mock.calls[0][1];
+  expect(request.toolName).toBe('python_execute');
+  runtime.respondToPermission(request.requestId, { behavior: 'allow' });
+  await expect.poll(() => complete.mock.calls.length).toBe(1);
+  expect(pythonExecute).toHaveBeenCalledWith(
+    { workspace: fixture.directory, code: 'print(6)' },
+    expect.any(AbortSignal),
+  );
+  expect(
+    [...messages.values()].some(
+      message => message.type === 'tool_result' && message.content.includes('fixture-env'),
+    ),
+  ).toBe(true);
 });

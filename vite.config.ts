@@ -180,6 +180,21 @@ export default defineConfig(async ({ command }) => {
                 onstart() {},
               },
               {
+                entry: 'src/main/pythonRuntime/runner.ts',
+                vite: {
+                  build: {
+                    watch: command === 'serve' ? {} : null,
+                    sourcemap: electronSourceMap,
+                    outDir: 'dist-electron',
+                    minify: false,
+                    rolldownOptions: {
+                      output: { format: 'cjs', entryFileNames: 'python-runtime-runner.js' },
+                    },
+                  },
+                },
+                onstart() {},
+              },
+              {
                 // 主进程入口文件
                 entry: 'src/main/main.ts',
                 vite: {

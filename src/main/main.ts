@@ -177,6 +177,7 @@ import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
 import { registerDurableIpc } from './libs/agentEngine/durable/ipc';
 import { registerWorkDocumentIpc } from './libs/agentEngine/durable/workDocumentIpc';
 import { MagpieManager } from './magpie/manager';
+import { shutdownPythonRuntime } from './pythonRuntime/host';
 import { registerMagpieIpc } from './magpie/registerIpc';
 import type { PiThinkingLevel } from './libs/agentEngine/piRuntimeTypes';
 import { PiModelCatalogRefreshCoordinator } from './libs/agentEngine/piModelCatalogRefresh';
@@ -5090,6 +5091,7 @@ if (!gotTheLock) {
     // Stop all active Pi sessions without blocking shutdown.
     console.log('[Main] Stopping cowork sessions...');
     if (piRuntimeAdapter) await piRuntimeAdapter.close();
+    await shutdownPythonRuntime();
 
     await piModelCatalogRefreshCoordinator?.stop();
     piModelCatalogRefreshCoordinator = null;

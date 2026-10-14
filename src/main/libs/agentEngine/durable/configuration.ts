@@ -1,3 +1,5 @@
+import { getPythonRuntimeService } from '../../../pythonRuntime/host';
+import { createPythonTools } from './pythonTools';
 import { WorkDocumentDoc, WorkDocumentExtension } from './workDocument';
 import type { AgentChange, HarnessOptions } from '@earendil-works/pi-durable';
 import { classifyWorkbenchToolRisk } from '../../../workbenchTask/riskClassifier';
@@ -7,7 +9,7 @@ import {
 } from '../../../../shared/workbenchTask';
 import type { PiStartOptions } from '../piRuntimeTypes';
 import { DurableApprovalBroker } from './approvalBroker';
-import { authorizeNativeTool } from './toolBridge';
+import { authorizeNativeTool, type DurableToolBridgeOptions } from './toolBridge';
 import type { DurableConfiguration } from './runtimeHost';
 
 export async function buildDurableConfiguration(input: {
@@ -26,38 +28,41 @@ export async function buildDurableConfiguration(input: {
   const registry = createRegistry();
   registry.install(WorkDocumentExtension);
   if (input.options.sessionMode !== 'chat' && input.options.confirmationMode !== 'text') {
+    const authorization: DurableToolBridgeOptions = {
+      authorize: async call => {
+        const mode = input.approvalMode();
+        const risk = classifyWorkbenchToolRisk(call.toolName, call.toolInput);
+        if (mode === WorkbenchApprovalMode.AllowAll || risk === WorkbenchApprovalRiskLevel.ReadOnly)
+          return { allow: true };
+        if (input.options.unattended)
+          return {
+            allow: false,
+            reason: 'This action requires approval from the user.',
+            terminateRun: true,
+          };
+        const result = await input.approvals.ask(
+          input.sessionId,
+          call.toolName,
+          call.toolInput,
+          call.callId,
+          call.signal,
+        );
+        return result.behavior === 'allow'
+          ? { allow: true, updatedInput: result.updatedInput }
+          : { allow: false, reason: result.message, terminateRun: true };
+      },
+    };
     registry.install({
       ...CodingTools,
-      tools: CodingTools.tools?.map(tool =>
-        authorizeNativeTool(tool, {
-          authorize: async call => {
-            const mode = input.approvalMode();
-            const risk = classifyWorkbenchToolRisk(call.toolName, call.toolInput);
-            if (
-              mode === WorkbenchApprovalMode.AllowAll ||
-              risk === WorkbenchApprovalRiskLevel.ReadOnly
-            )
-              return { allow: true };
-            if (input.options.unattended)
-              return {
-                allow: false,
-                reason: 'This action requires approval from the user.',
-                terminateRun: true,
-              };
-            const result = await input.approvals.ask(
-              input.sessionId,
-              call.toolName,
-              call.toolInput,
-              call.callId,
-              call.signal,
-            );
-            return result.behavior === 'allow'
-              ? { allow: true, updatedInput: result.updatedInput }
-              : { allow: false, reason: result.message, terminateRun: true };
-          },
-        }),
-      ),
+      tools: CodingTools.tools?.map(tool => authorizeNativeTool(tool, authorization)),
     });
+    registry.install(
+      createPythonTools(
+        getPythonRuntimeService(),
+        input.options.workspaceRoot || process.cwd(),
+        authorization,
+      ),
+    );
   }
   if (input.options.systemPrompt?.trim()) {
     registry.install({

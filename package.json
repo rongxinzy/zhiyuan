@@ -107,7 +107,8 @@
     "theme:check": "bun src/renderer/theme/scripts/generate-css.ts --check",
     "theme:audit": "bun src/renderer/theme/scripts/audit-styles.ts",
     "magpie:build": "node scripts/build-magpie-runtime.cjs",
-    "magpie:verify": "node scripts/verify-magpie-runtime.cjs"
+    "magpie:verify": "node scripts/verify-magpie-runtime.cjs",
+    "python:build:job-runner": "pwsh -NoProfile -File scripts/python-runtime/build-job-runner.ps1"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.70.0",

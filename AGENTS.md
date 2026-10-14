@@ -60,6 +60,7 @@ Node >=24 <25，Bun >=1.3。包管理与脚本一律用 Bun（`bun install`、`b
 ### 原生工具与工作文档
 
 - 基础执行工具使用官方 CodingTools 的 `read` / `write` / `edit` / `bash`，在宿主环境和项目工作目录执行。不要假设解释器、包管理器或第三方库已安装。
+- 新 Python Runtime 使用固定 python-build-standalone 3.12 与 uv、每工作区独立 venv、Main 调度独立 Runner；模型工具 python_execute / python_install 经原生审批，Windows 必须使用 Job Object helper。详见 `src/main/pythonRuntime/README.md`。
 - 旧 Skill/MCP 管理、托管 Python/uv、自动安装与 IM 渠道已经移除；不得恢复旧目录读取、启动、环境注入或安装链。旧用户数据原地保留，不主动清理。
 - 工作文档由 `src/main/libs/agentEngine/durable/workDocument.ts` 中的 `WorkDocumentDoc` 承载，属于 conversation scope，支持 rewind/asOf。`WorkDocumentExtension` 提供 `update_work_document` 与提示上下文。
 - `src/shared/durable/workDocument.ts` 定义 goal / agreements / decisions / progress 及 revision / updatedAt；UI 修改带 expectedRevision，避免覆盖并发更新。不要重建 Engram 或独立记忆投影与自动抽取链。
