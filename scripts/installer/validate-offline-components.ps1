@@ -94,7 +94,7 @@ function Get-Components {
       }
       Test-SafeRelativePath $prefix 'component prefix' | Out-Null
       Test-SafeRelativePath $sentinel 'component sentinel' | Out-Null
-      if ($prefix -cne 'mingit' -or $sentinel.Replace('\', '/') -cne 'mingit/usr/bin/bash.exe') {
+      if ($prefix -cne 'mingit' -or $sentinel.Replace('\', '/') -cne 'mingit/cmd/git.exe') {
         throw "Invalid component target paths: $key"
       }
 

@@ -148,3 +148,16 @@ test('opens approval details and sends the original input when allowed', () => {
     updatedInput: input,
   });
 });
+
+test('shows the native PowerShell name and command without relabeling it Bash', () => {
+  setPersistentToggleNamespace('powershell-tool');
+  const fixture = group('powershell');
+  fixture.toolUse.metadata = {
+    toolName: 'powershell',
+    toolInput: { command: 'Get-ChildItem -LiteralPath "C:\\项目 文件"' },
+  };
+  const view = render(createElement(ToolCard, { group: fixture }));
+  expect(view.getByText('PowerShell')).toBeVisible();
+  expect(view.getByText('Get-ChildItem -LiteralPath "C:\\项目 文件"')).toBeVisible();
+  expect(view.queryByText('Bash')).toBeNull();
+});

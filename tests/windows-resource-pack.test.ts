@@ -44,7 +44,7 @@ describe('Windows offline component identity', () => {
     expect(components[0]).toMatchObject({
       key: 'portable-git',
       prefix: 'mingit',
-      sentinel: 'mingit/usr/bin/bash.exe',
+      sentinel: 'mingit/cmd/git.exe',
     });
     expect(components.map(component => component.key)).not.toContain('openclaw');
   });

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { fork, execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile, cp, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, cp, stat, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -163,14 +163,15 @@ export function runPythonProbe(options, spawnRunner = fork) {
   );
 }
 
-export function runNativeBashProbe(options, spawnRunner = fork) {
+export function runNativeShellProbe(options, spawnRunner = fork) {
   return runPackagedProbe(
-    { ...options, timeoutMs: 45_000 },
+    { ...options, timeoutMs: 120_000 },
     {
       cwd: options.root,
       resourcesRoot: options.resourcesRoot,
+      expectedPowerShellMajor: options.expectedPowerShellMajor,
     },
-    'Packaged native Bash probe',
+    'Packaged native shell probe',
     spawnRunner,
   );
 }
@@ -282,10 +283,10 @@ export async function runSmoke({ executablePath, outputDirectory }) {
     );
     assert.equal(state.packaged, true);
     assert.equal(
-      path.resolve(state.userData),
-      path.resolve(env.ZHIYUAN_MEMORY_LEAK_TEST_USER_DATA),
+      await realpath(state.userData),
+      await realpath(env.ZHIYUAN_MEMORY_LEAK_TEST_USER_DATA),
     );
-    assert.equal(path.resolve(state.appPath), path.resolve(resources, 'app.asar'));
+    assert.equal(await realpath(state.appPath), await realpath(path.join(resources, 'app.asar')));
     for (const window of state.windows) {
       assert.equal(window.destroyed, false);
       assert.equal(window.crashed, false);
@@ -342,19 +343,53 @@ export async function runSmoke({ executablePath, outputDirectory }) {
       runnerPath,
       jobRunnerPath,
     };
-    const nativeBash = await runNativeBashProbe({
-      executablePath,
-      root,
-      env,
-      resourcesRoot: resources,
-      runnerPath: path.join(resources, 'app.asar', 'dist-electron', 'native-execution-smoke.js'),
-    });
-    assert.equal(nativeBash.success, true, nativeBash.error);
-    assert.equal(nativeBash.result.passed, true);
-    assert.equal(nativeBash.result.tool, 'bash');
-    assert.equal(nativeBash.result.approvals, 1);
-    assert.ok(nativeBash.result.output.includes('zhiyuan-native-bash-中文'));
-    report.phases.nativeBash = nativeBash.result;
+    const pwshDirectory = path.join(
+      process.env.ProgramFiles || 'C:\\Program Files',
+      'PowerShell',
+      '7',
+    );
+    assert.ok(
+      (await stat(path.join(pwshDirectory, 'pwsh.exe'))).isFile(),
+      'Acceptance requires real PowerShell 7 for priority coverage',
+    );
+    const shellResults = {};
+    for (const [mode, major] of [
+      ['pwsh', 7],
+      ['windowsPowerShell', 5],
+    ]) {
+      const shellRoot = path.join(root, mode);
+      await mkdir(shellRoot, { recursive: true });
+      const nativeShell = await runNativeShellProbe({
+        executablePath,
+        root: shellRoot,
+        env: { ...env, PATH: major === 7 ? `${pwshDirectory};${env.PATH}` : env.PATH },
+        resourcesRoot: resources,
+        expectedPowerShellMajor: major,
+        runnerPath: path.join(resources, 'app.asar', 'dist-electron', 'native-execution-smoke.js'),
+      });
+      assert.equal(nativeShell.success, true, nativeShell.error);
+      assert.equal(nativeShell.result.passed, true);
+      assert.equal(nativeShell.result.tool, 'powershell');
+      assert.equal(nativeShell.result.powerShellMajor, major);
+      assert.equal(nativeShell.result.approvals, 1);
+      for (const check of [
+        'unicode',
+        'quotedText',
+        'spaceCwd',
+        'nonzero',
+        'approvalDenied',
+        'cancelledChild',
+        'gitWorktree',
+      ]) {
+        assert.equal(
+          nativeShell.result.checks?.[check],
+          true,
+          `Missing native PowerShell check: ${check}`,
+        );
+      }
+      shellResults[mode] = nativeShell.result;
+    }
+    report.phases.nativeShell = { passed: true, ...shellResults };
     // Verify the renderer and main remain healthy after real sidecar work.
     const overlay = page.locator('[data-slot="dialog-overlay"]').first();
     if (await overlay.isVisible()) {

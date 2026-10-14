@@ -6,6 +6,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const assert = require('node:assert/strict');
 const asar = require('@electron/asar');
+const PORTABLE_GIT_REQUIRED_FILES = require('../portable-git-required-files.json');
 const baseHooks = require('../electron-builder-hooks.cjs');
 const { verifyRuntime, sha256File, upstream } = require('../magpie-runtime.cjs');
 const { checkElectronRuntimeDependencies } = require('./check-electron-runtime-dependencies.mjs');
@@ -102,16 +103,19 @@ function verifyPreparedResources(projectRoot = ROOT) {
     report.portableGit.url,
     'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/PortableGit-2.47.1-64-bit.7z.exe',
   );
-  assertPe(path.join(projectRoot, 'resources/mingit/usr/bin/bash.exe'));
-  assertPe(path.join(projectRoot, 'resources/mingit/cmd/git.exe'));
-  assert.equal(
-    sha256File(path.join(projectRoot, 'resources/mingit/usr/bin/bash.exe')),
-    report.portableGit.bashSha256,
+  assert.deepEqual(
+    Object.keys(report.portableGit.files).sort(),
+    [...PORTABLE_GIT_REQUIRED_FILES].sort(),
   );
-  assert.equal(
-    sha256File(path.join(projectRoot, 'resources/mingit/cmd/git.exe')),
-    report.portableGit.gitSha256,
-  );
+  for (const relative of PORTABLE_GIT_REQUIRED_FILES) {
+    const filename = path.join(projectRoot, 'resources/mingit', relative);
+    assertPe(filename);
+    assert.equal(
+      sha256File(filename),
+      report.portableGit.files[relative],
+      `PortableGit changed: ${relative}`,
+    );
+  }
   return { report, magpie };
 }
 

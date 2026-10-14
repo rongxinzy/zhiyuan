@@ -26,6 +26,7 @@ const {
   beforePack,
 } = require('./windows-acceptance-resources.cjs');
 const { upstream, sha256File } = require('../magpie-runtime.cjs');
+const portableGitRequiredFiles: string[] = require('../portable-git-required-files.json');
 const root = path.resolve(__dirname, '../..');
 const temporary: string[] = [];
 
@@ -68,8 +69,12 @@ function fixture() {
   write(project, 'resources/modelscope.tokens.local.json', '{"tokens":[]}');
   const vc = write(project, 'resources/vc_redist.x64.exe', pe(0x14c));
   const helper = write(project, 'resources/python-runtime/job-runner.exe', pe());
-  const bash = write(project, 'resources/mingit/usr/bin/bash.exe', pe());
-  const git = write(project, 'resources/mingit/cmd/git.exe', pe());
+  const gitFiles = Object.fromEntries(
+    portableGitRequiredFiles.map(relative => [
+      relative,
+      sha256File(write(project, `resources/mingit/${relative}`, pe())),
+    ]),
+  );
   const binary = write(project, 'resources/magpie/win32-x64/magpie.exe', pe());
   copyFileSync(
     path.join(root, 'resources/magpie/LICENSE'),
@@ -118,8 +123,7 @@ function fixture() {
       },
       portableGit: {
         url: 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/PortableGit-2.47.1-64-bit.7z.exe',
-        bashSha256: sha256File(bash),
-        gitSha256: sha256File(git),
+        files: gitFiles,
       },
       jobRunnerSha256: sha256File(helper),
     }),
@@ -238,6 +242,17 @@ test('Windows x64 PE inspection rejects missing, malformed and wrong-architectur
 test('complete native resource fixture passes without executing any bundled binary', () => {
   const project = fixture();
   assert.equal(verifyInputs(project).natives.length, 4);
+});
+
+test('Git resource checks require the real executable and DLLs without assigning an agent role to Bash', () => {
+  for (const relative of portableGitRequiredFiles) {
+    const project = fixture();
+    assert.equal(verifyInputs(project).natives.length, 4);
+    appendFileSync(path.join(project, 'resources/mingit', relative), 'tampered');
+    assert.throws(() => verifyInputs(project), /PortableGit changed/);
+    rmSync(path.join(project, 'resources/mingit', relative));
+    assert.throws(() => verifyInputs(project));
+  }
 });
 
 test('ASAR reads normalize scoped and nested member paths for Windows traversal', () => {

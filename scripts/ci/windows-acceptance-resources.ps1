@@ -79,8 +79,11 @@ try {
     $env:ZHIYUAN_PORTABLE_GIT_ARCHIVE = $oldArchive
     $env:ZHIYUAN_PORTABLE_GIT_URL = $oldUrl
   }
-  $gitDownload.bashSha256 = (Get-FileHash -LiteralPath 'resources/mingit/usr/bin/bash.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
-  $gitDownload.gitSha256 = (Get-FileHash -LiteralPath 'resources/mingit/cmd/git.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+  $gitDownload.files = @{}
+  $gitRequiredFiles = Get-Content -LiteralPath 'scripts/portable-git-required-files.json' -Raw | ConvertFrom-Json
+  foreach ($relative in $gitRequiredFiles) {
+    $gitDownload.files[$relative] = (Get-FileHash -LiteralPath (Join-Path 'resources/mingit' $relative) -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
 
   # Never consult .env or account-bearing environment variables for this build.
   [System.IO.File]::WriteAllText((Join-Path $ProjectRoot 'resources\modelscope.tokens.local.json'), "{`"tokens`":[]}`n", [System.Text.UTF8Encoding]::new($false))

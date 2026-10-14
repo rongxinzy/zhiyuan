@@ -1,8 +1,12 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, test } from 'vitest';
-import { nativeExecutionOptions } from './nativeExecutionEnv';
+import { afterEach, expect, test, vi } from 'vitest';
+import type { ToolExecutionApi } from '@earendil-works/pi-durable';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import { ExecutionError } from '@earendil-works/pi-durable/env';
+import { CodingTools } from '@earendil-works/pi-durable/tools';
+import { nativeCodingTools, nativeExecutionOptions } from './nativeExecutionEnv';
 import { runNativeExecutionSmoke } from './nativeExecutionSmoke';
 
 const directories: string[] = [];
@@ -16,56 +20,44 @@ afterEach(async () => {
     await rm(directory, { recursive: true, force: true });
 });
 
-test('Windows selects shipped Bash and prefixes only its toolchain without mutating process environment', async () => {
+test('Windows registers upstream powershell instead of bash and retains native filesystem tools', () => {
+  expect(nativeCodingTools('win32').tools?.map(tool => tool.name)).toEqual([
+    'read',
+    'write',
+    'edit',
+    'powershell',
+  ]);
+  expect(nativeCodingTools('linux')).toBe(CodingTools);
+  expect(nativeCodingTools('darwin')).toBe(CodingTools);
+});
+
+test('Windows has no Bash dependency or shell override and keeps Git and default PowerShell discoverable', async () => {
   const root = await fixture();
-  await mkdir(join(root, 'mingit/bin'), { recursive: true });
-  await mkdir(join(root, 'mingit/usr/bin'), { recursive: true });
-  await writeFile(join(root, 'mingit/bin/bash.exe'), 'fixture only, never executed');
-  await writeFile(join(root, 'mingit/usr/bin/bash.exe'), 'fixture only, never executed');
   const inherited = {
-    Path: 'C:\\Windows\\System32',
-    LANG: 'old',
-    CLAUDE_CODE_GIT_BASH_PATH: 'C:\\unrelated\\bash.exe',
+    Path: 'C:\\Program Files\\PowerShell\\7;C:\\Windows\\System32',
+    SystemRoot: 'C:\\Windows',
   };
+  const before = { ...inherited };
   const options = await nativeExecutionOptions(root, root, 'win32', inherited);
-  expect(options.shellPath).toBe(join(root, 'mingit/bin/bash.exe'));
+  expect(options).not.toHaveProperty('shellPath');
   expect(options.shellEnv).toEqual({
     PATH: [
-      join(root, 'mingit/cmd'),
-      join(root, 'mingit/bin'),
-      join(root, 'mingit/usr/bin'),
+      join(root, 'mingit', 'cmd'),
       inherited.Path,
+      join(inherited.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0'),
     ].join(';'),
-    LANG: 'C.UTF-8',
-    LC_ALL: 'C.UTF-8',
   });
-  expect(inherited).toEqual({
-    Path: 'C:\\Windows\\System32',
-    LANG: 'old',
-    CLAUDE_CODE_GIT_BASH_PATH: 'C:\\unrelated\\bash.exe',
-  });
+  expect(inherited).toEqual(before);
 });
 
-test('Windows uses alternate shipped layout and fails clearly if package is missing', async () => {
-  const root = await fixture();
-  await expect(
-    nativeExecutionOptions(root, root, 'win32', { PATH: 'C:\\system-git' }),
-  ).rejects.toThrow('bundled PortableGit Bash is missing');
-  await mkdir(join(root, 'mingit/usr/bin'), { recursive: true });
-  await writeFile(join(root, 'mingit/usr/bin/bash.exe'), 'fixture only, never executed');
-  expect((await nativeExecutionOptions(root, root, 'win32', {})).shellPath).toBe(
-    join(root, 'mingit/usr/bin/bash.exe'),
-  );
-});
-
-test('other platforms retain native Pi default shell behavior', async () => {
+test('other platforms retain native Pi default environment', async () => {
   expect(await nativeExecutionOptions('/workspace', '/nonexistent', 'linux', {})).toEqual({
     cwd: '/workspace',
   });
 });
 
 test.skipIf(process.platform === 'win32')(
-  'real native Harness executes original CodingTools bash through the product factory and approval wrapper',
+  'actual Unix Harness still executes original bash through the factory and approval wrapper',
   async () => {
     const root = await fixture();
     const result = await runNativeExecutionSmoke(root, root);
@@ -74,3 +66,26 @@ test.skipIf(process.platform === 'win32')(
     expect(result.output).toContain(root);
   },
 );
+
+test('unchanged upstream powershell tries pwsh first and falls back only on a spawn failure', async () => {
+  const tool = nativeCodingTools('win32').tools!.find(tool => tool.name === 'powershell')!;
+  const exec = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, error: new ExecutionError('spawn_error', 'pwsh missing') })
+    .mockResolvedValue({ ok: true, value: { exitCode: 0 } });
+  const api = {
+    env: { cwd: 'workspace', exec },
+    output: vi.fn(),
+    retainedOutput: () => ({ text: 'native', truncated: false }),
+    diagnostic: vi.fn(),
+  } as unknown as ToolExecutionApi;
+  await tool.execute({ command: 'Write-Output native' }, api, BACKGROUND_CONTEXT);
+  expect(exec.mock.calls.map(call => call[0][0])).toEqual(['pwsh', 'powershell']);
+  expect(exec.mock.calls[0][0]).toContain('-NoProfile');
+  expect(exec.mock.calls[0][0].at(-1)).toContain('Write-Output native');
+  exec.mockReset().mockResolvedValue({ ok: true, value: { exitCode: 17 } });
+  const result = await tool.execute({ command: 'exit 17' }, api, BACKGROUND_CONTEXT);
+  expect(exec).toHaveBeenCalledOnce();
+  expect(exec.mock.calls[0][0][0]).toBe('pwsh');
+  expect(result).toMatchObject({ isError: true, structuredOutput: { exitCode: 17 } });
+});

@@ -99,3 +99,27 @@ test('falls back to the only running tool with the same name', () => {
     findToolGroupForPermission([item(onlyBash)], permission({ toolUseId: null, toolInput: {} })),
   ).toBe(onlyBash);
 });
+
+test('matches native PowerShell approvals without matching a Bash call with the same command', () => {
+  const command = 'pwd';
+  const powershell = group(
+    toolUse({
+      metadata: { toolName: 'powershell', toolUseId: 'ps-call', toolInput: { command } },
+    }),
+  );
+  const bash = group(
+    toolUse({
+      metadata: { toolName: 'bash', toolUseId: 'bash-call', toolInput: { command } },
+    }),
+  );
+  expect(
+    findToolGroupForPermission(
+      [item(bash), item(powershell)],
+      permission({
+        toolName: 'powershell',
+        toolUseId: undefined,
+        toolInput: { command },
+      }),
+    ),
+  ).toBe(powershell);
+});

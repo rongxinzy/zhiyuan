@@ -7,7 +7,7 @@ import {
   assertPythonResult,
   assertMagpieStatus,
   runPythonProbe,
-  runNativeBashProbe,
+  runNativeShellProbe,
   deadline,
 } from './windows-app-smoke.mjs';
 
@@ -212,23 +212,41 @@ test('clean Runner exit without an IPC result cannot pass the Python phase', asy
   await expect(pending).rejects.toThrow('Runner exited');
 });
 
-test('native Bash smoke uses the installed entry and product factory request, never an absolute shell probe', async () => {
-  const f = runnerFixture();
-  const runnerPath = 'C:\\installed\\resources\\app.asar\\dist-electron\\native-execution-smoke.js';
-  const pending = runNativeBashProbe(
-    { ...f.options, runnerPath, resourcesRoot: 'C:\\installed\\resources' },
-    f.spawn,
-  );
-  expect(f.spawn).toHaveBeenCalledWith(
-    runnerPath,
-    [],
-    expect.objectContaining({ execPath: f.options.executablePath }),
-  );
-  expect(f.child.send.mock.calls[0][0]).toEqual({
-    cwd: f.options.root,
-    resourcesRoot: 'C:\\installed\\resources',
-  });
-  f.child.emit('message', { success: true, result: { passed: true } });
-  f.child.emit('exit', 0, null);
-  await expect(pending).resolves.toMatchObject({ success: true });
+test.each([7, 5])(
+  'native PowerShell %s smoke uses the installed entry and product factory request',
+  async major => {
+    const f = runnerFixture();
+    const runnerPath =
+      'C:\\installed\\resources\\app.asar\\dist-electron\\native-execution-smoke.js';
+    const pending = runNativeShellProbe(
+      {
+        ...f.options,
+        runnerPath,
+        resourcesRoot: 'C:\\installed\\resources',
+        expectedPowerShellMajor: major,
+      },
+      f.spawn,
+    );
+    expect(f.spawn).toHaveBeenCalledWith(
+      runnerPath,
+      [],
+      expect.objectContaining({ execPath: f.options.executablePath }),
+    );
+    expect(f.child.send.mock.calls[0][0]).toEqual({
+      cwd: f.options.root,
+      resourcesRoot: 'C:\\installed\\resources',
+      expectedPowerShellMajor: major,
+    });
+    f.child.emit('message', { success: true, result: { passed: true } });
+    f.child.emit('exit', 0, null);
+    await expect(pending).resolves.toMatchObject({ success: true });
+  },
+);
+
+test('installed paths are canonicalized without weakening identity assertions', () => {
+  const source = readFileSync(new URL('./windows-app-smoke.mjs', import.meta.url), 'utf8');
+  expect(source).toContain('await realpath(state.userData)');
+  expect(source).toContain('await realpath(env.ZHIYUAN_MEMORY_LEAK_TEST_USER_DATA)');
+  expect(source).toContain('await realpath(state.appPath)');
+  expect(source).toContain("await realpath(path.join(resources, 'app.asar'))");
 });

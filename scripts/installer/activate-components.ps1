@@ -30,13 +30,13 @@ if ($targets.Count -ne $expectedKeys.Count -or ($targetKeys -join ',') -cne ($ex
 $rows = @($targets | ForEach-Object {
   $targetRow = $_
   if ($targetRow.key -notmatch '^[a-z0-9-]+\z' -or $targetRow.prefix -notmatch '^[A-Za-z0-9-]+\z') { throw 'Invalid component target entry' }
-  if ($targetRow.prefix -cne 'mingit' -or ([string]$targetRow.sentinel).Replace('\', '/') -cne 'mingit/usr/bin/bash.exe') { throw 'Invalid component target paths' }
+  if ($targetRow.prefix -cne 'mingit' -or ([string]$targetRow.sentinel).Replace('\', '/') -cne 'mingit/cmd/git.exe') { throw 'Invalid component target paths' }
   $idPath = Join-Path $PluginDir ('component-' + $targetRow.key + '.version')
   $id = (Get-Content -LiteralPath $idPath -Raw -ErrorAction Stop).Trim()
   if ($id -notmatch '^[0-9a-f]{64}\z') { throw 'Invalid component content ID for ' + $targetRow.key }
   $manifestEntry = @($manifest.components | Where-Object { $_.key -eq $targetRow.key })
   if ($manifestEntry.Count -ne 1 -or $manifestEntry[0].prefix -cne $targetRow.prefix -or $manifestEntry[0].contentId -cne $id) { throw "Component manifest mismatch: $($targetRow.key)" }
-  if (([string]$manifestEntry[0].sentinel).Replace('\', '/') -cne 'mingit/usr/bin/bash.exe') { throw 'Component manifest sentinel mismatch' }
+  if (([string]$manifestEntry[0].sentinel).Replace('\', '/') -cne 'mingit/cmd/git.exe') { throw 'Component manifest sentinel mismatch' }
   [pscustomobject]@{ Key = [string]$targetRow.key; Prefix = [string]$targetRow.prefix; Id = $id }
 })
 $prepared = @()

@@ -175,13 +175,13 @@ afterEach(() => {
 test('installer validators enforce the current exact component set and preserve failure reasons', () => {
   const targets = JSON.parse(fs.readFileSync(targetsPath, 'utf8')) as ComponentTarget[];
   expect(targets).toEqual([
-    { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\usr\\bin\\bash.exe' },
+    { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\cmd\\git.exe' },
   ]);
   for (const script of [scriptPath, activationPath]) {
     const source = fs.readFileSync(script, 'utf8');
     expect(source).toContain("$expectedKeys = @('portable-git')");
     expect(source).toContain('no missing, duplicate or unknown components');
-    expect(source).toContain('mingit/usr/bin/bash.exe');
+    expect(source).toContain('mingit/cmd/git.exe');
     expect(source).not.toMatch(/(?:Count\s+-ne\s+7|expected 7 components)/);
   }
   const validator = fs.readFileSync(scriptPath, 'utf8');
@@ -204,7 +204,7 @@ describe.skipIf(process.platform !== 'win32')('offline component cache validator
     });
     expect(cached.status, cached.stderr || cached.stdout).toBe(0);
     expect(cached.stdout).toContain('cache-hit:portable-git');
-    const sentinel = path.join(targetDir(fixture, 'portable-git'), 'mingit/usr/bin/bash.exe');
+    const sentinel = path.join(targetDir(fixture, 'portable-git'), 'mingit/cmd/git.exe');
     fs.appendFileSync(sentinel, 'tampered');
     const rejected = runValidator('cache', fixture.pluginDir, fixture.runtimeRoot, {
       blockFileHashCmdlet: true,

@@ -58,3 +58,30 @@ test('read-only shell commands classify as ReadOnly without approval', () => {
     ToolRiskLevel.Irreversible,
   );
 });
+
+// The native PowerShell tool must not inherit Bash's automatic read permission.
+test.each([
+  'pwd',
+  'ls',
+  'cat a.txt | wc -l',
+  'Get-Location',
+  'Get-ChildItem',
+  'Get-Content file.txt',
+  'Get-ChildItem | Set-Content out.txt',
+  'Get-Content $(Set-Content out.txt changed)',
+  'Get-ChildItem; Remove-Item out.txt',
+  'Get-ChildItem\nSet-Content out.txt changed',
+  '& { Set-Content out.txt changed }',
+  'iex "Set-Content out.txt changed"',
+  'Set-Alias pwd Set-Content; pwd out.txt changed',
+  'node --version',
+  '',
+])('keeps PowerShell behind approval: %s', command => {
+  expect(classifyToolRisk('powershell', { command })).toBe(ToolRiskLevel.Unknown);
+  expect(classifyToolRisk(' PowerShell ', { command })).toBe(ToolRiskLevel.Unknown);
+});
+
+test('malformed PowerShell arguments cannot qualify for automatic approval', () => {
+  expect(classifyToolRisk('powershell', {})).toBe(ToolRiskLevel.Unknown);
+  expect(classifyToolRisk('powershell', { command: ['pwd'] })).toBe(ToolRiskLevel.Unknown);
+});

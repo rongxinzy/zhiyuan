@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { join } from 'node:path';
-import { createNativeExecutionEnv } from './nativeExecutionEnv';
+import { createNativeExecutionEnv, nativeCodingTools } from './nativeExecutionEnv';
 import { getPythonRuntimeService } from '../../../pythonRuntime/host';
 import { createPythonTools } from './pythonTools';
 import { WorkDocumentDoc, WorkDocumentExtension } from './workDocument';
@@ -20,10 +20,8 @@ export async function buildDurableConfiguration(input: {
   approvals: DurableApprovalBroker;
   approvalMode: () => ToolApprovalMode;
 }): Promise<DurableConfiguration> {
-  const [{ createRegistry, section }, { CodingTools }] = await Promise.all([
-    import('@earendil-works/pi-durable'),
-    import('@earendil-works/pi-durable/tools'),
-  ]);
+  const { createRegistry, section } = await import('@earendil-works/pi-durable');
+  const CodingTools = nativeCodingTools();
   const registry = createRegistry();
   registry.install(WorkDocumentExtension);
   if (input.options.sessionMode !== 'chat' && input.options.confirmationMode !== 'text') {

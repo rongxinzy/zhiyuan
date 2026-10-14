@@ -126,7 +126,7 @@ if ($ownedRunFound) {
   }
 }
 
-$files = @('知远.exe', 'resources\app.asar', 'resources\mingit\usr\bin\bash.exe') | ForEach-Object {
+$files = @('知远.exe', 'resources\app.asar', 'resources\mingit\cmd\git.exe') | ForEach-Object {
   $path = Join-Path $InstallRoot $_
   [pscustomobject]@{ path = $path; exists = [bool](Test-Path -LiteralPath $path -PathType Leaf) }
 }

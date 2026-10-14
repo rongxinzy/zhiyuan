@@ -76,7 +76,7 @@ function getWindowsResourceComponents(projectRoot) {
       label: 'PortableGit runtime',
       dir: path.join(projectRoot, 'resources', 'mingit'),
       prefix: 'mingit',
-      sentinel: 'mingit/usr/bin/bash.exe',
+      sentinel: 'mingit/cmd/git.exe',
     },
   ];
 }

@@ -101,21 +101,6 @@ function packWindowsResourceComponent7z(component, archivePath, sevenZipPath) {
   }
 }
 
-function findPackagedBash(appOutDir) {
-  const candidates = [
-    path.join(appOutDir, 'resources', 'mingit', 'bin', 'bash.exe'),
-    path.join(appOutDir, 'resources', 'mingit', 'usr', 'bin', 'bash.exe'),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
 function verifyPackagedPortableGitRuntimeDirs(appOutDir) {
   const requiredDirs = [
     path.join(appOutDir, 'resources', 'mingit', 'dev', 'shm'),
@@ -215,14 +200,11 @@ async function beforePack(context) {
     console.log(
       '[electron-builder-hooks] Windows target detected, ensuring bundled PortableGit...',
     );
-    await ensurePortableGit({ required: true });
-    const portableGitRoot = path.join(__dirname, '..', 'resources', 'mingit');
-    const portableGitBash = [
-      path.join(portableGitRoot, 'bin', 'bash.exe'),
-      path.join(portableGitRoot, 'usr', 'bin', 'bash.exe'),
-    ].find(candidate => existsSync(candidate));
-    if (!portableGitBash) {
-      throw new Error('Bundled PortableGit health check failed before pack: bash.exe is missing.');
+    const portableGit = await ensurePortableGit({ required: true });
+    if (!portableGit.gitPath) {
+      throw new Error(
+        'Bundled PortableGit health check failed before pack: Git CLI is incomplete.',
+      );
     }
   }
 

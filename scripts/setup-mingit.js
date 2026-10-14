@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Prepare PortableGit (with bash.exe) under resources/mingit for Windows packaging/runtime.
+ * Prepare the complete PortableGit distribution under resources/mingit for Windows packaging/runtime.
  *
  * Features:
  * - Cross-platform execution (macOS/Linux can prepare assets for Windows packaging)
@@ -27,24 +27,7 @@ const OUTPUT_DIR = path.join(PROJECT_ROOT, 'resources', 'mingit');
 const DEFAULT_ARCHIVE_PATH = path.join(PROJECT_ROOT, 'resources', PORTABLE_GIT_FILE);
 const RUNTIME_DIRS = [path.join('dev', 'shm'), path.join('dev', 'mqueue')];
 
-const DIRS_TO_PRUNE = [
-  'doc',
-  'ReleaseNotes.html',
-  'README.portable',
-  path.join('mingw64', 'doc'),
-  path.join('mingw64', 'share', 'doc'),
-  path.join('mingw64', 'share', 'gtk-doc'),
-  path.join('mingw64', 'share', 'man'),
-  path.join('mingw64', 'share', 'gitweb'),
-  path.join('mingw64', 'share', 'git-gui'),
-  path.join('mingw64', 'libexec', 'git-core', 'git-gui'),
-  path.join('mingw64', 'libexec', 'git-core', 'git-gui--askpass'),
-  path.join('usr', 'share', 'doc'),
-  path.join('usr', 'share', 'man'),
-  path.join('usr', 'share', 'vim'),
-  path.join('usr', 'share', 'perl5'),
-  path.join('usr', 'lib', 'perl5'),
-];
+const PORTABLE_GIT_REQUIRED_FILES = require('./portable-git-required-files.json');
 
 function parseArgs(argv) {
   return {
@@ -98,19 +81,10 @@ function resolve7zaPath() {
   return path7za;
 }
 
-function findPortableGitBash(baseDir = OUTPUT_DIR) {
-  const candidates = [
-    path.join(baseDir, 'bin', 'bash.exe'),
-    path.join(baseDir, 'usr', 'bin', 'bash.exe'),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
+function findPortableGit(baseDir = OUTPUT_DIR) {
+  return PORTABLE_GIT_REQUIRED_FILES.every(relative => isNonEmptyFile(path.join(baseDir, relative)))
+    ? path.join(baseDir, 'cmd', 'git.exe')
+    : null;
 }
 
 async function downloadArchive(url, destination) {
@@ -139,23 +113,6 @@ async function downloadArchive(url, destination) {
     }
     throw error;
   }
-}
-
-function pruneUnneededFiles() {
-  let prunedCount = 0;
-  for (const relPath of DIRS_TO_PRUNE) {
-    const fullPath = path.join(OUTPUT_DIR, relPath);
-    if (!fs.existsSync(fullPath)) continue;
-    try {
-      fs.rmSync(fullPath, { recursive: true, force: true });
-      prunedCount++;
-    } catch (error) {
-      console.warn(
-        `[setup-mingit] Warning: Could not remove ${relPath}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-  console.log(`[setup-mingit] Pruned ${prunedCount} entries.`);
 }
 
 function extractArchive(archivePath) {
@@ -255,38 +212,38 @@ async function ensurePortableGit(options = {}) {
     console.log(
       '[setup-mingit] Skip on non-Windows host (pass --required to force cross-platform preparation).',
     );
-    return { ok: true, skipped: true, bashPath: null };
+    return { ok: true, skipped: true, gitPath: null };
   }
 
-  const existingBash = findPortableGitBash();
-  if (existingBash) {
+  const existingGit = findPortableGit();
+  if (existingGit) {
     ensurePortableGitRuntimeDirs(required);
-    console.log(`[setup-mingit] PortableGit already prepared: ${existingBash}`);
-    return { ok: true, skipped: false, bashPath: existingBash };
+    console.log(`[setup-mingit] PortableGit already prepared: ${existingGit}`);
+    return { ok: true, skipped: false, gitPath: existingGit };
   }
 
   const archive = await resolveArchive(required);
   if (!archive) {
-    return { ok: true, skipped: true, bashPath: null };
+    return { ok: true, skipped: true, gitPath: null };
   }
 
   extractArchive(archive.archivePath);
-  const resolvedBash = findPortableGitBash();
-  if (!resolvedBash) {
+  const resolvedGit = findPortableGit();
+  if (!resolvedGit) {
     throw new Error(
-      'PortableGit extraction finished but bash.exe is missing. ' +
-        `Checked: ${path.join(OUTPUT_DIR, 'bin', 'bash.exe')} and ${path.join(OUTPUT_DIR, 'usr', 'bin', 'bash.exe')}`,
+      'PortableGit extraction is missing the Git launcher, implementation or required DLLs: ' +
+        PORTABLE_GIT_REQUIRED_FILES.join(', '),
     );
   }
 
   ensurePortableGitRuntimeDirs(required);
-  pruneUnneededFiles();
+  // Keep the official distribution intact, including transport helpers and their libraries.
 
   const finalSize = getDirSize(OUTPUT_DIR);
-  console.log(`[setup-mingit] PortableGit ready: ${resolvedBash}`);
+  console.log(`[setup-mingit] PortableGit ready: ${resolvedGit}`);
   console.log(`[setup-mingit] Total size: ~${(finalSize / 1024 / 1024).toFixed(1)} MB`);
 
-  return { ok: true, skipped: false, bashPath: resolvedBash };
+  return { ok: true, skipped: false, gitPath: resolvedGit };
 }
 
 async function main() {
@@ -303,5 +260,5 @@ if (require.main === module) {
 
 module.exports = {
   ensurePortableGit,
-  findPortableGitBash,
+  findPortableGit,
 };

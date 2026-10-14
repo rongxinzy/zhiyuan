@@ -152,6 +152,8 @@
 - 无签名 NSIS 安装包；固定原样 Magpie 与 MIT / 哈希、Windows Job Object、包内 Runner / SQLite / WASM 需实际检查。Python 继续现有首次使用联网下载固定 PBS / uv 并校验的路径，不宣称离线预装。
 - 计划验收：清洁总 build、隔离生产依赖解析、安装到 CI 临时目录、真实 Electron 窗口及预加载接口、包内 Magpie 启停、包内 Python 最小执行；使用临时用户数据，不登录真实账号或调用付费模型。
 - 完整验收通过后才上传 exe、SHA-256、源提交与日志 / 截图，保留 14 天；失败只上传诊断。完成前不提供可验收下载链接。实际 Windows 结果待本批 CI，不沿用源码测试冒充。
+- 用户追加要求：Windows Agent 采用 Pi 1.2 原生 PowerShell 工具，优先 pwsh、回退系统 Windows PowerShell；Unix 保持 Bash。Git CLI 单独提供，不能把 Git Bash 当成 Windows Agent 必需条件。此项正在接入同一权限桥与安装后真实工具验收，未以旧 Bash 诊断包交付。
+- 已确认并修复的 Windows 集成阻断：ASAR 路径分隔符、大小写文件名碰撞、Git 归档 CRLF 造成的固定哈希差异、NSIS 可选按钮回调、旧七组件硬编码及 PowerShell 模块路径下的哈希调用。当前安装已实际成功且真实设置页已渲染；最终 PowerShell / Magpie / Python 全链路验收仍待完成。
 
 ## 六阶段基线验证与剩余验收
 

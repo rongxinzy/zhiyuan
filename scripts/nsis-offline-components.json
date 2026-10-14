@@ -2,6 +2,6 @@
   {
     "key": "portable-git",
     "prefix": "mingit",
-    "sentinel": "mingit\\usr\\bin\\bash.exe"
+    "sentinel": "mingit\\cmd\\git.exe"
   }
 ]

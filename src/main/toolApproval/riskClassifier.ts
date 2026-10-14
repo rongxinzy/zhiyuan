@@ -48,6 +48,9 @@ export function classifyToolRisk(toolName: string, input: Record<string, unknown
     return ToolRiskLevel.ReadOnly;
   }
   if (reversibleTools.has(normalizedName)) return ToolRiskLevel.Reversible;
+  // PowerShell has different aliases, providers, argument evaluation, and pipelines.
+  // Never reuse the Bash read-only allowlist: unknown commands require approval.
+  if (normalizedName === 'powershell') return ToolRiskLevel.Unknown;
   if (normalizedName === 'bash' || normalizedName === 'shell') {
     const command = typeof input.command === 'string' ? input.command : JSON.stringify(input);
     if (isSafeShellCommand(command)) return ToolRiskLevel.ReadOnly;

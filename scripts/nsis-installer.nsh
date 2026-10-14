@@ -634,7 +634,15 @@ Var /GLOBAL zyDeleteRealAppData
 
   DetailPrint "[Installer] Verifying bundled runtimes"
   !insertmacro ZY_ProgressPhase VERIFYING "$(ZY_PHASE_VERIFYING)"
-  IfFileExists "$INSTDIR\resources\mingit\usr\bin\bash.exe" 0 InstalledRuntimeVerificationFailed
+  ; Verify Git's launcher, implementation and the non-system DLL imports of
+  ; the pinned full PortableGit distribution. Agent execution uses native PowerShell.
+  IfFileExists "$INSTDIR\resources\mingit\cmd\git.exe" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\mingw64\bin\git.exe" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\mingw64\bin\libiconv-2.dll" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\mingw64\bin\libintl-8.dll" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\mingw64\bin\libpcre2-8-0.dll" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\mingw64\bin\libwinpthread-1.dll" 0 InstalledRuntimeVerificationFailed
+  IfFileExists "$INSTDIR\resources\mingit\mingw64\bin\zlib1.dll" 0 InstalledRuntimeVerificationFailed
   Goto OfflineComponentsReady
   InstalledRuntimeVerificationFailed:
     StrCpy $R9 "离线运行环境连接校验失败。请重新运行安装器。"

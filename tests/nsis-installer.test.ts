@@ -216,7 +216,7 @@ describe('NSIS offline resource and local inference flow', () => {
       'New-Item -ItemType Junction -Path $next -Target $target -Force -ErrorAction Stop',
     );
     expect(offlineComponents).toEqual([
-      { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\usr\\bin\\bash.exe' },
+      { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\cmd\\git.exe' },
     ]);
   });
 

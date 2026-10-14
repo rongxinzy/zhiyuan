@@ -56,6 +56,8 @@ export const getToolDisplayName = (toolName: string | undefined): string => {
     case 'bash':
     case 'shell':
       return 'Bash';
+    case 'powershell':
+      return 'PowerShell';
     case 'read':
     case 'readfile':
       return 'Read';
@@ -194,6 +196,7 @@ export const getToolInputSummary = (
   switch (normalizeToolName(toolName)) {
     case 'cron':
       return getCronToolSummary(input);
+    case 'powershell':
     case 'bash':
     case 'exec':
     case 'shell':
