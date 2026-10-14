@@ -99,8 +99,10 @@ test('model selection is a draft until Apply uses the exact official agent field
   await screen.findByText('magpieState_running');
   await user.click(screen.getByRole('button', { name: 'magpieRefreshManagement' }));
   await screen.findByText('Codex');
-  await user.click(screen.getByRole('combobox', { name: 'Codex · model' }));
-  await user.click(screen.getByRole('option', { name: 'vendor/new' }));
+  const modelPicker = screen.getByRole('combobox', { name: 'Codex · model' });
+  await waitFor(() => expect(modelPicker).toBeEnabled());
+  await user.click(modelPicker);
+  await user.click(await screen.findByRole('option', { name: 'vendor/new' }));
   expect(api.setModel).not.toHaveBeenCalled();
   await user.click(screen.getByRole('button', { name: 'magpieApplyModel' }));
   await waitFor(() =>
@@ -183,14 +185,30 @@ test('process exit clears old configured models using status only, without synci
 test('failed model application retains the last confirmed value and does not claim success', async () => {
   const user = userEvent.setup();
   api.status.mockResolvedValue(running);
+  let confirmStatus!: (value: typeof running) => void;
+  api.status.mockResolvedValueOnce(running).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        confirmStatus = resolve;
+      }),
+  );
   api.setModel.mockRejectedValue(new Error('write failed'));
   render(<MagpieAgentsPanel />);
   await screen.findByText('magpieState_running');
   await user.click(screen.getByRole('button', { name: 'magpieRefreshManagement' }));
   await screen.findByText('Codex');
-  await user.click(screen.getByRole('combobox', { name: 'Codex · model' }));
+  const modelPicker = screen.getByRole('combobox', { name: 'Codex · model' });
+  // Agent data can render before the post-action process-status check ends.
+  // A disabled select correctly ignores clicks; wait for that check explicitly.
+  expect(modelPicker).toBeDisabled();
+  await user.click(modelPicker);
+  expect(modelPicker).toHaveAttribute('aria-expanded', 'false');
+  await act(async () => confirmStatus(running));
+  await waitFor(() => expect(modelPicker).toBeEnabled());
+  await user.click(modelPicker);
+  const modelOption = await screen.findByRole('option', { name: 'vendor/new' });
   expect(screen.queryByRole('option', { name: 'gateway-only/new' })).toBeNull();
-  await user.click(screen.getByRole('option', { name: 'vendor/new' }));
+  await user.click(modelOption);
   await user.click(screen.getByRole('button', { name: 'magpieApplyModel' }));
   await screen.findByRole('alert');
   expect(screen.getByText('model: vendor/old')).toBeVisible();

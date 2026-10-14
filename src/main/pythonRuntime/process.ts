@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { fork, spawn, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 
 export type ProcessResult = {
@@ -26,18 +26,35 @@ export async function runProcess(
     await access(options.jobRunnerPath);
   }
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.platform === 'win32' ? options.jobRunnerPath! : command,
-      process.platform === 'win32' ? [String(process.pid), command, ...args] : args,
-      {
-        cwd: options.cwd,
-        env: options.env,
-        shell: false,
-        windowsHide: true,
-        detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
+    const supervisorPath =
+      process.platform !== 'win32' ? process.env.ZHIYUAN_PYTHON_RUNNER_ENTRY : undefined;
+    const child = supervisorPath
+      ? fork(supervisorPath, ['--python-process-supervisor'], {
+          cwd: options.cwd,
+          env: { ...options.env, ELECTRON_RUN_AS_NODE: '1' },
+          execArgv: [],
+          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        })
+      : spawn(
+          process.platform === 'win32' ? options.jobRunnerPath! : command,
+          process.platform === 'win32' ? [String(process.pid), command, ...args] : args,
+          {
+            cwd: options.cwd,
+            env: options.env,
+            shell: false,
+            windowsHide: true,
+            detached: process.platform !== 'win32',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          },
+        );
+    let supervisedExitCode: number | undefined;
+    if (supervisorPath) {
+      child.on('message', (message: { supervisedExitCode?: number }) => {
+        if (typeof message.supervisedExitCode === 'number')
+          supervisedExitCode = message.supervisedExitCode;
+      });
+      child.send?.({ command, args }, () => {});
+    }
     let stdout = '',
       stderr = '',
       bytes = 0,
@@ -50,10 +67,14 @@ export async function runProcess(
       if (target === 'stdout') stdout += value;
       else stderr += value;
     };
-    child.stdout.on('data', chunk => append('stdout', chunk));
-    child.stderr.on('data', chunk => append('stderr', chunk));
+    child.stdout!.on('data', chunk => append('stdout', chunk));
+    child.stderr!.on('data', chunk => append('stderr', chunk));
     const terminate = () => {
       if (!child.pid) return;
+      if (supervisorPath) {
+        if (child.connected) child.send?.({ cancel: true }, () => {});
+        return;
+      }
       try {
         if (process.platform === 'win32')
           child.kill(); // Closing the helper's handle kills its Job.
@@ -80,7 +101,7 @@ export async function runProcess(
       terminate();
       if (options.signal.aborted)
         reject(options.signal.reason ?? new Error('Python execution cancelled.'));
-      else resolve({ stdout, stderr, exitCode: code ?? 1, truncated });
+      else resolve({ stdout, stderr, exitCode: supervisedExitCode ?? code ?? 1, truncated });
     });
   });
 }
@@ -135,4 +156,51 @@ export function runtimeNetworkEnvironment(root: string): NodeJS.ProcessEnv {
     if (process.env[key]) env[key] = process.env[key];
   env.NODE_USE_ENV_PROXY = '1';
   return env;
+}
+
+/** The supervisor survives a killed Runner and owns the command's process group. */
+export function startPosixProcessSupervisor(): void {
+  if (process.platform === 'win32') throw new Error('Windows must use its Job Object helper.');
+  let command: ChildProcess | undefined;
+  let started = false;
+  let finished = false;
+  const terminateGroup = () => {
+    if (!command?.pid) return;
+    try {
+      process.kill(-command.pid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+  };
+  const finish = (code: number) => {
+    if (finished) return;
+    finished = true;
+    terminateGroup();
+    if (process.connected) process.send?.({ supervisedExitCode: code }, () => process.exit(0));
+    else process.exit(0);
+  };
+  process.once('disconnect', () => finish(125));
+  process.once('SIGTERM', () => finish(125));
+  process.once('SIGINT', () => finish(125));
+  process.on('message', (message: { cancel?: boolean; command?: string; args?: string[] }) => {
+    if (message.cancel) {
+      finish(125);
+      return;
+    }
+    if (started || finished) return;
+    started = true;
+    if (typeof message.command !== 'string' || !Array.isArray(message.args)) {
+      finish(125);
+      return;
+    }
+    command = spawn(message.command, message.args, {
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+      detached: true,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    command.once('error', () => finish(125));
+    command.once('exit', code => finish(code ?? 1));
+  });
 }

@@ -47,7 +47,7 @@
 - 已固定上游 f074996d93b87b17ea682c4b5951d52794bb28cb，Go 1.26.8 原样交叉编译六个平台；MIT、源码归档与产物哈希随构建留存。默认不启动，启用须用户明确确认本机 CLI 配置同步。
 - 验证：Linux 真实二进制发现临时 Codex 配置、官方 API 更改模型、停止进程通过；Main/Preload/哈希 Worker 构建及 Worker 实际校验通过；18 项打包测试通过、1 项 Windows 专属测试跳过。其余平台只有交叉编译结果，未冒充实机运行。[已发布到 main](https://github.com/rongxinzy/zhiyuan/commit/145102b1fffa9e5aa649a14f2b2a9a34f37ab685)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38518213887)。
 
-## 6. 新 Python Runtime — 已接入，平台验证中
+## 6. 新 Python Runtime — 已发布，平台验证中
 
 依赖：1、2；不恢复旧 managedPython / Skill 环境。
 
@@ -56,7 +56,8 @@
 - 提供 python.execute / python.install，运行时版本化及环境重建。
 - 实际工作入口已注册 Python 工具，复用原生审批；通过 Main 的惰性服务启动独立 Runner。模型协议使用 python_execute / python_install，避免工具名中的点被 provider 拒绝。
 - Linux 已验证固定 3.12.15、uv 安装 packaging 与 NumPy 原生 wheel、工作区隔离、失败保留原环境、冻结依赖重建、取消和超时清理进程树；实际会话入口回归证明批准前不执行。双类型检查和 lint 通过。
-- Windows Job Object 源码与真实父/孙进程 CI 已加入，仍待 Windows 执行结果；Windows ARM64 无当前固定版本资产，明确不支持。macOS 资产已固定，尚未实机验证。Runner 被强制杀死时的 Linux 清理边界正在补强。
+- Windows Job Object 源码与真实父/孙进程 CI 已加入；Windows ARM64 无当前固定版本资产，明确不支持。macOS 资产已固定，尚未实机验证。Windows Job Object 已在 CI 实际编译，父/孙进程终止与 Unicode 参数 2 项通过；完整 Windows Python / uv / NumPy 集成正在补跑。Linux 独立监督进程修复已通过 Runner 强杀回归，实际桌面构建 Runner 的 5 项集成全部通过。
+- 发布：[原生工具与 Runner](https://github.com/rongxinzy/zhiyuan/commit/c81695767fd50e6d2fe2d80c0970214a9b632663)、[Windows 完整运行测试](https://github.com/rongxinzy/zhiyuan/commit/5d1d03c6675aaf8b83a472565c8a046d67ccee23)。[首轮专项 CI 已通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38519039161)。
 
 第二批远端验证：[IM / Cron / Document / 单主题 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38517317459)。
 

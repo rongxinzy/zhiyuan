@@ -31,7 +31,7 @@ The initial compatibility contract is Python 3.12, exact PyPI pins (`name==versi
 
 The Runner launches executables directly with `shell:false`. Script cwd is the workspace. stdout/stderr are capped together at 1 MiB; results report truncation and the real exit code. Execution timeout defaults to 60 seconds; install defaults to five minutes; both are capped at ten minutes. Cancellation and application shutdown terminate active work. App credentials and Python path overrides are not inherited by scripts. Network proxy/CA configuration reaches only the trusted downloader and uv.
 
-On Linux/macOS each subprocess has its own process group; completion/cancellation kills remaining descendants. On Windows, `job-runner.exe` creates the child suspended, assigns it to a Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, then resumes it. The helper also waits on the Runner process handle. Missing helper, assignment failure or missing parent fails closed. No taskkill or plain child-PID fallback exists.
+On Linux/macOS a small independent supervisor owns each subprocess group. It watches the Runner IPC connection and kills the group on Runner death, including SIGKILL, as well as on completion/cancellation. The supervisor reuses the bundled Runner entry and needs no system shell or additional dependency. On Windows, `job-runner.exe` creates the child suspended, assigns it to a Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, then resumes it. The helper also waits on the Runner process handle. Missing helper, assignment failure or missing parent fails closed. No taskkill or plain child-PID fallback exists.
 
 ## Build and tests
 

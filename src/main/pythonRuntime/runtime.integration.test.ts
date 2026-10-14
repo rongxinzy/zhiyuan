@@ -1,3 +1,4 @@
+import { fork } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,7 +10,7 @@ describe.skipIf(!enabled)('real standalone Python + uv workspace runtime', () =>
   let root: string, workspace: string, other: string, service: PythonRuntimeService;
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'zhiyuan-python-integration-'));
-    workspace = join(root, 'work a');
+    workspace = join(root, 'work a 雪');
     other = join(root, 'work b');
     await mkdir(workspace);
     await mkdir(other);
@@ -92,6 +93,66 @@ describe.skipIf(!enabled)('real standalone Python + uv workspace runtime', () =>
     expect(result.stdout.trim().split(/\r?\n/)).toEqual(['2.2.6', '6', 'True']);
     expect(result.exitCode).toBe(0);
   }, 310000);
+  test.skipIf(process.platform === 'win32')(
+    'a hard-killed Runner cannot orphan its Python process group',
+    async () => {
+      const pidFile = join(workspace, 'hard-exit-pids.json');
+      const runner = fork(
+        resolve(process.env.PYTHON_RUNTIME_RUNNER ?? 'dist-electron/python-runtime-runner.cjs'),
+        [],
+        { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] },
+      );
+      let pids: number[] = [];
+      const stopped = async (pid: number) => {
+        if (process.platform === 'linux') {
+          try {
+            return (await readFile(`/proc/${pid}/stat`, 'utf8')).split(' ')[2] === 'Z';
+          } catch {
+            return true;
+          }
+        }
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      };
+      try {
+        runner.send({
+          operation: 'execute',
+          storageRoot: join(root, 'storage'),
+          input: {
+            workspace,
+            code: `import os,json,pathlib,subprocess,sys,time\np=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"])\npathlib.Path(${JSON.stringify(pidFile)}).write_text(json.dumps([os.getpid(),p.pid]))\ntime.sleep(60)`,
+            timeoutMs: 60000,
+          },
+        });
+        for (let i = 0; i < 100; i++) {
+          try {
+            pids = JSON.parse(await readFile(pidFile, 'utf8'));
+            break;
+          } catch {}
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        expect(pids).toHaveLength(2);
+        const exited = new Promise(resolve => runner.once('exit', resolve));
+        runner.kill('SIGKILL');
+        await exited;
+        for (let i = 0; i < 100 && !(await Promise.all(pids.map(stopped))).every(Boolean); i++)
+          await new Promise(resolve => setTimeout(resolve, 50));
+        expect(await Promise.all(pids.map(stopped))).toEqual([true, true]);
+      } finally {
+        runner.kill('SIGKILL');
+        if (pids[0]) {
+          try {
+            process.kill(-pids[0], 'SIGKILL');
+          } catch {}
+        }
+      }
+    },
+    15000,
+  );
   test('timeout kills Python descendants and cancellation terminates active work', async () => {
     const pidFile = join(workspace, 'child.pid');
     await expect(
