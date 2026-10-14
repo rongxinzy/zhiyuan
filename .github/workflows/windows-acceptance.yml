@@ -67,6 +67,8 @@ jobs:
       - name: Prepare pinned official Windows resources
         shell: pwsh
         run: ./scripts/ci/windows-acceptance-resources.ps1
+      - name: Exercise native PowerShell before installer assembly
+        run: node scripts/ci/windows-app-smoke.mjs --native-shell-only --app node_modules/electron/dist/electron.exe --runner dist-electron/native-execution-smoke.js --resources resources --output acceptance-diagnostics/native-shell-preflight
       - name: Build Electron ABI native modules
         run: bun run rebuild:electron-native
       - name: Verify resources before packaging

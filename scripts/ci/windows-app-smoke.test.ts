@@ -199,8 +199,9 @@ test('installed smoke has no disabled sandbox, security exclusions or success ar
     "locator('form').getByRole('button', { name: /^(Close|关闭)$/ }).click()",
   );
   expect(source).toContain("'app.asar', 'dist-electron', 'python-runtime-runner.js'");
-  expect(source.indexOf('report.passed = true')).toBeGreaterThan(
-    source.indexOf('assertPythonResult(response, manifest)'),
+  const installedFlow = source.slice(source.indexOf('export async function runSmoke'));
+  expect(installedFlow.indexOf('report.passed = true')).toBeGreaterThan(
+    installedFlow.indexOf('assertPythonResult(response, manifest)'),
   );
   expect(source).toContain('magpieRuntime.verifyRuntime');
   expect(source).toContain('assert.equal(afterHash, beforeHash)');
@@ -299,3 +300,35 @@ test.skipIf(process.platform !== 'win32')(
     expect(after.stdout.trim().toLowerCase()).toBe('whoami.exe');
   },
 );
+
+test('native case progress is delivered immediately and cannot replace a final result', async () => {
+  const f = runnerFixture();
+  const onProgress = vi.fn();
+  const pending = runNativeShellProbe({ ...f.options, onProgress }, f.spawn);
+  const progress = {
+    case: 'basic',
+    stage: 'tool_returned',
+    elapsedMs: 12,
+    detail: '{"structuredOutput":{"exitCode":0}}',
+  };
+  f.child.emit('message', { type: 'native-smoke-progress', progress });
+  expect(onProgress).toHaveBeenCalledWith(progress);
+  f.child.emit('message', { success: false, error: 'basic failure' });
+  f.child.emit('message', {
+    type: 'native-smoke-progress',
+    progress: { ...progress, stage: 'closed' },
+  });
+  f.child.emit('exit', 0, null);
+  await expect(pending).resolves.toEqual({ success: false, error: 'basic failure' });
+});
+
+test('progress-only Runner exit never passes as a terminal success response', async () => {
+  const f = runnerFixture();
+  const pending = runNativeShellProbe({ ...f.options, onProgress: vi.fn() }, f.spawn);
+  f.child.emit('message', {
+    type: 'native-smoke-progress',
+    progress: { case: 'worktree', stage: 'started', elapsedMs: 0 },
+  });
+  f.child.emit('exit', 0, null);
+  await expect(pending).rejects.toThrow('Runner exited');
+});

@@ -97,7 +97,7 @@ export function assertPythonResult(response, manifest) {
 }
 
 function runPackagedProbe(
-  { executablePath, runnerPath, root, env, timeoutMs },
+  { executablePath, runnerPath, root, env, timeoutMs, onProgress },
   request,
   label,
   spawnRunner,
@@ -127,6 +127,10 @@ function runPackagedProbe(
       diagnostics = (diagnostics + String(chunk)).slice(-4000);
     });
     child.on('message', message => {
+      if (message?.type === 'native-smoke-progress') {
+        onProgress?.(message.progress);
+        return;
+      }
       response = message;
     });
     child.once('error', error => {
@@ -188,6 +192,109 @@ export function assertMagpieStatus(status, version) {
   const url = new URL(status.gatewayUrl);
   assert.equal(url.protocol, 'http:');
   assert.equal(url.hostname, '127.0.0.1');
+}
+
+async function runNativeShellChecks(
+  { executablePath, runnerPath, resourcesRoot, root, env },
+  result,
+) {
+  const pwshDirectory = path.join(
+    process.env.ProgramFiles || 'C:\\Program Files',
+    'PowerShell',
+    '7',
+  );
+  assert.ok(
+    (await stat(path.join(pwshDirectory, 'pwsh.exe'))).isFile(),
+    'Acceptance requires real PowerShell 7 for priority coverage',
+  );
+  const shellResults = result;
+  for (const [mode, major] of [
+    ['pwsh', 7],
+    ['windowsPowerShell', 5],
+  ]) {
+    const shellRoot = path.join(root, mode);
+    await mkdir(shellRoot, { recursive: true });
+    shellResults[mode] = { passed: false, progress: [] };
+    const nativeShell = await runNativeShellProbe({
+      executablePath,
+      onProgress: progress => {
+        if (shellResults[mode].progress.length < 64) shellResults[mode].progress.push(progress);
+        console.log(`[WindowsNativeSmoke] ${mode} ${JSON.stringify(progress)}`);
+      },
+      root: shellRoot,
+      env: { ...env, PATH: major === 7 ? `${pwshDirectory};${env.PATH}` : env.PATH },
+      resourcesRoot,
+      expectedPowerShellMajor: major,
+      runnerPath,
+    });
+    shellResults[mode].response = nativeShell;
+    assert.equal(nativeShell.success, true, `${mode}: ${nativeShell.error}`);
+    assert.equal(nativeShell.result.passed, true);
+    assert.equal(nativeShell.result.tool, 'powershell');
+    assert.equal(nativeShell.result.powerShellMajor, major);
+    assert.equal(nativeShell.result.approvals, 1);
+    for (const check of [
+      'unicode',
+      'quotedText',
+      'spaceCwd',
+      'nonzero',
+      'approvalDenied',
+      'cancelledChild',
+      'gitWorktree',
+    ]) {
+      assert.equal(
+        nativeShell.result.checks?.[check],
+        true,
+        `Missing native PowerShell check: ${check}`,
+      );
+    }
+    Object.assign(shellResults[mode], nativeShell.result);
+    delete shellResults[mode].response;
+  }
+  shellResults.passed = true;
+  return shellResults;
+}
+
+/** Optional early gate only. Installed UI and runtime checks still run later. */
+export async function runNativeShellPreflight({
+  executablePath,
+  runnerPath,
+  resourcesRoot,
+  outputDirectory,
+}) {
+  assert.equal(process.platform, 'win32', 'Native shell preflight requires Windows');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'zhiyuan-shell-preflight-'));
+  const env = isolatedEnvironment(root);
+  await Promise.all(
+    [env.APPDATA, env.LOCALAPPDATA, env.TEMP].map(directory =>
+      mkdir(directory, { recursive: true }),
+    ),
+  );
+  await mkdir(outputDirectory, { recursive: true });
+  const report = {
+    kind: 'native-shell-preflight',
+    passed: false,
+    phases: { nativeShell: { passed: false } },
+    errors: [],
+  };
+  try {
+    await runNativeShellChecks(
+      {
+        executablePath: path.resolve(executablePath),
+        runnerPath: path.resolve(runnerPath),
+        resourcesRoot: path.resolve(resourcesRoot),
+        root,
+        env,
+      },
+      report.phases.nativeShell,
+    );
+    report.passed = true;
+  } catch (error) {
+    report.errors.push(error.stack || String(error));
+    throw error;
+  } finally {
+    await writeFile(path.join(outputDirectory, 'report.json'), JSON.stringify(report, null, 2));
+  }
 }
 
 export async function runSmoke({ executablePath, outputDirectory }) {
@@ -348,53 +455,17 @@ export async function runSmoke({ executablePath, outputDirectory }) {
       runnerPath,
       jobRunnerPath,
     };
-    const pwshDirectory = path.join(
-      process.env.ProgramFiles || 'C:\\Program Files',
-      'PowerShell',
-      '7',
-    );
-    assert.ok(
-      (await stat(path.join(pwshDirectory, 'pwsh.exe'))).isFile(),
-      'Acceptance requires real PowerShell 7 for priority coverage',
-    );
-    const shellResults = {};
-    for (const [mode, major] of [
-      ['pwsh', 7],
-      ['windowsPowerShell', 5],
-    ]) {
-      const shellRoot = path.join(root, mode);
-      await mkdir(shellRoot, { recursive: true });
-      const nativeShell = await runNativeShellProbe({
+    report.phases.nativeShell = { passed: false };
+    await runNativeShellChecks(
+      {
         executablePath,
-        root: shellRoot,
-        env: { ...env, PATH: major === 7 ? `${pwshDirectory};${env.PATH}` : env.PATH },
-        resourcesRoot: resources,
-        expectedPowerShellMajor: major,
         runnerPath: path.join(resources, 'app.asar', 'dist-electron', 'native-execution-smoke.js'),
-      });
-      assert.equal(nativeShell.success, true, nativeShell.error);
-      assert.equal(nativeShell.result.passed, true);
-      assert.equal(nativeShell.result.tool, 'powershell');
-      assert.equal(nativeShell.result.powerShellMajor, major);
-      assert.equal(nativeShell.result.approvals, 1);
-      for (const check of [
-        'unicode',
-        'quotedText',
-        'spaceCwd',
-        'nonzero',
-        'approvalDenied',
-        'cancelledChild',
-        'gitWorktree',
-      ]) {
-        assert.equal(
-          nativeShell.result.checks?.[check],
-          true,
-          `Missing native PowerShell check: ${check}`,
-        );
-      }
-      shellResults[mode] = nativeShell.result;
-    }
-    report.phases.nativeShell = { passed: true, ...shellResults };
+        resourcesRoot: resources,
+        root,
+        env,
+      },
+      report.phases.nativeShell,
+    );
     // Verify the renderer and main remain healthy after real sidecar work.
     const overlay = page.locator('[data-slot="dialog-overlay"]').first();
     if (await overlay.isVisible()) {
@@ -439,9 +510,24 @@ export async function runSmoke({ executablePath, outputDirectory }) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const { values } = parseArgs({
-    options: { app: { type: 'string' }, output: { type: 'string' } },
+    options: {
+      app: { type: 'string' },
+      output: { type: 'string' },
+      'native-shell-only': { type: 'boolean' },
+      runner: { type: 'string' },
+      resources: { type: 'string' },
+    },
   });
   if (!values.app || !values.output)
     throw new Error('Usage: --app <installed.exe> --output <artifact-directory>');
-  await runSmoke({ executablePath: values.app, outputDirectory: values.output });
+  if (values['native-shell-only']) {
+    if (!values.runner || !values.resources)
+      throw new Error('Native shell preflight requires --runner and --resources');
+    await runNativeShellPreflight({
+      executablePath: values.app,
+      runnerPath: values.runner,
+      resourcesRoot: values.resources,
+      outputDirectory: values.output,
+    });
+  } else await runSmoke({ executablePath: values.app, outputDirectory: values.output });
 }

@@ -60,10 +60,22 @@ test.skipIf(process.platform === 'win32')(
   'actual Unix Harness still executes original bash through the factory and approval wrapper',
   async () => {
     const root = await fixture();
-    const result = await runNativeExecutionSmoke(root, root);
+    const progress = vi.fn();
+    const result = await runNativeExecutionSmoke(root, root, undefined, undefined, progress);
     expect(result).toMatchObject({ passed: true, tool: 'bash', approvals: 1 });
     expect(result.output).toContain('zhiyuan-native-bash-中文');
     expect(result.output).toContain(root);
+    expect(progress.mock.calls.map(([value]) => value.stage)).toEqual([
+      'started',
+      'tool_started',
+      'tool_returned',
+      'native_settled',
+      'closed',
+    ]);
+    const returned = progress.mock.calls.find(([value]) => value.stage === 'tool_returned')![0];
+    expect(JSON.parse(returned.detail).structuredOutput.exitCode).toBe(0);
+    expect(returned.case).toBe('basic');
+    expect(returned.elapsedMs).toBeGreaterThanOrEqual(0);
   },
 );
 

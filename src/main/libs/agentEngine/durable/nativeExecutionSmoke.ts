@@ -17,11 +17,19 @@ import { createNativeExecutionEnv, nativeCodingTools } from './nativeExecutionEn
 import { authorizeNativeTool } from './toolBridge';
 
 const UNIX_COMMAND = "printf 'zhiyuan-native-bash-中文\\n'; printf '%s\\n' \"$PWD\"; git --version";
-const WINDOWS_COMMAND = `@{ marker='zhiyuan-native-powershell-中文'; quote='quoted ''value'' "double"'; cwd=(Get-Location).Path; major=$PSVersionTable.PSVersion.Major; minor=$PSVersionTable.PSVersion.Minor; gitSource=(Get-Command git -CommandType Application -ErrorAction Stop).Source; git=(& git --version) } | ConvertTo-Json -Compress`;
+const WINDOWS_COMMAND = `Write-Output '[native-smoke] basic-enter'; Write-Output '[native-smoke] git-discovery'; $gitSource=(Get-Command git -CommandType Application -ErrorAction Stop).Source; Write-Output '[native-smoke] git-version'; $gitVersion=(& git --version); Write-Output '[native-smoke] git-version-returned'; @{ marker='zhiyuan-native-powershell-中文'; quote='quoted ''value'' "double"'; cwd=(Get-Location).Path; major=$PSVersionTable.PSVersion.Major; minor=$PSVersionTable.PSVersion.Minor; gitSource=$gitSource; git=$gitVersion } | ConvertTo-Json -Compress`;
 const NONZERO_COMMAND = 'Write-Output "expected nonzero"; exit 17';
 const DENIED_COMMAND = "Set-Content -LiteralPath 'denied.txt' -Value 'must not execute'";
 const CHILD_COMMAND = `$child=Start-Process -FilePath $env:ComSpec -ArgumentList '/d /s /c "ping -n 120 127.0.0.1 >NUL"' -PassThru; Set-Content -LiteralPath 'child.pid' -Value $child.Id; Start-Sleep -Seconds 120`;
-const WORKTREE_COMMAND = `git init --quiet; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git -c user.name=Acceptance -c user.email=acceptance@example.invalid -c commit.gpgsign=false commit --allow-empty --quiet -m acceptance; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git worktree add --quiet --detach '../linked 工作树' HEAD; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git -C '../linked 工作树' rev-parse --is-inside-work-tree`;
+const WORKTREE_COMMAND = `Write-Output '[native-smoke] git-init'; git init --quiet; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Write-Output '[native-smoke] git-commit'; git -c user.name=Acceptance -c user.email=acceptance@example.invalid -c commit.gpgsign=false commit --allow-empty --quiet -m acceptance; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Write-Output '[native-smoke] git-worktree-add'; git worktree add --quiet --detach '../linked 工作树' HEAD; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Write-Output '[native-smoke] git-worktree-check'; git -C '../linked 工作树' rev-parse --is-inside-work-tree`;
+
+export interface NativeSmokeProgress {
+  case: string;
+  stage: string;
+  elapsedMs: number;
+  detail?: string;
+}
+type ReportProgress = (progress: NativeSmokeProgress) => void;
 
 async function fixedCase(
   cwd: string,
@@ -31,8 +39,19 @@ async function fixedCase(
     signal?: AbortSignal;
     deny?: boolean;
     cancelAfterChild?: boolean;
+    report?: ReportProgress;
+    caseName?: string;
   } = {},
 ) {
+  const startedAt = Date.now();
+  const report = (stage: string, detail?: unknown) =>
+    options.report?.({
+      case: options.caseName ?? 'unknown',
+      stage,
+      elapsedMs: Date.now() - startedAt,
+      ...(detail === undefined ? {} : { detail: JSON.stringify(detail).slice(0, 6000) }),
+    });
+  report('started');
   const context = options.signal
     ? withAbortSignal(options.signal, BACKGROUND_CONTEXT)
     : BACKGROUND_CONTEXT;
@@ -43,8 +62,8 @@ async function fixedCase(
   let approvals = 0;
   registry.install({
     ...tools,
-    tools: tools.tools?.map(tool =>
-      authorizeNativeTool(tool, {
+    tools: tools.tools?.map(tool => {
+      const authorized = authorizeNativeTool(tool, {
         authorize: async call => {
           assert.equal(call.toolName, toolName);
           assert.equal(call.toolInput.command, command);
@@ -53,8 +72,26 @@ async function fixedCase(
             ? { allow: false, terminateRun: true, reason: 'Acceptance refusal' }
             : { allow: true };
         },
-      }),
-    ),
+      });
+      return {
+        ...authorized,
+        async execute(args, api, executionContext) {
+          report('tool_started');
+          try {
+            const result = await authorized.execute(args, api, executionContext);
+            report('tool_returned', {
+              isError: result.isError,
+              structuredOutput: result.structuredOutput,
+              diagnostics: result.diagnostics,
+            });
+            return result;
+          } catch (error) {
+            report('tool_threw', error instanceof Error ? error.message : String(error));
+            throw error;
+          }
+        },
+      };
+    }),
   });
   const model = {
     id: 'acceptance',
@@ -171,12 +208,14 @@ async function fixedCase(
       .filter(part => part.type === 'text')
       .map(part => part.text)
       .join('\n');
+    report('native_settled', { receipt, isError: results[0].isError, output });
     // Verify Stop itself reaps descendants, before close/cleanup can mask it.
     if (options.cancelAfterChild) await assertChildExited(childPid!);
     return { receipt, result: results[0], output, approvals, calls, childPid, entries };
   } finally {
     await harness.close(BACKGROUND_CONTEXT);
     await environment.cleanup(BACKGROUND_CONTEXT);
+    report('closed');
   }
 }
 
@@ -206,6 +245,7 @@ export async function runNativeExecutionSmoke(
   resourcesRoot: string,
   signal?: AbortSignal,
   expectedPowerShellMajor?: number,
+  report?: ReportProgress,
 ) {
   const workspace = join(cwd, 'native shell 中文 space');
   await mkdir(workspace, { recursive: true });
@@ -214,17 +254,19 @@ export async function runNativeExecutionSmoke(
     workspace,
     resourcesRoot,
     windows ? WINDOWS_COMMAND : UNIX_COMMAND,
-    { signal },
+    { signal, report, caseName: 'basic' },
   );
   assert.equal(basic.receipt.status, 'done');
-  assert.equal(basic.result.isError, false, basic.output);
+  assert.equal(basic.result.isError, false, `basic: ${basic.output}`);
   assert.equal(basic.calls, 2);
   if (!windows) {
     assert.ok(basic.output.includes('zhiyuan-native-bash-中文'));
     assert.match(basic.output, /git version \d/);
     return { passed: true, tool: 'bash', approvals: basic.approvals, output: basic.output };
   }
-  const parsed = JSON.parse(basic.output.trim());
+  const parsed = JSON.parse(
+    basic.output.split(/\r?\n/).find(line => line.trim().startsWith('{')) ?? '',
+  );
   assert.equal(parsed.marker, 'zhiyuan-native-powershell-中文');
   assert.equal(parsed.quote, `quoted 'value' "double"`);
   assert.equal(await realpath(parsed.cwd), await realpath(workspace));
@@ -234,13 +276,22 @@ export async function runNativeExecutionSmoke(
   assert.equal(typeof parsed.gitSource, 'string');
   const gitExecutable = await realpath(parsed.gitSource);
   assert.equal(gitExecutable, await realpath(join(resourcesRoot, 'mingit', 'cmd', 'git.exe')));
-  const nonzero = await fixedCase(workspace, resourcesRoot, NONZERO_COMMAND, { signal });
+  const nonzero = await fixedCase(workspace, resourcesRoot, NONZERO_COMMAND, {
+    signal,
+    report,
+    caseName: 'nonzero',
+  });
   assert.equal(nonzero.result.isError, true);
   assert.ok(nonzero.output.includes('expected nonzero'));
   assert.ok(JSON.stringify(nonzero.entries).includes('Command exited with code 17'));
   // Ordinary tool errors may be followed by the model; they are not cancellation.
   assert.equal(nonzero.receipt.status, 'done');
-  const denied = await fixedCase(workspace, resourcesRoot, DENIED_COMMAND, { signal, deny: true });
+  const denied = await fixedCase(workspace, resourcesRoot, DENIED_COMMAND, {
+    signal,
+    deny: true,
+    report,
+    caseName: 'denied',
+  });
   assert.equal(denied.receipt.status, 'unanswered');
   if (denied.receipt.status === 'unanswered') assert.equal(denied.receipt.reason, 'aborted');
   assert.equal(denied.calls, 1);
@@ -250,6 +301,8 @@ export async function runNativeExecutionSmoke(
   const cancelled = await fixedCase(workspace, resourcesRoot, CHILD_COMMAND, {
     signal,
     cancelAfterChild: true,
+    report,
+    caseName: 'cancel',
   });
   assert.equal(cancelled.receipt.status, 'unanswered');
   if (cancelled.receipt.status === 'unanswered') assert.equal(cancelled.receipt.reason, 'aborted');
@@ -257,8 +310,12 @@ export async function runNativeExecutionSmoke(
   assert.equal(cancelled.calls, 1);
   const repository = join(workspace, 'repository');
   await mkdir(repository, { recursive: true });
-  const worktree = await fixedCase(repository, resourcesRoot, WORKTREE_COMMAND, { signal });
-  assert.equal(worktree.result.isError, false, worktree.output);
+  const worktree = await fixedCase(repository, resourcesRoot, WORKTREE_COMMAND, {
+    signal,
+    report,
+    caseName: 'worktree',
+  });
+  assert.equal(worktree.result.isError, false, `worktree: ${worktree.output}`);
   assert.ok(worktree.output.includes('true'));
   return {
     passed: true,
@@ -305,10 +362,16 @@ if (typeof require !== 'undefined' && require.main === module && process.send) {
         input.resourcesRoot,
         controller.signal,
         input.expectedPowerShellMajor,
+        progress => {
+          if (process.connected) process.send?.({ type: 'native-smoke-progress', progress });
+        },
       ).then(
         result => finish({ success: true, result }),
         error =>
-          finish({ success: false, error: error instanceof Error ? error.message : String(error) }),
+          finish({
+            success: false,
+            error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+          }),
       );
     },
   );
