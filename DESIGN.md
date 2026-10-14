@@ -373,3 +373,7 @@ Codex 基准 `--zy-radius` 为 10px；各派生 token 按下表确定，不依�
 - [ ] 修改 token/recipe/生成器后执行 `bun run theme:generate`；代码改动执行 `bun run lint`（含 theme:check/audit），提交前执行 `bun run format:check`。
 - [ ] 共享契约/引擎改动执行 `bunx vitest run src/renderer src/shared`、`bun run build`、`bun run test:bundle-budget`；新增/修改测试实际运行通过。
 - [ ] UI 改动通过 `bun run electron:dev` 验证相关 Cowork、权限、停止、Artifacts、主题/语言切换流程，记录实际覆盖范围，不以编译或截图代替行为验证。
+
+### 模型设置（2026-10-14 用户确认）
+
+模型设置只展示 Magpie 统一目录、默认选择和官方管理入口，Provider、凭据和路由不再由 renderer 维护。目录访问不会启动服务；用户明确启用前告知本机 Agent 配置同步。主聊天、计划任务与 Coding 使用目录原始模型 ID，本地 GPU 和企业模型由宿主注册。保留默认浅深外观和现有共享控件，不增加多主题或嵌套管理界面。

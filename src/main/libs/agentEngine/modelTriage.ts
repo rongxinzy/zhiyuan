@@ -1,8 +1,6 @@
 import type { TriageConfig, TriageResult, TriageState, TriageTier } from '../../../shared/triage';
 import { TRIAGE_TIER_ORDER } from '../../../shared/triage';
 
-import { classifyTierForTriage } from './piClassifierTriage';
-
 /**
  * Classify a user message using rule-based heuristics.
  *
@@ -127,9 +125,8 @@ export function createTriageState(): TriageState {
 /**
  * Full triage classification pipeline:
  * 1. Try rule-based classification first (<1ms)
- * 2. If result is ambiguous and local model triage is enabled,
- *    try LLM-based classification (100-500ms, 3s timeout)
- * 3. If all else fails, return standard tier
+ * 2. Keep the deterministic rule result for ambiguous inputs.
+ * The former optional direct llama.cpp classifier is intentionally no longer called.
  */
 export async function classifyMessage(
   prompt: string,
@@ -149,54 +146,7 @@ export async function classifyMessage(
     return ruleResult;
   }
 
-  // Ambiguous cases — try local model if configured
-  if (config.rules.useLocalModelTriage && config.rules.triageModelName) {
-    const llmResult = await classifyByLocalModel(prompt, config.rules.triageModelName, config);
-    if (llmResult) {
-      return llmResult;
-    }
-  }
-
   return ruleResult;
-}
-
-// ─── Local model classification (pi classifier) ───────────────────────────
-
-/**
- * Classify a user message with the configured llama.cpp classifier model.
- *
- * pi's llama-cpp-classify API reads next-token label probabilities from the
- * server root configured in `rules.classifierBaseUrl` — no full generation,
- * no hardcoded port. Returns null on any failure so the caller keeps the
- * rule-based result.
- */
-export async function classifyByLocalModel(
-  prompt: string,
-  triageModelName: string,
-  config: TriageConfig,
-): Promise<TriageResult | null> {
-  const baseUrl = config.rules.classifierBaseUrl;
-  if (!baseUrl || !triageModelName) return null;
-
-  const classified = await classifyTierForTriage(prompt, baseUrl, triageModelName);
-  if (!classified) return null;
-
-  return tierToResult(classified.tier, config, classified.confidence);
-}
-
-function tierToResult(
-  tier: 'light' | 'standard' | 'heavy',
-  config: TriageConfig,
-  confidence?: number,
-): TriageResult {
-  const suffix = confidence !== undefined ? ` (${confidence.toFixed(2)})` : '';
-  if (tier === 'light' && config.rules.lightModelRef) {
-    return { tier: 'light', modelRef: config.rules.lightModelRef, reason: `llm: light${suffix}` };
-  }
-  if (tier === 'heavy' && config.rules.heavyModelRef) {
-    return { tier: 'heavy', modelRef: config.rules.heavyModelRef, reason: `llm: heavy${suffix}` };
-  }
-  return { tier, modelRef: null, reason: `llm: ${tier}${suffix}` };
 }
 
 /**

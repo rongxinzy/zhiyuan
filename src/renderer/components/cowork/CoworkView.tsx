@@ -1,4 +1,4 @@
-import { configService } from '../../services/config';
+import { refreshMagpieModels } from '../../services/availableModels';
 import { cn } from '@shared/lib/utils';
 import React, { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -160,35 +160,16 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     currentAgent?.model ?? '',
   );
 
-  const buildApiConfigNotice = (
-    error?: string,
-  ): { noticeI18nKey: string; noticeExtra?: string } => {
-    const key = 'coworkModelSettingsRequired';
-    if (!error) {
-      return { noticeI18nKey: key };
-    }
-    const normalizedError = error.trim();
-    if (
-      normalizedError.startsWith('No enabled provider found for model:') ||
-      normalizedError === 'No available model configured in enabled providers.'
-    ) {
-      return { noticeI18nKey: key };
-    }
-    return { noticeI18nKey: key, noticeExtra: error };
-  };
-
   useEffect(() => {
     const init = async () => {
       await coworkService.init();
       await agentService.loadAgents();
       try {
-        // Finish configuration repair before main-process availability checks.
-        await configService.init();
-        const apiConfig = await coworkService.checkApiConfig();
-        if (apiConfig && !apiConfig.hasConfig) {
+        const catalog = await refreshMagpieModels();
+        if (catalog.status.state !== 'running' || catalog.models.length === 0) {
           onRequestAppSettings?.({
             initialTab: 'model',
-            ...buildApiConfigNotice(apiConfig.error),
+            noticeI18nKey: 'magpieCatalogEmpty',
           });
         }
       } catch (error) {
@@ -243,13 +224,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
     try {
       try {
-        // Finish configuration repair before main-process availability checks.
-        await configService.init();
-        const apiConfig = await coworkService.checkApiConfig();
-        if (apiConfig && !apiConfig.hasConfig) {
+        const catalog = await refreshMagpieModels();
+        if (catalog.status.state !== 'running' || catalog.models.length === 0) {
           onRequestAppSettings?.({
             initialTab: 'model',
-            ...buildApiConfigNotice(apiConfig.error),
+            noticeI18nKey: 'magpieCatalogEmpty',
           });
           startingSessionIdsRef.current.delete(startSessionKey);
           return false;

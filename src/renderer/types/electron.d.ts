@@ -13,10 +13,6 @@ import type {
 } from '../../shared/cowork/constants';
 import type { CoworkPendingMessage } from '../../shared/cowork/pendingMessageQueue';
 import type {
-  ProviderModelDiscoveryRequest,
-  ProviderModelDiscoveryResult,
-} from '../../shared/providers';
-import type {
   LlamaCppCancelModelLoadResult,
   LlamaCppCancelInstallResult,
   LlamaCppGatewayLanTokenResult,
@@ -205,13 +201,6 @@ type CoworkConfigUpdate = Partial<
     | 'embeddingRemoteApiKey'
   >
 >;
-
-interface CoworkApiConfig {
-  apiKey: string;
-  baseURL: string;
-  model: string;
-  apiType?: 'anthropic' | 'openai';
-}
 
 interface WindowState {
   isMaximized: boolean;
@@ -419,13 +408,7 @@ interface IElectronAPI {
       timeoutMs?: number;
       purpose?: import('../../shared/ipc/apiRequest').ApiRequestPurpose;
     }) => Promise<ApiResponse>;
-    fetchModels: (input: ProviderModelDiscoveryRequest) => Promise<ProviderModelDiscoveryResult>;
   };
-  getApiConfig: () => Promise<CoworkApiConfig | null>;
-  checkApiConfig: (options?: {
-    probeModel?: boolean;
-  }) => Promise<{ hasConfig: boolean; config: CoworkApiConfig | null; error?: string }>;
-  saveApiConfig: (config: CoworkApiConfig) => Promise<{ success: boolean; error?: string }>;
   generateSessionTitle: (userInput: string | null) => Promise<string>;
   getRecentCwds: (limit?: number) => Promise<string[]>;
   appEvents: {
@@ -1205,49 +1188,6 @@ interface IElectronAPI {
       callback: (entry: import('../../shared/devNetworkLog').DevNetworkLogEntry) => void,
     ) => () => void;
   };
-  qwen: Record<string, never>;
-  githubCopilot: {
-    requestDeviceCode: () => Promise<{
-      userCode: string;
-      verificationUri: string;
-      deviceCode: string;
-      interval: number;
-      expiresIn: number;
-    }>;
-    pollForToken: (
-      deviceCode: string,
-      interval: number,
-      expiresIn: number,
-    ) => Promise<{
-      success: boolean;
-      token?: string;
-      githubUser?: string;
-      baseUrl?: string;
-      error?: string;
-    }>;
-    cancelPolling: () => Promise<void>;
-    signOut: () => Promise<void>;
-    refreshToken: () => Promise<{
-      success: boolean;
-      token?: string;
-      baseUrl?: string;
-      error?: string;
-    }>;
-    onTokenUpdated: (callback: (data: { token: string; baseUrl: string }) => void) => () => void;
-  };
-  openaiCodexOAuth: {
-    start: () => Promise<
-      | { success: true; email: string | null; accountId: string | null; expiresAt: number }
-      | { success: false; error: string }
-    >;
-    cancel: () => Promise<void>;
-    logout: () => Promise<void>;
-    status: () => Promise<
-      | { loggedIn: true; email: string | null; accountId: string | null; expiresAt: number }
-      | { loggedIn: false }
-    >;
-  };
-
   activity: {
     list: () => Promise<{ success: boolean; runs: ActivityRun[] }>;
     onUpdated: (callback: (run: ActivityRun) => void) => () => void;

@@ -2,13 +2,10 @@ import { Button } from '@shared/components/ui/button';
 import { cn } from '@shared/lib/utils';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { isProviderEnabled, ProviderName } from '../../../shared/providers';
 import type { EnterpriseRendererSettingsPage } from '../../../shared/enterpriseRenderer';
 import { defaultConfig } from '../../config';
 import { configService } from '../../services/config';
 import { i18nService, type LanguageType } from '../../services/i18n';
-import { reconcileDefaultModelConfig } from '../../services/modelConfigReconciliation';
-import { resolveManagedModelSettingsTab } from '../../services/managedModelUiPolicy';
 import {
   buildAppSettingsSavePatch,
   getSettingsSaveErrorMessage,
@@ -21,19 +18,12 @@ import PageHeader from '../PageHeader';
 import AboutSettingsPanel from './about/AboutSettingsPanel';
 import { AppearanceSettingsPanel } from './appearance/AppearanceSettingsPanel';
 import GeneralSettingsPanel from './general/GeneralSettingsPanel';
-import ModelSettingsPanel, { type ModelSettingsHandle } from './model/ModelSettingsPanel';
-import type { ProvidersConfig, ProviderType } from './model/constants';
-import {
-  getEffectiveApiFormat,
-  hasProviderAuthConfigured,
-  resolveBaseUrl,
-} from './model/providerUtils';
+import ModelSettingsPanel from './model/ModelSettingsPanel';
 import ShortcutsSettingsPanel from './shortcuts/ShortcutsSettingsPanel';
 import TriageSettingsPanel from './triage/TriageSettingsPanel';
 import {
   fromEnterpriseTab,
   isEnterpriseTab,
-  toEnterpriseTab,
   type SettingsPageProps,
   type SettingsTabType,
 } from './types';
@@ -42,7 +32,6 @@ import { useSettingsTabs } from './useSettingsTabs';
 export default function SettingsPage({
   onClose,
   initialTab,
-  initialProvider,
   notice,
   noticeI18nKey,
   noticeExtra,
@@ -58,12 +47,7 @@ export default function SettingsPage({
   const [enterpriseSettingsPages, setEnterpriseSettingsPages] = useState<
     readonly EnterpriseRendererSettingsPage[]
   >([]);
-  const enterpriseModelTab = enterpriseSettingsPages.find(page => page.id === 'models');
-  const activeTab = resolveManagedModelSettingsTab(
-    requestedActiveTab,
-    managedModelsOnly,
-    enterpriseModelTab ? toEnterpriseTab(enterpriseModelTab.id) : undefined,
-  );
+  const activeTab = requestedActiveTab;
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
   const [language, setLanguage] = useState<LanguageType>('zh');
   const [useSystemProxy, setUseSystemProxy] = useState(false);
@@ -82,14 +66,16 @@ export default function SettingsPage({
   const initialThemeRef = useRef<'light' | 'dark' | 'system'>(themeService.getTheme());
   const initialLanguageRef = useRef<LanguageType>(i18nService.getLanguage());
   const didSaveRef = useRef(false);
-  const modelHandleRef = useRef<ModelSettingsHandle | null>(null);
 
   useEffect(() => {
     let active = true;
     void window.electron.enterprise.renderer
       .settingsPages()
       .then(pages => {
-        if (active) setEnterpriseSettingsPages(Array.isArray(pages) ? pages : []);
+        if (active)
+          setEnterpriseSettingsPages(
+            Array.isArray(pages) ? pages.filter(page => page.id !== 'models') : [],
+          );
       })
       .catch(() => {
         if (active) setEnterpriseSettingsPages([]);
@@ -189,60 +175,6 @@ export default function SettingsPage({
     let appConfigSaved = false;
 
     try {
-      const modelSaveSnapshot = modelHandleRef.current?.getSaveSnapshot();
-      if (!modelSaveSnapshot) {
-        throw new Error(i18nService.t('failedToSaveSettings'));
-      }
-      const { providers, activeProvider } = modelSaveSnapshot;
-
-      const normalizedProviders = Object.fromEntries(
-        Object.entries(providers).map(([providerKey, providerConfig]) => {
-          const apiFormat = getEffectiveApiFormat(providerKey, providerConfig.apiFormat);
-          const hasValidAuth = hasProviderAuthConfigured(
-            providerKey as ProviderType,
-            providerConfig,
-          );
-          const normalizedEnabled =
-            providerKey === ProviderName.Zhiyuan
-              ? true
-              : providerKey === ProviderName.LlamaCpp
-                ? providerConfig.userEnabled === true
-                : providerConfig.enabled && hasValidAuth;
-          return [
-            providerKey,
-            {
-              ...providerConfig,
-              enabled: normalizedEnabled,
-              userEnabled:
-                providerKey === ProviderName.LlamaCpp
-                  ? normalizedEnabled
-                  : providerConfig.userEnabled,
-              apiFormat,
-              baseUrl: resolveBaseUrl(
-                providerKey as ProviderType,
-                providerConfig.baseUrl,
-                apiFormat,
-              ),
-            },
-          ];
-        }),
-      ) as ProvidersConfig;
-
-      // Prefer a remote enabled provider for the app-wide fallback API, then
-      // fall back to any enabled local provider such as llama.cpp.
-      const firstEnabledProvider =
-        Object.entries(normalizedProviders).find(
-          ([providerKey, config]) =>
-            providerKey !== ProviderName.LlamaCpp && isProviderEnabled(providerKey, config),
-        ) ??
-        Object.entries(normalizedProviders).find(([providerKey, config]) =>
-          isProviderEnabled(providerKey, config),
-        );
-
-      const primaryProvider = firstEnabledProvider
-        ? firstEnabledProvider[1]
-        : normalizedProviders[activeProvider];
-
       const currentAppConfig = configService.getConfig();
       const appConfigPatch = buildAppSettingsSavePatch({
         current: currentAppConfig,
@@ -251,12 +183,6 @@ export default function SettingsPage({
         useSystemProxy,
         sqliteAutoBackupEnabled,
         shortcuts,
-        providers: normalizedProviders,
-        api: {
-          key: primaryProvider.apiKey,
-          baseUrl: primaryProvider.baseUrl,
-        },
-        model: reconcileDefaultModelConfig(currentAppConfig, normalizedProviders),
       });
       if (Object.keys(appConfigPatch).length > 0) {
         await configService.updateConfig(appConfigPatch);
@@ -280,9 +206,6 @@ export default function SettingsPage({
 
   // 标签页切换处理
   const handleTabChange = (tab: SettingsTabType) => {
-    if (tab !== 'model') {
-      modelHandleRef.current?.resetModelEditorOnProviderSwitch();
-    }
     setActiveTab(tab);
   };
 
@@ -463,15 +386,7 @@ export default function SettingsPage({
               )}
               style={{ scrollbarGutter: 'stable' }}
             >
-              <div className={activeTab === 'model' ? 'block h-full' : 'hidden'}>
-                <ModelSettingsPanel
-                  initialProvider={initialProvider}
-                  language={language}
-                  handleRef={modelHandleRef}
-                  setError={setError}
-                  setNoticeMessage={setNoticeMessage}
-                />
-              </div>
+              {activeTab === 'model' && <ModelSettingsPanel />}
               {activeTab !== 'model' && renderTabContent()}
             </div>
 

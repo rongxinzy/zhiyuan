@@ -17,16 +17,18 @@ test('refreshes available models when the managed provider projection changes', 
   expect(appSource).toContain('unsubscribeManagedProviders();');
 });
 
-test('does not write the default model back to app config in exclusive managed mode', () => {
-  expect(appSource).toContain(
-    'if (!isInitialized || managedModelsOnly || !defaultSelectedModel?.id) return;',
-  );
-  expect(appSource).toContain(
-    `[
-    isInitialized,
-    managedModelsOnly,
-    defaultSelectedModel?.id,
-    defaultSelectedModel?.providerKey,
-  ]`,
-  );
+test('all modes use the Magpie catalog without legacy default persistence or startup', () => {
+  expect(appSource).toContain('refreshMagpieModels()');
+  expect(appSource).not.toContain('config.model');
+  expect(appSource).not.toContain('config.providers');
+  expect(appSource).not.toContain('setDefaultSelectedModel');
+  expect(appSource).not.toContain('magpie.start(');
+  expect(appSource).not.toContain('onTokenUpdated');
+  expect(appSource).toContain("window.addEventListener('focus', handleConfigUpdated)");
+  expect(appSource).toContain("window.removeEventListener('focus', handleConfigUpdated)");
+});
+
+test('catalog failure does not prevent shell initialization', () => {
+  expect(appSource).toMatch(/waitWithTimeout\(refreshMagpieModels\(\),[\s\S]*?\.catch\(error =>/);
+  expect(appSource).toContain('setIsInitialized(true)');
 });

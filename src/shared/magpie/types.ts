@@ -6,16 +6,34 @@ export const MagpieIpc = {
   setModel: 'magpie:setModel',
   models: 'magpie:models',
   openManagement: 'magpie:openManagement',
+  catalog: 'magpie:catalog',
+  selectDefault: 'magpie:selectDefault',
+  setSubscriptionAccounts: 'magpie:setSubscriptionAccounts',
 } as const;
 export interface MagpieStatus {
   state: 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
   version: string;
   gatewayUrl?: string;
+  /** Persisted user authorization to run the service, separate from current process state. */
+  enabled?: boolean;
+  subscriptionAccountsEnabled?: boolean;
   error?: string;
 }
 export interface MagpieModel {
   id: string;
   owned_by?: string;
+  display_name?: string;
+  native_endpoints?: string[];
+  context_window?: number;
+  max_output_tokens?: number;
+  reasoning?: boolean;
+  supported_reasoning_levels?: { effort: string }[];
+  modalities?: { input: string[]; output: string[] };
+}
+export interface MagpieModelCatalog {
+  status: MagpieStatus;
+  models: MagpieModel[];
+  defaultModelId: string | null;
 }
 export interface MagpieApi {
   status(): Promise<MagpieStatus>;
@@ -25,6 +43,9 @@ export interface MagpieApi {
   setModel(selection: MagpieModelSelection): Promise<MagpieAgents>;
   models(): Promise<MagpieModel[]>;
   openManagement(): Promise<void>;
+  catalog(): Promise<MagpieModelCatalog>;
+  selectDefault(modelId: string): Promise<MagpieModelCatalog>;
+  setSubscriptionAccounts(enabled: boolean): Promise<MagpieStatus>;
 }
 
 export interface MagpieAgent {

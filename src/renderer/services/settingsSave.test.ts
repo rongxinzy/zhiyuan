@@ -35,35 +35,9 @@ test('saves only appearance changes without rewriting model configuration', () =
     useSystemProxy: defaultConfig.useSystemProxy,
     sqliteAutoBackupEnabled: defaultConfig.sqliteAutoBackupEnabled ?? false,
     shortcuts: defaultConfig.shortcuts!,
-    providers: defaultConfig.providers,
-    api: defaultConfig.api,
-    model: defaultConfig.model,
   });
 
   expect(patch).toEqual({ theme: 'dark' });
-});
-
-test('includes API and model configuration only when providers changed', () => {
-  const providers = {
-    ...defaultConfig.providers,
-    deepseek: {
-      ...defaultConfig.providers!.deepseek,
-      apiKey: 'test-key',
-    },
-  };
-  const patch = buildAppSettingsSavePatch({
-    current: defaultConfig,
-    theme: defaultConfig.theme,
-    language: defaultConfig.language,
-    useSystemProxy: defaultConfig.useSystemProxy,
-    sqliteAutoBackupEnabled: defaultConfig.sqliteAutoBackupEnabled ?? false,
-    shortcuts: defaultConfig.shortcuts!,
-    providers,
-    api: { key: 'test-key', baseUrl: defaultConfig.api.baseUrl },
-    model: defaultConfig.model,
-  });
-
-  expect(patch).toMatchObject({ providers, api: { key: 'test-key' }, model: defaultConfig.model });
 });
 
 test('saving appearance does not overwrite a stored legacy style identifier', () => {
@@ -75,9 +49,6 @@ test('saving appearance does not overwrite a stored legacy style identifier', ()
     useSystemProxy: current.useSystemProxy,
     sqliteAutoBackupEnabled: current.sqliteAutoBackupEnabled ?? false,
     shortcuts: current.shortcuts!,
-    providers: current.providers,
-    api: current.api,
-    model: current.model,
   });
   expect(patch).toEqual({ theme: 'dark' });
   expect({ ...current, ...patch }.themeStyle).toBe('legacy-custom-style');

@@ -529,24 +529,20 @@ test('synchronizes running models and notifies renderers after service startup',
     { name: 'qwen-local', status: 'loaded', runtime_context_length: 8192 },
   ]);
 
+  const onModelBindingsChanged = vi.fn();
   registerLlamaCppIpcHandlers(manager, {
     getStore: () => store as never,
+    onModelBindingsChanged,
   });
 
   const startHandler = electronMocks.handlers.get(LlamaCppIpcChannel.Start);
   if (!startHandler) throw new Error('The local inference start handler was not registered.');
 
   await expect(Promise.resolve(startHandler())).resolves.toMatchObject({ status: 'running' });
-  expect(store.set).toHaveBeenCalledWith(
-    'app_config',
-    expect.objectContaining({
-      providers: expect.objectContaining({
-        llamacpp: expect.objectContaining({
-          models: [expect.objectContaining({ id: 'qwen-local', contextWindow: 8192 })],
-        }),
-      }),
-    }),
-  );
+  expect(onModelBindingsChanged).toHaveBeenCalledWith(null, [
+    expect.objectContaining({ id: 'qwen-local', contextWindow: 8192 }),
+  ]);
+  expect(store.set).not.toHaveBeenCalled();
   expect(send).toHaveBeenCalledWith(LlamaCppIpcChannel.ModelBindingsChanged, undefined);
 });
 
@@ -568,24 +564,20 @@ test('synchronizes current running models when model bindings are refreshed', as
     { name: 'qwen-local', status: 'loaded', runtime_context_length: 8192 },
   ]);
 
+  const onModelBindingsChanged = vi.fn();
   registerLlamaCppIpcHandlers(manager, {
     getStore: () => store as never,
+    onModelBindingsChanged,
   });
 
   const refreshHandler = electronMocks.handlers.get(LlamaCppIpcChannel.RefreshRunningModelBindings);
   if (!refreshHandler) throw new Error('The local model refresh handler was not registered.');
 
   await expect(Promise.resolve(refreshHandler())).resolves.toBeUndefined();
-  expect(store.set).toHaveBeenCalledWith(
-    'app_config',
-    expect.objectContaining({
-      providers: expect.objectContaining({
-        llamacpp: expect.objectContaining({
-          models: [expect.objectContaining({ id: 'qwen-local', contextWindow: 8192 })],
-        }),
-      }),
-    }),
-  );
+  expect(onModelBindingsChanged).toHaveBeenCalledWith(null, [
+    expect.objectContaining({ id: 'qwen-local', contextWindow: 8192 }),
+  ]);
+  expect(store.set).not.toHaveBeenCalled();
 });
 
 test('preserves model bindings when the running-model query temporarily fails', async () => {

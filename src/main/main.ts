@@ -141,7 +141,6 @@ import { getLlamaCppServiceConfig, registerLlamaCppIpcHandlers } from './ipcHand
 import type { LlamaCppModelDaemonController } from './libs/llamacppModelDaemonController';
 import { registerMarketplaceIpcHandlers } from './ipcHandlers/marketplace';
 import { getOllamaServiceConfig, registerOllamaIpcHandlers } from './ipcHandlers/ollama';
-import { registerProviderModelDiscoveryIpcHandler } from './ipcHandlers/providerModelDiscovery';
 import {
   getCronJobService,
   initCronJobServiceManager,
@@ -178,41 +177,26 @@ import { MagpieManager } from './magpie/manager';
 import { shutdownPythonRuntime } from './pythonRuntime/host';
 import { registerMagpieIpc } from './magpie/registerIpc';
 import type { PiThinkingLevel } from './libs/agentEngine/piRuntimeTypes';
-import { PiModelCatalogRefreshCoordinator } from './libs/agentEngine/piModelCatalogRefresh';
-import { AppUpdateCoordinator } from './libs/appUpdateCoordinator';
+import { MagpieModelService, installMagpieModelService } from './magpie/modelService';
+import { ManagedMagpieProviderBindings } from './magpie/managedProviderBindings';
+import { readOllamaProviderSnapshot } from './magpie/ollamaProviderBinding';
+import { buildLlamaCppRunningModelBinding } from './libs/llamacppAgentBinding';
 import {
-  getCurrentApiConfig,
-  resolveAllEnabledProviderConfigs,
-  resolveAllProviderApiKeys,
-  resolveCurrentApiConfig,
-  resolveRawApiConfig,
-  setStoreGetter,
-} from './libs/claudeSettings';
+  projectAppPreferences,
+  mergeAppPreferences,
+  isManagedModelPreference,
+} from './appPreferences';
+import { AppUpdateCoordinator } from './libs/appUpdateCoordinator';
 import {
   chooseTriageModelSwitch,
   classifyMessage,
   createTriageState,
 } from './libs/agentEngine/modelTriage';
-import { setTriageClassifierDeps } from './libs/agentEngine/piClassifierTriage';
 import { DEFAULT_TRIAGE_CONFIG, type TriageConfig, type TriageState } from '../shared/triage';
-import { ProviderName } from '../shared/providers';
-import {
-  clearCopilotTokenState,
-  initCopilotTokenManager,
-  refreshCopilotTokenNow,
-  setCopilotTokenState,
-} from './libs/copilotTokenManager';
-import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
-import {
-  registerProxyTokenRefresher,
-  startCoworkOpenAICompatProxy,
-  stopCoworkOpenAICompatProxy,
-} from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
 import { createContentSecurityPolicy } from './contentSecurityPolicy';
 import { registerZhiyuanDeepLinkProtocol } from './deepLinkRegistration';
-import { refreshEndpointsTestMode } from './libs/endpoints';
 import { resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import {
   disposeZhiyuanEnterpriseExtension,
@@ -246,7 +230,6 @@ import { exportLogsZip } from './libs/logExport';
 import { getNvidiaSmiSnapshot } from './libs/nvidiaSmi';
 import { getSystemMemorySnapshot } from './libs/systemMemory';
 import { OllamaManager } from './libs/ollamaManager';
-import { resolveQualifiedAgentModelRef } from './libs/agentModels';
 import { consumePendingLocalInferenceInstall } from './libs/pendingLocalInferenceInstall';
 
 import { serializeForLog } from './libs/sanitizeForLog';
@@ -351,16 +334,8 @@ const sanitizeExportFileName = (value: string): string => {
   return sanitized || 'cowork-session';
 };
 
-const resolveDefaultAgentModelRef = (): string => {
-  const apiResolution = resolveRawApiConfig();
-  const config = apiResolution.config;
-  const providerName = apiResolution.providerMetadata?.providerName.trim();
-  const modelId = config?.model?.trim();
-  if (!providerName || !modelId) {
-    return '';
-  }
-  return `${providerName}/${modelId}`;
-};
+const resolveDefaultAgentModelRef = (): string =>
+  getStore().get<string>('magpie_default_model_id') ?? '';
 
 const triageStatesBySession = new Map<string, TriageState>();
 
@@ -377,15 +352,6 @@ const readTriageConfig = (): TriageConfig => {
   return DEFAULT_TRIAGE_CONFIG;
 };
 
-/** classifier URL: explicit config first, then the enabled llama.cpp provider endpoint. */
-const resolveTriageClassifierBaseUrl = (config: TriageConfig): string => {
-  if (config.rules.classifierBaseUrl) return config.rules.classifierBaseUrl;
-  const llama = resolveAllEnabledProviderConfigs().find(
-    provider => provider.providerName === ProviderName.LlamaCpp && provider.baseURL,
-  );
-  return llama?.baseURL ?? '';
-};
-
 /**
  * Classify the incoming prompt and switch the session model when the triage
  * decision says so. Runs before the prompt is sent; failures never block the
@@ -397,12 +363,7 @@ const applyMessageTriageRouting = async (sessionId: string, prompt: string): Pro
 
   const session = getCoworkStore().getSession(sessionId, null);
   const messageCount = session?.messages?.length ?? 0;
-  const classifierBaseUrl = resolveTriageClassifierBaseUrl(config);
-  const effectiveConfig: TriageConfig = {
-    ...config,
-    rules: { ...config.rules, classifierBaseUrl },
-  };
-  const result = await classifyMessage(prompt, messageCount, effectiveConfig);
+  const result = await classifyMessage(prompt, messageCount, config);
   const state = triageStatesBySession.get(sessionId) ?? createTriageState();
   const sessionOverride = session?.modelOverride?.trim() || '';
   const currentModelRef = sessionOverride || resolveDefaultAgentModelRef();
@@ -418,41 +379,6 @@ const applyMessageTriageRouting = async (sessionId: string, prompt: string): Pro
     await getPiRuntimeAdapter().patchSession(sessionId, { model: decision.modelRef });
     console.log(`[Triage] session ${sessionId} routed to ${decision.modelRef} (${result.reason})`);
   }
-};
-
-const migrateAgentModelRefs = (): number => {
-  const defaultModelRef = resolveDefaultAgentModelRef();
-  if (!defaultModelRef) return 0;
-
-  const availableProviders = buildAvailableAgentProviders();
-  const agents = getAgentManager().listAgents();
-  let changed = 0;
-
-  for (const agent of agents) {
-    const normalizedModel = agent.model.trim();
-    if (!normalizedModel) continue;
-
-    const qualification = resolveQualifiedAgentModelRef({
-      agentModel: normalizedModel,
-      availableProviders,
-    });
-
-    if (qualification.status === 'ambiguous') {
-      console.warn(
-        `[Main] Skipped ambiguous agent model migration for "${agent.id}" because "${qualification.modelId}" matches multiple providers: ${qualification.providerIds.join(', ')}`,
-      );
-      continue;
-    }
-
-    if (qualification.status !== 'qualified' || qualification.primaryModel === agent.model.trim()) {
-      continue;
-    }
-
-    getCoworkStore().updateAgent(agent.id, { model: qualification.primaryModel });
-    changed += 1;
-  }
-
-  return changed;
 };
 
 const sanitizeAttachmentFileName = (value?: string): string => {
@@ -1053,7 +979,9 @@ process.on('exit', code => {
 let store: SqliteStore | null = null;
 let coworkStore: CoworkStore | null = null;
 let piRuntimeAdapter: PiRuntimeAdapter | null = null;
-let piModelCatalogRefreshCoordinator: PiModelCatalogRefreshCoordinator | null = null;
+let magpieManager: MagpieManager | undefined;
+let managedMagpieBindings: ManagedMagpieProviderBindings | undefined;
+let disposeMagpieModels: (() => void) | undefined;
 let codingRoomService: CodingRoomService | null = null;
 let todoReminderScheduler: TodoReminderScheduler | null = null;
 
@@ -1072,7 +1000,7 @@ const getCodingRoomService = (): CodingRoomService => {
       new CodingRoomRepository(getStore().getDatabase()),
       new CodingAgentRegistry(
         new CodingAgentProfileRepository(getStore().getDatabase()),
-        () => resolveCurrentApiConfig().config !== null,
+        () => Boolean(getStore().get<string>('magpie_default_model_id')),
         app.isPackaged
           ? path.join(process.resourcesPath, 'acp', 'registry.json')
           : path.join(process.cwd(), 'resources', 'acp', 'registry.json'),
@@ -1447,19 +1375,6 @@ const getStore = (): SqliteStore => {
     throw new Error('Store not initialized. Call initStore() first.');
   }
   return store;
-};
-
-const buildAvailableAgentProviders = (): Record<string, { models: Array<{ id: string }> }> => {
-  const providerMap: Record<string, { models: Array<{ id: string }> }> = {};
-  for (const provider of resolveAllEnabledProviderConfigs()) {
-    for (const model of provider.models) {
-      const models = (providerMap[provider.providerName] ??= { models: [] }).models;
-      if (!models.some(entry => entry.id === model.id)) {
-        models.push({ id: model.id });
-      }
-    }
-  }
-  return providerMap;
 };
 
 const getLlamaCppManager = (): LlamaCppManager => {
@@ -2238,17 +2153,21 @@ if (!gotTheLock) {
 
   // IPC 处理程序
   ipcMain.handle('store:get', (_event, key) => {
-    return getStore().get(key);
+    return key === 'app_config' ? projectAppPreferences(getStore().get(key)) : getStore().get(key);
   });
 
   ipcMain.handle('store:set', async (_event, key, value) => {
-    getStore().set(key, value);
-    if (key === 'app_config') {
-      refreshEndpointsTestMode(getStore());
-    }
+    if (isManagedModelPreference(key))
+      throw new Error('Use model settings to change this preference');
+    getStore().set(
+      key,
+      key === 'app_config' ? mergeAppPreferences(getStore().get(key), value) : value,
+    );
   });
 
   ipcMain.handle('store:remove', (_event, key) => {
+    if (isManagedModelPreference(key))
+      throw new Error('Use model settings to change this preference');
     getStore().delete(key);
   });
 
@@ -2276,6 +2195,10 @@ if (!gotTheLock) {
   ipcMain.handle(ManagedProviderIpc.Policy, () => zhiyuanManagedProviderBridge.accessPolicy());
   ipcMain.handle(ManagedProviderIpc.Catalog, () => zhiyuanManagedProviderBridge.catalog());
   zhiyuanManagedProviderBridge.onDidChange(() => {
+    if (magpieManager?.status().state === 'running')
+      void managedMagpieBindings
+        ?.synchronize()
+        .catch(error => console.error('[Magpie] Managed catalog sync failed', error));
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(ManagedProviderIpc.Changed);
     }
@@ -2928,13 +2851,45 @@ if (!gotTheLock) {
   registerWorkDocumentIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
   );
+  magpieManager = new MagpieManager({
+    resourcesRoot: app.isPackaged
+      ? path.join(process.resourcesPath, 'magpie')
+      : path.join(app.getAppPath(), 'resources/magpie'),
+    privateHome: path.join(app.getPath('userData'), 'magpie'),
+    serviceEnabled: {
+      read: () => getStore().get<boolean>('magpie_service_enabled') === true,
+      write: enabled => getStore().set('magpie_service_enabled', enabled),
+    },
+    subscriptionAccounts: {
+      read: () => getStore().get<boolean>('magpie_subscription_accounts_enabled') === true,
+      write: enabled => getStore().set('magpie_subscription_accounts_enabled', enabled),
+    },
+  });
+  managedMagpieBindings = new ManagedMagpieProviderBindings(
+    zhiyuanManagedProviderBridge,
+    magpieManager,
+  );
+  managedMagpieBindings.setOllamaReader(() => readOllamaProviderSnapshot(getOllamaManager()));
+  managedMagpieBindings.setGpuReader(async () => {
+    const daemon = llamaCppModelDaemonController;
+    if (!daemon) return { baseUrl: null, models: [] };
+    const models = await daemon.listRunningModels();
+    return {
+      baseUrl: daemon.gatewayBaseUrl(),
+      models: models
+        .map(buildLlamaCppRunningModelBinding)
+        .filter((model): model is NonNullable<typeof model> => Boolean(model)),
+    };
+  });
+  const modelService = new MagpieModelService(magpieManager, {
+    readDefaultModelId: () => getStore().get<string>('magpie_default_model_id'),
+    writeDefaultModelId: id => getStore().set('magpie_default_model_id', id),
+    beforeCatalog: () => managedMagpieBindings!.beforeCatalog(),
+    allowedModel: model => managedMagpieBindings!.allowedModel(model.id),
+  });
+  disposeMagpieModels = installMagpieModelService(modelService);
   disposeMagpie = registerMagpieIpc(
-    new MagpieManager({
-      resourcesRoot: app.isPackaged
-        ? path.join(process.resourcesPath, 'magpie')
-        : path.join(app.getAppPath(), 'resources/magpie'),
-      privateHome: path.join(app.getPath('userData'), 'magpie'),
-    }),
+    magpieManager,
     event =>
       Boolean(
         mainWindow &&
@@ -2942,6 +2897,7 @@ if (!gotTheLock) {
         event.sender === mainWindow.webContents &&
         event.senderFrame === mainWindow.webContents.mainFrame,
       ),
+    modelService,
   );
   // Cowork IPC handlers
   ipcMain.handle(CoworkSessionIpc.Start, async (_event, rawOptions: unknown) => {
@@ -4114,123 +4070,6 @@ if (!gotTheLock) {
     }
   });
 
-  // GitHub Copilot device code authentication handlers
-  ipcMain.handle('github-copilot:request-device-code', async () => {
-    const { requestDeviceCode } = await import('./libs/githubCopilotAuth.js');
-    try {
-      const result = await requestDeviceCode();
-      return {
-        userCode: result.user_code,
-        verificationUri: result.verification_uri,
-        deviceCode: result.device_code,
-        interval: result.interval,
-        expiresIn: result.expires_in,
-      };
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : 'Failed to request device code');
-    }
-  });
-
-  ipcMain.handle(
-    'github-copilot:poll-for-token',
-    async (
-      _event,
-      {
-        deviceCode,
-        interval,
-        expiresIn,
-      }: { deviceCode: string; interval: number; expiresIn: number },
-    ) => {
-      const { pollForAccessToken, getCopilotToken, getGitHubUser } =
-        await import('./libs/githubCopilotAuth.js');
-      try {
-        const githubAccessToken = await pollForAccessToken(deviceCode, interval, expiresIn);
-        const githubUser = await getGitHubUser(githubAccessToken);
-        const {
-          token: copilotToken,
-          expiresAt,
-          baseUrl,
-        } = await getCopilotToken(githubAccessToken);
-        // Store the GitHub access token for later token refresh
-        getStore().set('github_copilot_github_token', githubAccessToken);
-        // Register with the token manager for automatic refresh
-        setCopilotTokenState({ copilotToken, baseUrl, expiresAt, githubToken: githubAccessToken });
-        return { success: true, token: copilotToken, githubUser, baseUrl };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Authentication failed',
-        };
-      }
-    },
-  );
-
-  ipcMain.handle('github-copilot:cancel-polling', async () => {
-    const { cancelPolling } = await import('./libs/githubCopilotAuth.js');
-    cancelPolling();
-  });
-
-  ipcMain.handle('github-copilot:sign-out', async () => {
-    getStore().delete('github_copilot_github_token');
-    clearCopilotTokenState();
-  });
-
-  ipcMain.handle('github-copilot:refresh-token', async () => {
-    try {
-      const state = await refreshCopilotTokenNow();
-      return { success: true, token: state.copilotToken, baseUrl: state.baseUrl };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Token refresh failed',
-      };
-    }
-  });
-
-  // OpenAI ChatGPT (Codex) OAuth handlers — see src/main/libs/openaiCodexAuth.ts.
-  // The login flow opens a browser to https://auth.openai.com/oauth/authorize
-  // and listens on http://127.0.0.1:1455/auth/callback for the redirect, then
-  // writes <CODEX_HOME>/auth.json for the Pi provider route.
-  ipcMain.handle('openai-codex-oauth:start', async () => {
-    const { startOpenAICodexLogin } = await import('./libs/openaiCodexAuth.js');
-    try {
-      const tokens = await startOpenAICodexLogin();
-      return {
-        success: true as const,
-        email: tokens.email ?? null,
-        accountId: tokens.accountId ?? null,
-        expiresAt: tokens.expiresAt,
-      };
-    } catch (error) {
-      return {
-        success: false as const,
-        error: error instanceof Error ? error.message : 'ChatGPT login failed',
-      };
-    }
-  });
-
-  ipcMain.handle('openai-codex-oauth:cancel', async () => {
-    const { cancelOpenAICodexLogin } = await import('./libs/openaiCodexAuth.js');
-    cancelOpenAICodexLogin();
-  });
-
-  ipcMain.handle('openai-codex-oauth:logout', async () => {
-    const { logoutOpenAICodex } = await import('./libs/openaiCodexAuth.js');
-    logoutOpenAICodex();
-  });
-
-  ipcMain.handle('openai-codex-oauth:status', async () => {
-    const { readOpenAICodexAuthFile } = await import('./libs/openaiCodexAuth.js');
-    const tokens = readOpenAICodexAuthFile();
-    if (!tokens) return { loggedIn: false as const };
-    return {
-      loggedIn: true as const,
-      email: tokens.email ?? null,
-      accountId: tokens.accountId ?? null,
-      expiresAt: tokens.expiresAt,
-    };
-  });
-
   ipcMain.handle('generate-session-title', async (_event, userInput: string | null) => {
     return generateSessionTitle(userInput, t('coworkDefaultSessionTitle'));
   });
@@ -4242,45 +4081,6 @@ if (!gotTheLock) {
       .filter(cwd => !isInternalWorkspacePath(cwd))
       .slice(0, boundedLimit);
   });
-
-  ipcMain.handle('get-api-config', async () => {
-    return getCurrentApiConfig();
-  });
-
-  ipcMain.handle('check-api-config', async (_event, options?: { probeModel?: boolean }) => {
-    // Pi and managed Model Pool requests do not depend on the compatibility proxy.
-    const { config, error } = resolveRawApiConfig();
-    if (config && options?.probeModel) {
-      const probe = await probeCoworkModelReadiness();
-      if (probe.ok === false) {
-        return { hasConfig: false, config: null, error: probe.error };
-      }
-    }
-    return { hasConfig: config !== null, config, error };
-  });
-
-  ipcMain.handle(
-    'save-api-config',
-    async (
-      _event,
-      config: {
-        apiKey: string;
-        baseURL: string;
-        model: string;
-        apiType?: 'anthropic' | 'openai';
-      },
-    ) => {
-      try {
-        saveCoworkApiConfig(config);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to save API config',
-        };
-      }
-    },
-  );
 
   // Dialog handlers
   ipcMain.handle('dialog:selectDirectory', async (event, options?: { defaultPath?: string }) => {
@@ -4636,25 +4436,6 @@ if (!gotTheLock) {
     }
   });
 
-  // Helper: detect if a URL belongs to GitHub Copilot and apply token refresh on 401.
-  const isCopilotUrl = (url: string) => url.includes('githubcopilot.com');
-  const retryCopilotWithRefreshedToken = async (opts: {
-    url: string;
-    method: string;
-    headers: Record<string, string>;
-    body?: string;
-  }): Promise<{ headers: Record<string, string>; retried: boolean }> => {
-    try {
-      const state = await refreshCopilotTokenNow();
-      const refreshedHeaders = { ...opts.headers, Authorization: `Bearer ${state.copilotToken}` };
-      console.log('[CopilotRetry] token refreshed, retrying request');
-      return { headers: refreshedHeaders, retried: true };
-    } catch (err) {
-      console.warn('[CopilotRetry] token refresh failed, not retrying:', err);
-      return { headers: opts.headers, retried: false };
-    }
-  };
-
   ipcMain.handle(ApiIpc.Fetch, async (_event, rawOptions: unknown) => {
     const options = ApiFetchSchema.input.parse(rawOptions);
     const shouldRecord = shouldRecordApiRequest(options.purpose);
@@ -4694,31 +4475,12 @@ if (!gotTheLock) {
 
     const runApiFetch = async () => {
       try {
-        let result = await doFetch(options.headers);
+        const result = await doFetch(options.headers);
         if (shouldRecord) {
           console.log(
             `[api:fetch] ${options.method} ${options.url} -> ${result.status} ${result.statusText}`,
             typeof result.data === 'object' ? JSON.stringify(result.data) : result.data,
           );
-        }
-
-        // Auto-retry once for Copilot 401/403
-        if (
-          !result.ok &&
-          (result.status === 401 || result.status === 403) &&
-          isCopilotUrl(options.url)
-        ) {
-          if (shouldRecord) {
-            console.log('[api:fetch] Copilot auth error, attempting token refresh and retry');
-          }
-          const { headers: refreshedHeaders, retried } =
-            await retryCopilotWithRefreshedToken(options);
-          if (retried) {
-            result = await doFetch(refreshedHeaders);
-            if (shouldRecord) {
-              console.log(`[api:fetch] retry -> ${result.status} ${result.statusText}`);
-            }
-          }
         }
 
         return result;
@@ -5091,12 +4853,8 @@ if (!gotTheLock) {
     if (piRuntimeAdapter) await piRuntimeAdapter.close();
     await shutdownPythonRuntime();
 
-    await piModelCatalogRefreshCoordinator?.stop();
-    piModelCatalogRefreshCoordinator = null;
-
-    await stopCoworkOpenAICompatProxy().catch(error => {
-      console.error('Failed to stop OpenAI compatibility proxy:', error);
-    });
+    disposeMagpieModels?.();
+    disposeMagpieModels = undefined;
 
     if (ollamaManager) {
       await ollamaManager.shutdownForQuit().catch(error => {
@@ -5263,11 +5021,9 @@ if (!gotTheLock) {
       db: store.getDatabase(),
       dbPath: path.join(app.getPath('userData'), DB_FILENAME),
     });
-    zhiyuanManagedProviderBridge.attachStore(store);
     profiler.measure('initStore');
     console.log('[Main] initApp: store initialized');
     initializeHistoryService();
-    refreshEndpointsTestMode(store);
     sqliteBackupManager = new SqliteBackupManager(app.getPath('userData'));
     const startSqliteBackupLoop = async (): Promise<void> => {
       if (!sqliteBackupManager) return;
@@ -5319,63 +5075,30 @@ if (!gotTheLock) {
       .catch(error => {
         console.warn('[CodingAgent] External ACP discovery failed:', error);
       });
-    // Inject store getter into claudeSettings
-    setStoreGetter(() => store);
     setPiCapabilityCorrectionStoreGetter(() => store);
-    piModelCatalogRefreshCoordinator = new PiModelCatalogRefreshCoordinator({
-      resolveApiKeys: resolveAllProviderApiKeys,
-    });
-    getStore().onDidChange<AppConfigSettings>('app_config', () => {
-      piModelCatalogRefreshCoordinator?.notifyConfigurationChanged();
-    });
     const localInferenceManager = getLlamaCppManager();
     localInferenceManager.initializeModelsDir();
     llamaCppModelDaemonController = registerLlamaCppIpcHandlers(localInferenceManager, {
       getStore,
+      onModelBindingsChanged: async (url, models) => {
+        managedMagpieBindings?.setGpuSnapshot(url, models);
+        if (magpieManager?.status().state === 'running') await managedMagpieBindings?.synchronize();
+      },
     });
     // Warm the short-lived backend cache before the runtime settings dialog is opened.
     void localInferenceManager.listBackends();
     registerTriageIpcHandlers({ getStore });
     registerOllamaIpcHandlers(getOllamaManager(), {
       getStore,
+      onModelBindingsChanged: async snapshot => {
+        managedMagpieBindings?.setOllamaSnapshot(snapshot);
+        if (magpieManager?.status().state === 'running') await managedMagpieBindings?.synchronize();
+      },
     });
     registerMarketplaceIpcHandlers({
       getModelsDir: () => getLlamaCppManager().getModelsDir(),
       userDataPath: app.getPath('userData'),
     });
-    registerProviderModelDiscoveryIpcHandler();
-    // Initialize Copilot token manager and restore token state if available
-    initCopilotTokenManager(getStore);
-    const storedGithubToken = getStore().get('github_copilot_github_token') as string | undefined;
-    if (storedGithubToken) {
-      import('./libs/githubCopilotAuth.js')
-        .then(({ getCopilotToken }) =>
-          getCopilotToken(storedGithubToken).then(({ token, expiresAt, baseUrl }) => {
-            setCopilotTokenState({
-              copilotToken: token,
-              baseUrl,
-              expiresAt,
-              githubToken: storedGithubToken,
-            });
-            console.log('[Main] restored Copilot token state from stored GitHub token');
-          }),
-        )
-        .catch(err => {
-          console.warn('[Main] failed to restore Copilot token on startup:', err);
-        });
-    }
-
-    registerProxyTokenRefresher('github-copilot', async () => {
-      try {
-        const { refreshCopilotTokenNow } = await import('./libs/copilotTokenManager.js');
-        const refreshed = await refreshCopilotTokenNow();
-        return refreshed.copilotToken;
-      } catch (err) {
-        console.warn('[Auth] Copilot proxy token refresh failed:', err);
-        return null;
-      }
-    });
-
     // Enterprise config sync must run before agent services initialize.
     profiler.mark('enterpriseConfigSync');
     // so enterprise data is in SQLite when the config is generated.
@@ -5407,47 +5130,10 @@ if (!gotTheLock) {
 
     bindPiWorkbenchRuntimeForwarder();
 
-    // Wire pi's classifier API for message triage; failures disable the
-    // classifier path (rules still classify).
-    void (async () => {
-      try {
-        const [modelsApi, lazyApi] = await Promise.all([
-          import('@earendil-works/pi-ai/models'),
-          import('@earendil-works/pi-ai/api/llama-cpp-classify.lazy'),
-        ]);
-        setTriageClassifierDeps({
-          createModels: modelsApi.createModels,
-          createProvider: modelsApi.createProvider,
-          llamaCppClassifyApi: lazyApi.llamaCppClassifyApi,
-        });
-      } catch (error) {
-        console.warn('[Triage] pi classifier API unavailable:', error);
-        setTriageClassifierDeps(null);
-      }
-    })();
-
-    const defaultAgentModelRef = resolveDefaultAgentModelRef();
-    const backfilledAgentModels = getCoworkStore().backfillEmptyAgentModels(defaultAgentModelRef);
-    const qualifiedAgentModels = migrateAgentModelRefs();
-    if (backfilledAgentModels > 0 || qualifiedAgentModels > 0) {
-      console.log(
-        `[Main] migrated agent model bindings: backfilled=${backfilledAgentModels}, qualified=${qualifiedAgentModels}`,
-      );
-    }
-
-    // Start proxy BEFORE config sync so proxy-dependent providers (e.g. copilot)
-    // get the correct baseURL on the first write, avoiding a mid-startup config
-    // overwrite that triggers unnecessary gateway hot-reload.
     profiler.mark('applyProxyPreference');
     const appConfig = getStore().get<AppConfigSettings>('app_config');
     await applyProxyPreference(getUseSystemProxyFromConfig(appConfig));
     profiler.measure('applyProxyPreference');
-
-    profiler.mark('coworkOpenAICompatProxy');
-    await startCoworkOpenAICompatProxy().catch(error => {
-      console.error('Failed to start OpenAI compatibility proxy:', error);
-    });
-    profiler.measure('coworkOpenAICompatProxy');
 
     try {
       getCronJobService().startPolling();
@@ -5463,7 +5149,6 @@ if (!gotTheLock) {
     createWindow();
     profiler.measure('createWindow');
     console.log('[Main] initApp: window created');
-    piModelCatalogRefreshCoordinator.start();
     startAppUpdatePolling();
 
     console.log(profiler.summary());

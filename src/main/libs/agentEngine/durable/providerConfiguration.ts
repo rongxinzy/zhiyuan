@@ -1,57 +1,63 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
-import type { ApiConfigResolution } from '../../claudeSettings';
-import {
-  isLocalProviderName,
-  ModelCapabilityStatus,
-  ProviderName,
-  resolveProviderModelPiReasoning,
-} from '../../../../shared/providers';
+import type { MagpieModel } from '../../../../shared/magpie/types';
 import { ZhiyuanModelPoolHeader } from '../../../../shared/modelPool/constants';
-import { resolvePiCustomModelApi } from '../piModelApi';
 
-/** Application model choices, expressed as a native pi-ai model, never a coding-agent session. */
+export const MAGPIE_PI_PROVIDER = 'magpie';
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+/** The gateway owns provider configuration; this is only its public native Pi projection. */
 export function buildDurableModel(
-  resolution: ApiConfigResolution,
-  baseUrl: string,
+  model: MagpieModel,
+  gatewayUrl: string,
   sessionId: string,
   mode: 'work' | 'chat',
 ): Model<Api> {
-  const { config, providerMetadata: metadata, endpoint } = resolution;
-  if (!config || !metadata)
-    throw new Error(resolution.error || 'Model configuration is unavailable.');
-  const local = isLocalProviderName(metadata.providerName);
-  const capabilities = endpoint?.capabilities ?? metadata.capabilities;
-  const runtime = metadata.piRuntime;
+  const url = new URL(gatewayUrl);
+  if (
+    url.protocol !== 'http:' ||
+    url.hostname !== '127.0.0.1' ||
+    !url.port ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== '/'
+  )
+    throw new Error('Invalid owned model gateway URL');
+  const endpoints = model.native_endpoints ?? [];
+  const api = endpoints.includes('/v1/responses')
+    ? 'openai-responses'
+    : endpoints.includes('/v1/messages')
+      ? 'anthropic-messages'
+      : 'openai-completions';
+  const levels = model.supported_reasoning_levels?.map(level => level.effort) ?? [];
+  const thinkingLevelMap = levels.length
+    ? Object.fromEntries(
+        THINKING_LEVELS.map(level => {
+          const effort = level === 'off' ? 'none' : level;
+          return [level, levels.includes(effort) ? effort : null];
+        }),
+      )
+    : undefined;
+  const contextWindow = model.context_window ?? 32768;
+  // Unknown limits are deliberately conservative, not invented vendor capabilities.
+  const maxTokens = Math.min(model.max_output_tokens ?? 4096, contextWindow);
   return {
-    id: endpoint?.modelId ?? config.model,
-    name: endpoint?.displayName || metadata.modelName || config.model,
-    provider: metadata.providerName,
-    api: resolvePiCustomModelApi(resolution),
-    baseUrl,
-    reasoning: resolveProviderModelPiReasoning(runtime, capabilities),
-    input:
-      metadata.supportsImage || capabilities?.imageInput === ModelCapabilityStatus.Supported
-        ? ['text', 'image']
-        : ['text'],
+    id: model.id,
+    name: model.display_name || model.id,
+    provider: MAGPIE_PI_PROVIDER,
+    api,
+    baseUrl: api === 'anthropic-messages' ? url.origin : `${url.origin}/v1`,
+    reasoning: model.reasoning === true,
+    input: model.modalities?.input.includes('image') ? ['text', 'image'] : ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow:
-      endpoint?.contextWindow ||
-      metadata.contextWindow ||
-      metadata.contextTokens ||
-      (local ? 32768 : 256000),
-    maxTokens: endpoint?.maxTokens || metadata.maxTokens || (local ? 4096 : 32768),
-    ...(runtime?.compat ? { compat: runtime.compat } : {}),
-    ...(runtime?.thinkingLevelMap ? { thinkingLevelMap: runtime.thinkingLevelMap } : {}),
-    ...(runtime?.inputLimits ? { inputLimits: runtime.inputLimits } : {}),
-    ...(runtime?.promptCache ? { promptCache: runtime.promptCache } : {}),
-    ...(runtime?.samplingParams ? { samplingParams: runtime.samplingParams } : {}),
-    ...(metadata.providerName === ProviderName.Zhiyuan
-      ? {
-          headers: {
-            [ZhiyuanModelPoolHeader.ConversationId]: sessionId,
-            [ZhiyuanModelPoolHeader.Workload]: mode,
-          },
-        }
-      : {}),
+    contextWindow,
+    maxTokens,
+    ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+    compat: { sendSessionAffinityHeaders: true },
+    headers: {
+      'X-Magpie-Session': sessionId,
+      [ZhiyuanModelPoolHeader.ConversationId]: sessionId,
+      [ZhiyuanModelPoolHeader.Workload]: mode,
+    },
   };
 }

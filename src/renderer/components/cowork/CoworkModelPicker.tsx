@@ -17,7 +17,6 @@ import {
   isSameModelIdentity,
   type Model,
 } from '../../store/slices/modelSlice';
-import { getProviderDisplayName } from '../../config';
 import { SelectorOptionContent } from './SelectorOptionContent';
 import { PromptSelectorButton } from './PromptSelectorButton';
 import { getPreferredReadyLocalModel } from './preferredLocalModel';
@@ -43,7 +42,7 @@ export function CoworkModelPicker({
   onSelect,
   compact = false,
 }: CoworkModelPickerProps) {
-  const displayedSelectedModel = models.length > 0 ? selectedModel : null;
+  const displayedSelectedModel = models.find(model => model.id === selectedModel?.id) ?? null;
   const readyLocalModel = getPreferredReadyLocalModel(models, selectedModel);
   const [searchQuery, setSearchQuery] = useState('');
   const matchingModels = useMemo(() => {
@@ -140,7 +139,7 @@ export function CoworkModelPicker({
                     variant="selector"
                     aria-label={model.name}
                     aria-description={[
-                      model.provider || getProviderDisplayName(model.providerKey || 'openai'),
+                      model.provider || model.providerKey || '',
                       displayedSelectedModel && isSameModelIdentity(model, displayedSelectedModel)
                         ? i18nService.t('currentModel')
                         : '',
@@ -159,9 +158,7 @@ export function CoworkModelPicker({
                         />
                       }
                       title={model.name}
-                      description={
-                        model.provider || getProviderDisplayName(model.providerKey || 'openai')
-                      }
+                      description={model.provider || model.providerKey || ''}
                     />
                     <span
                       aria-hidden="true"

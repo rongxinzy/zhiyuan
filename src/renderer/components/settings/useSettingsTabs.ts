@@ -2,7 +2,6 @@ import { Box, Users, type LucideIcon } from 'lucide-react';
 import { useMemo } from 'react';
 
 import type { EnterpriseRendererSettingsPage } from '../../../shared/enterpriseRenderer';
-import { filterManagedModelSettingsTabs } from '../../services/managedModelUiPolicy';
 import { i18nService, type LanguageType } from '../../services/i18n';
 import { EnterpriseSettingsPageId } from '../enterprise/constants';
 import { SETTINGS_NAV_GROUPS, SETTINGS_TAB_METAS } from './constants';
@@ -38,7 +37,6 @@ export function useSettingsTabs({
   enterpriseSettingsPages,
   language,
   enterpriseConfig,
-  managedModelsOnly,
 }: UseSettingsTabsParams): { groups: SettingsNavGroup[]; tabs: SettingsNavTab[] } {
   return useMemo(() => {
     const flatTabs: SettingsNavTab[] = [];
@@ -64,7 +62,7 @@ export function useSettingsTabs({
     const configuredTabs = ui
       ? flatTabs.filter(tab => ui[`settings.${tab.key}`] !== 'hide')
       : flatTabs;
-    const tabs = filterManagedModelSettingsTabs(configuredTabs, managedModelsOnly);
+    const tabs = configuredTabs;
 
     const groups: SettingsNavGroup[] = [];
     for (const group of SETTINGS_NAV_GROUPS) {
@@ -89,5 +87,5 @@ export function useSettingsTabs({
     }
 
     return { groups, tabs };
-  }, [enterpriseConfig?.ui, enterpriseSettingsPages, language, managedModelsOnly]);
+  }, [enterpriseConfig?.ui, enterpriseSettingsPages, language]);
 }

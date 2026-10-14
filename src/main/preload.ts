@@ -22,14 +22,12 @@ import {
   CoworkStreamIpc,
   DialogIpc,
   EnterpriseIpc,
-  GitHubCopilotIpc,
   HardwareIpc,
   LogIpc,
   ManagedProviderIpc,
   ModelPoolIpc,
   NetworkIpc,
   DevNetworkIpc,
-  OpenAICodexOAuthIpc,
   PermissionsIpc,
   ProjectIpc,
   ShellIpc,
@@ -49,10 +47,6 @@ import type { MarketplaceSearchRequest } from '../shared/marketplace/types';
 import { OllamaIpcChannel } from '../shared/ollama/constants';
 import { EnterpriseSessionIpc } from '../shared/enterpriseSession';
 import { EnterpriseRendererIpc } from '../shared/enterpriseRenderer';
-import type {
-  ProviderModelDiscoveryRequest,
-  ProviderModelDiscoveryResult,
-} from '../shared/providers';
 import { TriageIpcChannel } from '../shared/triage';
 import { TodoIpc } from '../shared/todo';
 import { WorkspaceIpc } from '../shared/workspace';
@@ -267,9 +261,6 @@ contextBridge.exposeInMainWorld('electron', {
       timeoutMs?: number;
       purpose?: ApiRequestPurpose;
     }) => ipcRenderer.invoke(ApiIpc.Fetch, options),
-
-    fetchModels: (input: ProviderModelDiscoveryRequest): Promise<ProviderModelDiscoveryResult> =>
-      ipcRenderer.invoke(ApiIpc.FetchModels, input),
   },
 
   // Internal app-level events (replaces raw ipcRenderer.on usage in App.tsx)
@@ -302,15 +293,6 @@ contextBridge.exposeInMainWorld('electron', {
     ) => onPush(WindowIpc.StateChanged, callback),
   },
 
-  getApiConfig: () => ipcRenderer.invoke(AppConfigIpc.GetApiConfig),
-  checkApiConfig: (options?: { probeModel?: boolean }) =>
-    ipcRenderer.invoke(AppConfigIpc.CheckApiConfig, options),
-  saveApiConfig: (config: {
-    apiKey: string;
-    baseURL: string;
-    model: string;
-    apiType?: 'anthropic' | 'openai';
-  }) => ipcRenderer.invoke(AppConfigIpc.SaveApiConfig, config),
   generateSessionTitle: (userInput: string | null) =>
     ipcRenderer.invoke(AppConfigIpc.GenerateSessionTitle, userInput),
   getRecentCwds: (limit?: number) => ipcRenderer.invoke(AppConfigIpc.GetRecentCwds, limit),
@@ -366,12 +348,16 @@ contextBridge.exposeInMainWorld('electron', {
 
   magpie: {
     status: () => ipcRenderer.invoke(MagpieIpc.status),
+    setSubscriptionAccounts: (enabled: boolean) =>
+      ipcRenderer.invoke(MagpieIpc.setSubscriptionAccounts, enabled),
     start: () => ipcRenderer.invoke(MagpieIpc.start),
     stop: () => ipcRenderer.invoke(MagpieIpc.stop),
     agents: () => ipcRenderer.invoke(MagpieIpc.agents),
     setModel: (selection: MagpieModelSelection) =>
       ipcRenderer.invoke(MagpieIpc.setModel, selection),
     models: () => ipcRenderer.invoke(MagpieIpc.models),
+    catalog: () => ipcRenderer.invoke(MagpieIpc.catalog),
+    selectDefault: (modelId: string) => ipcRenderer.invoke(MagpieIpc.selectDefault, modelId),
     openManagement: () => ipcRenderer.invoke(MagpieIpc.openManagement),
   },
   cowork: {
@@ -892,24 +878,6 @@ contextBridge.exposeInMainWorld('electron', {
       onPush(ModelPoolIpc.streamError(requestId), callback),
     onStreamAbort: (requestId: string, callback: () => void) =>
       onPushVoid(ModelPoolIpc.streamAbort(requestId), callback),
-  },
-
-  githubCopilot: {
-    requestDeviceCode: () => ipcRenderer.invoke(GitHubCopilotIpc.RequestDeviceCode),
-    pollForToken: (deviceCode: string, interval: number, expiresIn: number) =>
-      ipcRenderer.invoke(GitHubCopilotIpc.PollForToken, { deviceCode, interval, expiresIn }),
-    cancelPolling: () => ipcRenderer.invoke(GitHubCopilotIpc.CancelPolling),
-    signOut: () => ipcRenderer.invoke(GitHubCopilotIpc.SignOut),
-    refreshToken: () => ipcRenderer.invoke(GitHubCopilotIpc.RefreshToken),
-    onTokenUpdated: (callback: (data: { token: string; baseUrl: string }) => void) =>
-      onPush(GitHubCopilotIpc.TokenUpdated, callback),
-  },
-
-  openaiCodexOAuth: {
-    start: () => ipcRenderer.invoke(OpenAICodexOAuthIpc.Start),
-    cancel: () => ipcRenderer.invoke(OpenAICodexOAuthIpc.Cancel),
-    logout: () => ipcRenderer.invoke(OpenAICodexOAuthIpc.Logout),
-    status: () => ipcRenderer.invoke(OpenAICodexOAuthIpc.Status),
   },
 
   activity: {

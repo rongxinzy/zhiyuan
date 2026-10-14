@@ -167,6 +167,19 @@ export default defineConfig(async ({ command }) => {
                 onstart() {},
               },
               {
+                // Parse model catalogs without blocking Electron's main process.
+                entry: 'src/main/magpie/catalogWorker.ts',
+                vite: {
+                  build: {
+                    watch: command === 'serve' ? {} : null,
+                    sourcemap: electronSourceMap,
+                    outDir: 'dist-electron',
+                    minify: false,
+                  },
+                },
+                onstart() {},
+              },
+              {
                 // Verify the bundled CLI service without blocking the main process.
                 entry: 'src/main/magpie/hashWorker.ts',
                 vite: {

@@ -67,19 +67,6 @@ function sanitizeTriageConfig(raw: unknown): TriageConfig {
                 DEFAULT_TRIAGE_CONFIG.rules.cooldownRounds,
             )
           : DEFAULT_TRIAGE_CONFIG.rules.cooldownRounds,
-      useLocalModelTriage:
-        typeof input.rules === 'object' && input.rules !== null
-          ? Boolean((input.rules as Record<string, unknown>).useLocalModelTriage)
-          : DEFAULT_TRIAGE_CONFIG.rules.useLocalModelTriage,
-      triageModelName:
-        typeof input.rules === 'object' && input.rules !== null
-          ? String((input.rules as Record<string, unknown>).triageModelName || '')
-          : DEFAULT_TRIAGE_CONFIG.rules.triageModelName,
-      classifierBaseUrl: /^https?:\/\//.test(
-        String((input.rules as Record<string, unknown>).classifierBaseUrl || ''),
-      )
-        ? String((input.rules as Record<string, unknown>).classifierBaseUrl).replace(/\/+$/, '')
-        : DEFAULT_TRIAGE_CONFIG.rules.classifierBaseUrl,
     },
   };
 }

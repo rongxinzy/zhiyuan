@@ -68,20 +68,24 @@
 - 保留原生 Durable 执行、工作档案、普通会话产物、Coding 自身事件 / diff / 文件内容。通用工具审批分类和有界内容 Worker 迁为独立模块。
 - 旧用户审计数据原地保留；新增数据库不再创建旧表。本地完整 renderer/shared 1803 项、原生与保留工具等 76 项、Coding 206 项通过；双类型检查、lint、格式和 Main / Preload / 内容 Worker 构建通过。[已发布](https://github.com/rongxinzy/zhiyuan/commit/54e7fbe6255f5185fbe904e8bf4cd49d046cb0fd)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38524922618)。
 
-## 8. Magpie 统一模型设置 — 实施中
+## 8. Magpie 统一模型设置 — 已完成接线，发布验证中
 
 - 用户已确认：Magpie 统一管理 provider、凭据、模型目录与路由；Pi 负责执行、恢复与 Document。
 - 知远只提供企业托管模型与本地 GPU 的薄适配，本地 GPU 模型也注册到同一目录；不修改上游 Go 代码。
-- 待交付：原生 provider 薄适配、统一模型设置 UI、企业 / 本地注册与错误处理回归。
+- 原生 Pi 只经 Magpie 目录与网关运行，精确模型 ID、协议、上下文及能力由统一目录投影；目录无默认首项或旧 provider 回落。企业 token 保留在宿主 loopback 代理内；llama.cpp 与 Ollama 仅注册实时运行模型，停止或失效撤销目录。
+- 旧 provider 编辑器、独立 OAuth / token 刷新 / 兼容代理 / 目录发现链已移除。普通设置 IPC 白名单不再返回历史凭据；原有磁盘配置不主动清除，也不自动迁移密钥。
+- 首次启用须明确操作，启用偏好持久化，之后实际任务 / Cron 可惰性启动；关闭应用不清除偏好，用户停用才关闭。订阅账户发现独立默认关闭，确认后才允许官方流程读取本机登录；关闭不删除登录文件。真实浏览器账户登录尚未验收。
+- 旧可选 AI 轻重歧义分类退出，保留规则分级。该可选功能此前默认关闭，本次不声称其与规则完全等价，也不增加聊天分类请求。
+- 本地双类型、lint、格式、Main / Preload / catalogWorker 构建通过；真实固定 Go 网关与 Pi Harness 的完整生成、精确模型与重复提交幂等验证通过，未使用真实账号或付费模型。
 
-## 9. 原生历史与统一检索存储 — 实施中
+## 9. 原生历史与统一检索存储 — 已发布并通过 CI
 
 - 用户已确认：Pi 原生历史与 Coding 自身事件各自保存真实记录，提供统一目录、cursor 分页、可重建 FTS5 检索、附件管理及一致备份恢复。
 - 不再重建另一套任务执行真相，不主动清除用户历史数据。
 - 首批只读目录 / cursor 分页 / 可重建 FTS5 / 原会话定位已经接入侧栏与实际 IPC；19 项组合测试、双类型检查与 Main / Preload 构建通过。[已发布](https://github.com/rongxinzy/zhiyuan/commit/fa7e594aea37a2fb06d567fa8cd28f0957f0ca40)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38527096618)。
 - 备份 / 恢复采用用户明确确认后的维护重启，在所有数据库与原生执行器打开前执行；本地已接真实原生目录选择、备份确认与重启入口，受管附件哈希快照、白名单历史导出、WAL 一致快照、校验及失败回滚已通过测试。配置、凭据与旧外部文件引用不随包导出。
-- 后批本地 36 项历史 / 维护 / UI / 原生读取测试、双类型检查及 Main / Preload / archiveWorker 构建通过；CI 加入真实 SQLite 历史维护测试。尚未做 Electron 桌面完整重启手工验收。
-- 搜索按 source revision 增量更新，原生库以 entry 水位补偿跨库失效；显式重建才全量扫描。预览 / 元数据 / 页面分别有字节上限，图像 base64 不传至历史列表；单条特别大的原生 entry 解析成本仍继承 Pi 官方存储实现。
+- 后批已发布 [0a1159d](https://github.com/rongxinzy/zhiyuan/commit/0a1159d06df79cb4d98c56352a44811a05f11fa0)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38528553874)。包含启动顺序修复、可直接再次恢复的回退包、持久还原检查点自动恢复隔离；本地最终历史 / 调度 34 项与 UI / 原生读取回归通过，CI 使用真实 SQLite 维护测试。尚未做 Electron 桌面完整重启手工验收。
+- 搜索按 source revision 增量更新，原生库以 entry 水位补偿跨库失效；显式重建才全量扫描；中文两字检索使用派生文本子串后备，不宣称倒排加速。预览 / 元数据 / 页面分别有字节上限，图像 base64 不传至历史列表；单条特别大的原生 entry 解析成本仍继承 Pi 官方存储实现。
 - 新历史浏览与检索读取原生 entries；运行界面仍保留 CoworkStore 展示镜像缓存，旧历史兼容读取。备份保存原生检查点以及显示缓存 / 旧历史表，未增加第三套 transcript，也未声称旧镜像存储已经全部消失。
 
 ## 六阶段基线验证与剩余验收

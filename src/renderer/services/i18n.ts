@@ -75,7 +75,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     myAccount: '我的',
     login: '登录',
     communityAccount: '知远账号',
-    zhiyuanFreeModel: '知远免费模型',
+
     enterpriseAccount: '企业账号',
     accountLoginZhiyuan: '登录知远',
     accountOpeningLogin: '正在打开登录页…',
@@ -781,11 +781,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
 
     // API设置
     apiKey: 'API Key',
-    apiKeyPlaceholder: '输入你的 API Key',
-    getApiKey: '获取 API Key',
-    visitOfficialSite: '访问官网',
+
     baseUrl: 'API Base URL',
-    baseUrlPlaceholder: '输入 API 基础 URL',
+
     currentModel: '当前模型',
     modelList: '模型列表',
     availableModels: '可用模型列表',
@@ -794,8 +792,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // 模型提供商设置
     enabled: '已启用',
     disabled: '已禁用',
-    providerSettings: '提供商设置',
-    modelProviders: '模型提供商',
+
     llamaCppProviderStatusRunning: '运行中',
     llamaCppProviderStatusIdle: '服务已启动，暂无已加载模型',
     llamaCppProviderStatusStarting: '启动中',
@@ -804,35 +801,27 @@ const translations: Record<LanguageType, Record<string, string>> = {
     llamaCppProviderRunningModels: '当前运行中的模型',
     llamaCppProviderOpenLocalInference: '前往本地推理',
     llamaCppProviderToggleHint: '请在本地推理页启动服务并加载模型',
-    addModel: '手动添加',
+
     fetchModels: '自动检测',
     fetchingModels: '获取中',
-    fetchModelsEmpty: '接口未返回可用模型，当前列表未更改',
-    fetchModelsNeedApiKey: '请先填写 API Key',
-    fetchModelsNeedEndpoint: '请先填写有效的 API Base URL',
-    customProviderBaseUrlRequired: '请先填写 API Base URL',
+
     fetchModelsAuthFailed: 'API Key 无效或已过期',
     fetchModelsEndpointNotFound: '模型列表接口不存在，请检查 API Base URL',
     fetchModelsTimeout: '模型列表接口响应超时',
     fetchModelsUnsupported: '接口返回的模型列表格式不受支持',
     fetchModelsResponseTooLarge: '模型列表响应过大，已停止读取',
-    fetchModelsFailed: '无法获取模型列表',
-    editModel: '编辑模型',
+
     addNewModel: '添加新模型',
     modelName: '模型名称',
     modelId: '模型ID',
-    modelNameAndIdRequired: '请填写模型名称和模型ID',
-    modelIdExists: '模型ID已存在，请使用不同的ID',
+
     modelContextWindow: '上下文窗口（Token）',
     modelContextWindowHint: '填写模型官方标注的上下文上限，用于显示上下文进度。',
-    modelContextWindowInvalid: '上下文窗口必须是大于 0 的整数',
-    ollamaModelName: '模型名称',
+
     ollamaModelNameHint: '输入 Ollama 中已安装的模型名称，如 qwen3:8b、lfm2:latest',
-    ollamaModelNamePlaceholder: 'qwen3:8b',
-    ollamaDisplayName: '显示名称（可选）',
+
     ollamaDisplayNameHint: '自定义在列表中显示的名称，留空则使用模型名称',
-    ollamaDisplayNamePlaceholder: '我的 Qwen3 模型',
-    ollamaModelNameRequired: '请填写模型名称',
+
     supportsImageInput: '支持图像输入',
     imageInput: '图像',
     modelCapabilities: '模型能力',
@@ -840,19 +829,17 @@ const translations: Record<LanguageType, Record<string, string>> = {
     piRuntimeModelOptions: '工作模式兼容选项',
     piRuntimeModelOptionsHint:
       '这些选项会传给工作模式运行时。仅在自定义模型或私有 OpenAI 兼容网关需要特殊适配时修改。',
-    piRuntimeApi: '运行时 API',
-    piRuntimeApiAuto: '跟随提供商 API 格式',
+
     piRuntimeApiOpenAICompletions: 'OpenAI Chat Completions',
     piRuntimeApiOpenAIResponses: 'OpenAI Responses',
     piRuntimeApiAnthropicMessages: 'Anthropic Messages',
-    piRuntimeReasoning: '启用运行时推理参数',
+
     piRuntimeReasoningHint: '未勾选时根据模型能力自动判断；不确定时保持关闭。',
-    piRuntimeCompat: 'OpenAI 兼容参数',
+
     modelContextWindowK: '上下文窗口（K tokens）',
     modelMaxOutputTokensK: '最大输出（K tokens）',
     modelContextWindowShort: '上下文',
-    modelMaxOutputTokensShort: '最大输出',
-    piRuntimeCompatAuto: '默认',
+
     piRuntimeCompatSupportsDeveloperRole: '支持 developer 角色',
     piRuntimeCompatSupportsReasoningEffort: '支持 reasoning_effort',
     piRuntimeCompatSupportsUsageInStreaming: '支持流式 usage',
@@ -863,26 +850,14 @@ const translations: Record<LanguageType, Record<string, string>> = {
     piRuntimeCompatRequiresThinkingAsText: '将思考转为文本',
     piRuntimeCompatRequiresReasoningContentOnAssistantMessages:
       'assistant 消息需要 reasoning_content',
-    piRuntimeMaxTokensField: '最大输出字段',
+
     piRuntimeMaxTokensFieldMaxCompletionTokens: 'max_completion_tokens',
     piRuntimeMaxTokensFieldMaxTokens: 'max_tokens',
-    piRuntimeThinkingFormat: '思考参数格式',
-    piRuntimeThinkingBudgetField: '思考预算字段',
+
     piRuntimeThinkingBudgetFieldVllm: 'thinking_token_budget (vLLM)',
     piRuntimeThinkingBudgetFieldQwenSglang: 'thinking_budget (Qwen/SGLang)',
     piRuntimeThinkingBudgetFieldLlamaCpp: 'thinking_budget_tokens (llama.cpp)',
-    piRuntimeVllmPriority: 'vLLM 调度优先级',
-    piRuntimeInputLimitsAndBudgets: '输入限制与压缩预算',
-    piRuntimeImageResizeMaxWidth: '图片缩放最大宽度(px)',
-    piRuntimeImageResizeMaxHeight: '图片缩放最大高度(px)',
-    piRuntimeImageResizeMaxBytes: '图片最大体积(字节)',
-    piRuntimeImageResizeJpegQuality: '图片 JPEG 质量',
-    piRuntimeImageMaxPerMessage: '每条消息图片上限',
-    piRuntimeImageMaxPerRequest: '每次请求图片上限',
-    piRuntimeCompactionReserveTokens: '压缩保留 token 预算',
-    piRuntimeCompactionKeepRecentTokens: '压缩近段保留 token',
-    piRuntimeCacheControlFormat: '缓存控制格式',
-    piRuntimeCacheControlAnthropic: 'Anthropic cache_control',
+
     capabilityToolCalling: '工具调用',
     capabilityVideoInput: '视频输入',
     capabilityAudioInput: '音频输入',
@@ -894,7 +869,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     toolCapabilityUnsupportedFallback: '当前模型不支持工具调用，已改用普通对话，未执行联网搜索。',
     toolCapabilityUnknownFallback:
       '当前模型的工具调用能力尚未确认，已改用普通对话，未执行联网搜索。',
-    modelSuffixSecure: '（安全）',
+
     codingPlanSubscriptionBadge: '订阅套餐',
     codingPlanBetaBadge: 'Beta',
     inputFileLabel: '输入文件',
@@ -902,25 +877,14 @@ const translations: Record<LanguageType, Record<string, string>> = {
       '当前模型未启用图片输入，图片将以文件路径形式发送。若该模型本身支持图片理解，可在模型配置中开启图片输入选项。',
     copied: '已复制',
     copyrightHolder: '容芯致远',
-    noModelsAvailable: '暂无可用模型',
-    testConnection: '测试连接',
+
     connectionTestResult: '连接测试结果',
     testing: '测试中...',
-    connectionSuccess: '连接成功',
+
     connectionFailed: '连接失败',
-    modelConnectionTestSummary:
-      '已测试 {total} 个模型：{success} 个连接成功，{failure} 个未通过连接测试',
-    modelConnectionTestSuccessSummary: '{success} 个模型连接成功',
-    modelConnectionTestAllFailed: '{total} 个模型全部未通过连接测试',
-    modelConnectionTestProgress: '正在测试模型 {tested}/{total}…',
-    modelConnectionTestBatchFailed: '测试模型连接时出错，请稍后重试',
-    modelConnectionTestTimeout: '连接测试超时，请检查服务是否可用',
-    noModelsConfigured: '请先添加模型',
-    clearApiKeyConfirmTitle: '清除 API Key',
-    clearApiKeyConfirmDescription: '确定要清除当前 API Key 吗？',
+
     apiFormat: 'API 格式',
-    apiFormatNative: 'Anthropic 兼容',
-    apiFormatOpenAI: 'OpenAI 兼容',
+
     zhipuCodingPlanHint: '启用后使用 GLM Coding Plan 专属 API 端点',
     zhipuCodingPlanEndpointHint: '使用 GLM Coding Plan 时，系统将自动切换到 Coding 专属端点',
     qwenCodingPlanHint: '启用后使用阿里云百炼 Coding Plan 专属 API 端点',
@@ -933,53 +897,15 @@ const translations: Record<LanguageType, Record<string, string>> = {
     qianfanCodingPlanEndpointHint: '使用 Coding Plan 时，系统将自动切换到 Coding 专属端点',
     xiaomiCodingPlanHint: '启用后使用小米 Coding Plan 专属 API 端点',
     xiaomiCodingPlanEndpointHint: '使用 Coding Plan 时，系统将自动切换到 Coding 专属端点',
-    minimaxOAuthTabApiKey: 'API Key',
-    minimaxOAuthTabOAuth: 'OAuth',
-    minimaxAuthMethodLabel: '选择鉴权方式',
-    minimaxOAuthRegionLabel: '地区',
-    minimaxOAuthRegionCN: '中国区 (CN)',
-    minimaxOAuthRegionGlobal: '全球 (Global)',
-    minimaxOAuthLogin: 'MiniMax OAuth 登录',
-    minimaxOAuthLoggingIn: '正在获取授权码...',
-    minimaxOAuthCancel: '取消',
-    minimaxOAuthStatusPending: '等待授权，请在浏览器中完成登录...',
-    minimaxOAuthStatusSuccess: 'OAuth 登录成功',
-    minimaxOAuthStatusError: 'OAuth 登录失败',
-    minimaxOAuthUserCode: '授权码',
-    minimaxOAuthOpenBrowserHint: '已打开浏览器，请在页面中输入授权码并完成登录',
-    minimaxOAuthLoggedIn: '已通过 MiniMax OAuth 登录',
-    minimaxOAuthRelogin: '重新登录',
-    minimaxOAuthLogout: '退出登录',
-    minimaxOAuthHint: '通过 MiniMax Portal 完成 OAuth 授权，无需手动填写 API 密钥',
-    openaiAuthMethodLabel: '选择鉴权方式',
-    openaiOAuthTabApiKey: 'API Key',
-    openaiOAuthTabOAuth: 'ChatGPT',
-    openaiOAuthLogin: '使用 ChatGPT 登录',
+
     openaiOAuthLoggingIn: '正在打开浏览器...',
-    openaiOAuthCancel: '取消',
-    openaiOAuthOpenBrowserHint: '已打开浏览器，请完成 ChatGPT 登录授权',
-    openaiOAuthStatusPending: '等待授权，请在浏览器中完成登录...',
-    openaiOAuthStatusSuccess: 'ChatGPT 登录成功',
-    openaiOAuthStatusError: 'ChatGPT 登录失败',
-    openaiOAuthLoggedIn: '已通过 ChatGPT 登录',
-    openaiOAuthRelogin: '重新登录',
-    openaiOAuthLogout: '退出登录',
-    openaiOAuthHint: '使用付费 ChatGPT 订阅额度调用 Codex 模型，无需 API Key',
-    addCustomProvider: '+ 添加自定义',
-    customBadge: '自定义',
+
     customFieldRequired: '必填',
     customFieldOptional: '可选',
-    customDisplayName: '提供商名称',
-    customDisplayNamePlaceholder: '例如：硅云',
-    customProviderDefaultName: '用户自定义',
-    deleteCustomProvider: '删除',
-    confirmDeleteCustomProvider: '确定删除此自定义模型配置？',
+
     import: '导入',
     export: '导出',
-    importProvidersFailed: '导入失败',
-    exportProvidersFailed: '导出失败',
-    invalidProvidersFile: '导入文件格式不正确',
-    decryptProvidersFailed: '密钥解密失败，请确认文件由当前设备导出',
+
     decryptProvidersPartial: '部分密钥无法解密，已保留本地密钥或留空，请手动检查',
 
     // 密码相关
@@ -1522,7 +1448,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     errorOccurred: '发生错误',
     tryAgain: '请重试',
     networkError: '网络错误',
-    apiKeyRequired: '需要设置API密钥',
+
     configureApiKey: '请在设置中配置您的API密钥',
 
     // 初始化
@@ -2285,15 +2211,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     modelTriageMaxRoundsLabel: '对话路由上限',
     modelTriageMaxRoundsHint: '超过此轮数后视为深度对话，使用默认模型',
     modelTriageRoundsUnit: '轮',
-    modelTriageLocalClassifierTitle: '本地模型分类（实验性）',
-    modelTriageLocalClassifierHint: '规则无法确定路由目标时，调用本地小模型进行分类',
-    modelTriageUseLocalModelLabel: '使用本地小模型辅助分类',
-    modelTriageUseLocalModelHint: '需先在本地推理页启动服务并加载模型',
-    modelTriageModelNameLabel: '分类模型名称',
-    modelTriageModelNamePlaceholder: '例如: qwen2.5-0.5b',
-    modelTriageModelNameNote: '需要先在本地推理中加载该模型。推荐使用 0.5B-1B 的轻量模型。',
-    modelTriageClassifierBaseUrlLabel: '分类服务器地址',
-    modelTriageClassifierBaseUrlPlaceholder: 'http://127.0.0.1:8000',
+
     modelTriageClassifierBaseUrlNote:
       '本地推理服务器根地址（不带 /v1）。留空时自动使用已启用的端点。',
 
@@ -2586,12 +2504,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
       '定时任务「{name}」存在异常数据，已自动修正显示，建议重新编辑该任务',
 
     githubCopilotAuth: 'GitHub 账号认证',
-    githubCopilotSignIn: '使用 GitHub 登录',
-    githubCopilotSignOut: '退出登录',
-    githubCopilotRequesting: '正在请求设备码...',
-    githubCopilotEnterCode: '请在浏览器中打开以下链接，输入设备码完成授权：',
-    githubCopilotWaiting: '等待授权完成...',
-    githubCopilotConnected: '已连接',
+
     githubCopilotNoSubscription: '您没有有效的 GitHub Copilot 订阅',
     copy: '复制',
 
@@ -2742,7 +2655,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     myAccount: 'Me',
     login: 'Login',
     communityAccount: 'Zhiyuan Account',
-    zhiyuanFreeModel: 'ZhiYuan Free',
+
     enterpriseAccount: 'Enterprise Account',
     accountLoginZhiyuan: 'Sign in to Zhiyuan',
     accountOpeningLogin: 'Opening sign-in page…',
@@ -3511,11 +3424,9 @@ const translations: Record<LanguageType, Record<string, string>> = {
 
     // API Settings
     apiKey: 'API Key',
-    apiKeyPlaceholder: 'Enter your API Key',
-    getApiKey: 'Get API Key',
-    visitOfficialSite: 'Visit official site',
+
     baseUrl: 'API Base URL',
-    baseUrlPlaceholder: 'Enter API Base URL',
+
     currentModel: 'Current Model',
     modelList: 'Model list',
     availableModels: 'Available Models',
@@ -3524,8 +3435,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Model Provider Settings
     enabled: 'Enabled',
     disabled: 'Disabled',
-    providerSettings: 'Provider Settings',
-    modelProviders: 'Model Providers',
+
     llamaCppProviderStatusRunning: 'running',
     llamaCppProviderStatusIdle: 'service running, no loaded model',
     llamaCppProviderStatusStarting: 'starting',
@@ -3534,37 +3444,29 @@ const translations: Record<LanguageType, Record<string, string>> = {
     llamaCppProviderRunningModels: 'Running models',
     llamaCppProviderOpenLocalInference: 'Open Local Inference',
     llamaCppProviderToggleHint: 'Start the service and load a model from Local Inference',
-    addModel: 'Manual Add',
+
     fetchModels: 'Auto Detect',
     fetchingModels: 'Fetching',
-    fetchModelsEmpty: 'No models were returned. The current list was not changed',
-    fetchModelsNeedApiKey: 'Enter an API key first',
-    fetchModelsNeedEndpoint: 'Enter a valid API Base URL first',
-    customProviderBaseUrlRequired: 'Enter an API Base URL first',
+
     fetchModelsAuthFailed: 'The API key is invalid or expired',
     fetchModelsEndpointNotFound: 'The model endpoint does not exist. Check the API Base URL',
     fetchModelsTimeout: 'The model endpoint timed out',
     fetchModelsUnsupported: 'The model endpoint returned an unsupported format',
     fetchModelsResponseTooLarge: 'The model list response was too large and was stopped',
-    fetchModelsFailed: 'Could not fetch the model list',
-    editModel: 'Edit Model',
+
     addNewModel: 'Add New Model',
     modelName: 'Model Name',
     modelId: 'Model ID',
-    modelNameAndIdRequired: 'Model name and model ID are required',
-    modelIdExists: 'Model ID already exists. Use a different one',
+
     modelContextWindow: 'Context window (tokens)',
     modelContextWindowHint: 'Enter the model’s documented context limit to show context progress.',
-    modelContextWindowInvalid: 'The context window must be a positive integer',
-    ollamaModelName: 'Model Name',
+
     ollamaModelNameHint:
       'Enter the name of a model installed in Ollama, e.g. qwen3:8b, lfm2:latest',
-    ollamaModelNamePlaceholder: 'qwen3:8b',
-    ollamaDisplayName: 'Display Name (optional)',
+
     ollamaDisplayNameHint:
       'Custom name shown in the model list. Leave empty to use the model name.',
-    ollamaDisplayNamePlaceholder: 'My Qwen3 Model',
-    ollamaModelNameRequired: 'Model name is required',
+
     supportsImageInput: 'Supports image input',
     imageInput: 'Image',
     modelCapabilities: 'Model capabilities',
@@ -3573,20 +3475,17 @@ const translations: Record<LanguageType, Record<string, string>> = {
     piRuntimeModelOptions: 'Work mode compatibility options',
     piRuntimeModelOptionsHint:
       'These options are passed to the Work mode runtime. Change them only when a custom model or private OpenAI-compatible gateway needs special handling.',
-    piRuntimeApi: 'Runtime API',
-    piRuntimeApiAuto: 'Follow provider API format',
+
     piRuntimeApiOpenAICompletions: 'OpenAI Chat Completions',
     piRuntimeApiOpenAIResponses: 'OpenAI Responses',
     piRuntimeApiAnthropicMessages: 'Anthropic Messages',
-    piRuntimeReasoning: 'Enable runtime reasoning parameters',
+
     piRuntimeReasoningHint:
       'When unchecked, reasoning follows model capability metadata. Keep this off if unsure.',
     modelContextWindowK: 'Context window (K tokens)',
     modelMaxOutputTokensK: 'Max output (K tokens)',
     modelContextWindowShort: 'Context',
-    modelMaxOutputTokensShort: 'Max output',
-    piRuntimeCompat: 'OpenAI compatibility parameters',
-    piRuntimeCompatAuto: 'Default',
+
     piRuntimeCompatSupportsDeveloperRole: 'Supports developer role',
     piRuntimeCompatSupportsReasoningEffort: 'Supports reasoning_effort',
     piRuntimeCompatSupportsUsageInStreaming: 'Supports streaming usage',
@@ -3597,26 +3496,14 @@ const translations: Record<LanguageType, Record<string, string>> = {
     piRuntimeCompatRequiresThinkingAsText: 'Convert thinking to text',
     piRuntimeCompatRequiresReasoningContentOnAssistantMessages:
       'Assistant messages need reasoning_content',
-    piRuntimeMaxTokensField: 'Max output field',
+
     piRuntimeMaxTokensFieldMaxCompletionTokens: 'max_completion_tokens',
     piRuntimeMaxTokensFieldMaxTokens: 'max_tokens',
-    piRuntimeThinkingFormat: 'Thinking parameter format',
-    piRuntimeThinkingBudgetField: 'Thinking budget field',
+
     piRuntimeThinkingBudgetFieldVllm: 'thinking_token_budget (vLLM)',
     piRuntimeThinkingBudgetFieldQwenSglang: 'thinking_budget (Qwen/SGLang)',
     piRuntimeThinkingBudgetFieldLlamaCpp: 'thinking_budget_tokens (llama.cpp)',
-    piRuntimeVllmPriority: 'vLLM scheduling priority',
-    piRuntimeInputLimitsAndBudgets: 'Input limits & compaction budgets',
-    piRuntimeImageResizeMaxWidth: 'Image resize max width (px)',
-    piRuntimeImageResizeMaxHeight: 'Image resize max height (px)',
-    piRuntimeImageResizeMaxBytes: 'Image max size (bytes)',
-    piRuntimeImageResizeJpegQuality: 'Image JPEG quality',
-    piRuntimeImageMaxPerMessage: 'Max images per message',
-    piRuntimeImageMaxPerRequest: 'Max images per request',
-    piRuntimeCompactionReserveTokens: 'Compaction reserve tokens',
-    piRuntimeCompactionKeepRecentTokens: 'Compaction keep-recent tokens',
-    piRuntimeCacheControlFormat: 'Cache control format',
-    piRuntimeCacheControlAnthropic: 'Anthropic cache_control',
+
     capabilityToolCalling: 'Tool calling',
     capabilityVideoInput: 'Video input',
     capabilityAudioInput: 'Audio input',
@@ -3629,7 +3516,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
       'This model does not support tool calling. Switched to regular chat without web search.',
     toolCapabilityUnknownFallback:
       'Tool-calling support for this model is unknown. Switched to regular chat without web search.',
-    modelSuffixSecure: '(Secure)',
+
     codingPlanSubscriptionBadge: 'Subscription',
     codingPlanBetaBadge: 'Beta',
     inputFileLabel: 'Input Files',
@@ -3637,25 +3524,14 @@ const translations: Record<LanguageType, Record<string, string>> = {
       'Image input is not enabled for the current model. Images will be sent as file paths. If the model supports vision, you can enable image input in the model configuration.',
     copied: 'Copied',
     copyrightHolder: 'Rongxin Zhiyuan. All rights reserved.',
-    noModelsAvailable: 'No models available',
-    testConnection: 'Test Connection',
+
     connectionTestResult: 'Connection Test Result',
     testing: 'Testing...',
-    connectionSuccess: 'Connection successful',
+
     connectionFailed: 'Connection failed',
-    modelConnectionTestSummary:
-      'Tested {total} models: {success} connected successfully, {failure} did not pass the connection test',
-    modelConnectionTestSuccessSummary: '{success} models connected successfully',
-    modelConnectionTestAllFailed: '{total} models did not pass the connection test',
-    modelConnectionTestProgress: 'Testing models {tested}/{total}…',
-    modelConnectionTestBatchFailed: 'Testing model connections failed. Try again later.',
-    modelConnectionTestTimeout: 'Connection test timed out. Check that the service is reachable',
-    noModelsConfigured: 'Please add a model first',
-    clearApiKeyConfirmTitle: 'Clear API Key',
-    clearApiKeyConfirmDescription: 'Clear the current API key?',
+
     apiFormat: 'API Format',
-    apiFormatNative: 'Anthropic Compatible',
-    apiFormatOpenAI: 'OpenAI Compatible',
+
     zhipuCodingPlanHint: 'When enabled, uses the GLM Coding Plan dedicated API endpoint',
     zhipuCodingPlanEndpointHint:
       'When using GLM Coding Plan, the system will automatically switch to the dedicated Coding endpoint',
@@ -3692,55 +3568,15 @@ const translations: Record<LanguageType, Record<string, string>> = {
     xiaomiCodingPlanHint: 'When enabled, uses the Xiaomi Coding Plan dedicated API endpoint',
     xiaomiCodingPlanEndpointHint:
       'When using Coding Plan, the system will automatically switch to the dedicated Coding endpoint',
-    minimaxOAuthTabApiKey: 'API Key',
-    minimaxOAuthTabOAuth: 'OAuth',
-    minimaxAuthMethodLabel: 'Select auth method',
-    minimaxOAuthRegionLabel: 'Region',
-    minimaxOAuthRegionCN: 'China (CN)',
-    minimaxOAuthRegionGlobal: 'Global',
-    minimaxOAuthLogin: 'Login with MiniMax OAuth',
-    minimaxOAuthLoggingIn: 'Requesting authorization code...',
-    minimaxOAuthCancel: 'Cancel',
-    minimaxOAuthStatusPending: 'Waiting for authorization, please complete login in browser...',
-    minimaxOAuthStatusSuccess: 'OAuth login successful',
-    minimaxOAuthStatusError: 'OAuth login failed',
-    minimaxOAuthUserCode: 'Authorization code',
-    minimaxOAuthOpenBrowserHint:
-      'Browser opened, please enter the authorization code and complete login',
-    minimaxOAuthLoggedIn: 'Logged in via MiniMax OAuth',
-    minimaxOAuthRelogin: 'Re-login',
-    minimaxOAuthLogout: 'Log out',
-    minimaxOAuthHint: 'Authorize via MiniMax Portal OAuth, no need to enter API key manually',
-    openaiAuthMethodLabel: 'Select auth method',
-    openaiOAuthTabApiKey: 'API Key',
-    openaiOAuthTabOAuth: 'ChatGPT',
-    openaiOAuthLogin: 'Sign in with ChatGPT',
+
     openaiOAuthLoggingIn: 'Opening browser...',
-    openaiOAuthCancel: 'Cancel',
-    openaiOAuthOpenBrowserHint: 'Browser opened, please complete the ChatGPT sign-in',
-    openaiOAuthStatusPending: 'Waiting for authorization, please complete sign-in in browser...',
-    openaiOAuthStatusSuccess: 'Signed in with ChatGPT',
-    openaiOAuthStatusError: 'ChatGPT sign-in failed',
-    openaiOAuthLoggedIn: 'Signed in with ChatGPT',
-    openaiOAuthRelogin: 'Re-login',
-    openaiOAuthLogout: 'Sign out',
-    openaiOAuthHint: 'Use your paid ChatGPT subscription to run Codex models — no API key required',
-    addCustomProvider: '+ Add Custom',
-    customBadge: 'Custom',
+
     customFieldRequired: 'required',
     customFieldOptional: 'optional',
-    customDisplayName: 'Provider Name',
-    customDisplayNamePlaceholder: 'e.g. SiliconFlow',
-    customProviderDefaultName: 'Custom Provider',
-    deleteCustomProvider: 'Delete',
-    confirmDeleteCustomProvider: 'Delete this custom model configuration?',
+
     import: 'Import',
     export: 'Export',
-    importProvidersFailed: 'Failed to import providers',
-    exportProvidersFailed: 'Failed to export providers',
-    invalidProvidersFile: 'Invalid providers file',
-    decryptProvidersFailed:
-      'Failed to decrypt API key. Make sure the file was exported on this device.',
+
     decryptProvidersPartial:
       'Some keys could not be decrypted. Existing keys were kept or left blank.',
 
@@ -4310,7 +4146,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     errorOccurred: 'An error occurred',
     tryAgain: 'Please try again',
     networkError: 'Network error',
-    apiKeyRequired: 'API Key Required',
+
     configureApiKey: 'Please configure your API key in settings',
 
     // Initialization
@@ -5141,18 +4977,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     modelTriageMaxRoundsHint:
       'Beyond this many rounds, the conversation is treated as deep and uses the default model',
     modelTriageRoundsUnit: 'rounds',
-    modelTriageLocalClassifierTitle: 'Local Model Classification (Experimental)',
-    modelTriageLocalClassifierHint:
-      'When rules cannot determine a routing target, call a local small model to classify',
-    modelTriageUseLocalModelLabel: 'Use a local small model to assist classification',
-    modelTriageUseLocalModelHint:
-      'Start the service and load a model on the Local Inference page first',
-    modelTriageModelNameLabel: 'Classifier Model Name',
-    modelTriageModelNamePlaceholder: 'e.g. qwen2.5-0.5b',
-    modelTriageModelNameNote:
-      'The model must be loaded in Local Inference first. A lightweight 0.5B–1B model is recommended.',
-    modelTriageClassifierBaseUrlLabel: 'Classifier Server Address',
-    modelTriageClassifierBaseUrlPlaceholder: 'http://127.0.0.1:8000',
+
     modelTriageClassifierBaseUrlNote:
       'Root address of the local inference server (without /v1). Leave empty to use the enabled endpoint.',
 
@@ -5449,13 +5274,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
       'Scheduled task "{name}" has abnormal data. Display has been auto-corrected. Consider re-editing this task',
 
     githubCopilotAuth: 'GitHub Account Authentication',
-    githubCopilotSignIn: 'Sign in with GitHub',
-    githubCopilotSignOut: 'Sign Out',
-    githubCopilotRequesting: 'Requesting device code...',
-    githubCopilotEnterCode:
-      'Open the link below in your browser and enter the device code to authorize:',
-    githubCopilotWaiting: 'Waiting for authorization...',
-    githubCopilotConnected: 'Connected',
+
     githubCopilotNoSubscription: 'You do not have an active GitHub Copilot subscription',
     copy: 'Copy',
 

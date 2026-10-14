@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { projectMagpieCatalog } from './catalog';
 import { MagpieManager } from './manager';
 import { isolatedMagpieEnvironment, prepareMagpieHome } from './environment';
 import { verifyMagpieBinary, MAGPIE_COMMIT, MAGPIE_VERSION } from './integrity';
@@ -24,6 +25,10 @@ describe('Magpie isolation and integrity', () => {
     expect(env.MAGPIE_ADDR).toBe('127.0.0.1:1234');
     expect(env.MAGPIE_NO_ACCOUNTS).toBe('1');
     expect(env.DO_NOT_TRACK).toBe('1');
+    expect(
+      isolatedMagpieEnvironment('/private', 1234, 'test', { HOME: '/real' }, true)
+        .MAGPIE_NO_ACCOUNTS,
+    ).toBe('0');
   });
   it('forces private no-account, no-telemetry and no-update settings without touching home', async () => {
     const root = await temporary();
@@ -80,7 +85,7 @@ describe('Magpie isolation and integrity', () => {
   });
 });
 describe('Magpie owned lifecycle', () => {
-  async function setup() {
+  async function setup(serviceEnabled?: { read(): boolean; write(enabled: boolean): void }) {
     const root = await temporary();
     let port = 21000;
     const child = Object.assign(new EventEmitter(), {
@@ -126,6 +131,9 @@ describe('Magpie owned lifecycle', () => {
       return Response.json({});
     });
     const manager = new MagpieManager({
+      serviceEnabled,
+      parseCatalog: async bytes =>
+        projectMagpieCatalog(JSON.parse(new TextDecoder().decode(bytes))),
       resourcesRoot: root,
       privateHome: root,
       environment: { HOME: root, USERPROFILE: root },
@@ -148,7 +156,7 @@ describe('Magpie owned lifecycle', () => {
       expect(spawn).toHaveBeenCalledTimes(1);
       expect(fetcher.mock.calls.some(([url]) => url.endsWith('/api/state'))).toBe(false);
       expect(JSON.stringify(await manager.agents())).not.toContain('secret');
-      expect(await manager.models()).toEqual([{ id: 'm1', owned_by: 'test' }]);
+      expect(await manager.models()).toMatchObject([{ id: 'm1', owned_by: 'test' }]);
       await manager.setModel({ agentId: 'codex', field: 'model', value: 'm2' });
       await expect(
         manager.setModel({ agentId: 'codex', field: 'model', value: 'gateway-id-not-valid-here' }),
@@ -172,6 +180,8 @@ describe('Magpie owned lifecycle', () => {
     const root = await temporary();
     const spawn = vi.fn();
     const manager = new MagpieManager({
+      parseCatalog: async bytes =>
+        projectMagpieCatalog(JSON.parse(new TextDecoder().decode(bytes))),
       privateHome: root,
       resourcesRoot: root,
       spawn: spawn as never,
@@ -190,5 +200,57 @@ describe('Magpie owned lifecycle', () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+  it('persists explicit enable across shutdown, lazily starts once after restart, and honors explicit disable', async () => {
+    let enabled = false;
+    const preference = {
+      read: () => enabled,
+      write: (value: boolean) => {
+        enabled = value;
+      },
+    };
+    const first = await setup(preference);
+    let second: Awaited<ReturnType<typeof setup>> | undefined;
+    try {
+      expect(first.manager.status().enabled).toBe(false);
+      await expect(first.manager.ensureRunning()).rejects.toThrow('Enable');
+      expect(first.spawn).not.toHaveBeenCalled();
+      await first.manager.start();
+      expect(enabled).toBe(true);
+      await first.manager.shutdown();
+      expect(enabled).toBe(true);
+      second = await setup(preference);
+      expect(second.manager.status()).toMatchObject({ enabled: true, state: 'stopped' });
+      expect(await second.manager.models()).toEqual([]);
+      expect(second.spawn).not.toHaveBeenCalled();
+      await Promise.all([second.manager.ensureRunning(), second.manager.ensureRunning()]);
+      expect(second.spawn).toHaveBeenCalledTimes(1);
+      await second.manager.stop();
+      expect(enabled).toBe(false);
+      await expect(second.manager.ensureRunning()).rejects.toThrow('Enable');
+      expect(second.spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      await first.manager.shutdown();
+      if (second) {
+        await second.manager.shutdown();
+        await fs.rm(second.root, { recursive: true, force: true });
+      }
+      await fs.rm(first.root, { recursive: true, force: true });
+    }
+  });
+  it('shares one failed lazy startup and retains enablement without a fallback', async () => {
+    const verify = vi.fn(async () => {
+      throw new Error('fixture bad manifest');
+    });
+    const manager = new MagpieManager({
+      resourcesRoot: '/unused',
+      privateHome: '/unused',
+      serviceEnabled: { read: () => true, write: () => {} },
+      verify,
+    });
+    const results = await Promise.allSettled([manager.ensureRunning(), manager.ensureRunning()]);
+    expect(results.every(result => result.status === 'rejected')).toBe(true);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(manager.status()).toMatchObject({ state: 'failed', enabled: true });
   });
 });

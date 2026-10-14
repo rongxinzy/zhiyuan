@@ -4,21 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync 
 import { delimiter, dirname, join } from 'path';
 
 import { buildSessionTitleFromInput } from '../../common/sessionTitle';
-import {
-  buildEnvForConfig,
-  getCurrentApiConfig,
-  resolveCurrentApiConfig,
-  resolveRawApiConfig,
-} from './claudeSettings';
 import { coworkLog } from './coworkLogger';
-import {
-  buildAnthropicMessagesUrl,
-  buildGeminiGenerateContentUrl,
-  CoworkModelProtocol,
-  extractApiErrorSnippet,
-} from './coworkModelApi';
-import type { OpenAICompatProxyTarget } from './coworkOpenAICompatProxy';
-import { isSystemProxyEnabled, resolveSystemProxyUrlForTargets } from './systemProxy';
 
 const DOMESTIC_NPM_REGISTRY_URL = 'https://registry.npmmirror.com';
 
@@ -1467,214 +1453,31 @@ function verifyNodeEnvironment(env: Record<string, string | undefined>): void {
   coworkLog('INFO', tag, `HOME=${env.HOME || '(not set)'}`);
 }
 
-/**
- * Get enhanced environment variables (including proxy configuration)
- * Async function to fetch system proxy and inject into environment variables
- */
-export async function getEnhancedEnv(
-  target: OpenAICompatProxyTarget = 'local',
-  options: EnhancedEnvOptions = {},
-): Promise<Record<string, string | undefined>> {
-  const config = getCurrentApiConfig(target);
-  const env = config ? buildEnvForConfig(config) : { ...process.env };
-
-  applyApplicationRuntimeEnv(env, options);
-
-  if (process.platform === 'win32' || env.ZHIYUAN_NODE_SHIM_ACTIVE === '1') {
-    env.ZHIYUAN_ELECTRON_PATH = getElectronNodeRuntimePath().replace(/\\/g, '/');
-  } else {
-    delete env.ZHIYUAN_ELECTRON_PATH;
-  }
-
-  // Skip system proxy resolution if proxy env vars already exist
-  if (env.http_proxy || env.HTTP_PROXY || env.https_proxy || env.HTTPS_PROXY) {
-    return env;
-  }
-
-  // User can disable system proxy from settings.
-  if (!isSystemProxyEnabled()) {
-    return env;
-  }
-
-  // Resolve proxy from system settings
-  const { proxyUrl, targetUrl } = await resolveSystemProxyUrlForTargets();
-  if (proxyUrl) {
-    env.http_proxy = proxyUrl;
-    env.https_proxy = proxyUrl;
-    env.HTTP_PROXY = proxyUrl;
-    env.HTTPS_PROXY = proxyUrl;
-    console.log(`[CoworkUtil] Injected system proxy for subprocess via ${targetUrl}:`, proxyUrl);
-  }
-
-  return env;
-}
-
-/**
- * Ensure the cowork temp directory exists in the given working directory
- * @param cwd Working directory path
- * @returns Path to the temp directory
- */
-export function ensureCoworkTempDir(cwd: string): string {
-  const tempDir = join(cwd, '.cowork-temp');
-  if (!existsSync(tempDir)) {
-    try {
-      mkdirSync(tempDir, { recursive: true });
-      console.log('Created cowork temp directory:', tempDir);
-    } catch (error) {
-      console.error('Failed to create cowork temp directory:', error);
-      // Fall back to cwd if we can't create the temp dir
-      return cwd;
-    }
-  }
-  return tempDir;
-}
-
-/**
- * Get enhanced environment variables with TMPDIR set to the cowork temp directory
- * This ensures Claude Agent SDK creates temporary files in the user's working directory
- * @param cwd Working directory path
- */
-export async function getEnhancedEnvWithTmpdir(
-  cwd: string,
-  target: OpenAICompatProxyTarget = 'local',
-): Promise<Record<string, string | undefined>> {
-  const env = await getEnhancedEnv(target);
-  const tempDir = ensureCoworkTempDir(cwd);
-
-  // Set temp directory environment variables for all platforms
-  env.TMPDIR = tempDir; // macOS, Linux
-  env.TMP = tempDir; // Windows
-  env.TEMP = tempDir; // Windows
-
-  return env;
-}
-
 const SESSION_TITLE_FALLBACK = 'New Chat';
 const COWORK_MODEL_PROBE_TIMEOUT_MS = 20000;
 
-type SessionTitleApiConfig =
-  | {
-      protocol: typeof CoworkModelProtocol.Anthropic;
-      apiKey: string;
-      baseURL: string;
-      model: string;
-    }
-  | {
-      protocol: typeof CoworkModelProtocol.GeminiNative;
-      apiKey: string;
-      baseURL: string;
-      model: string;
-    };
-
-function resolveSessionTitleApiConfig(): { config: SessionTitleApiConfig | null; error?: string } {
-  const rawResolution = resolveRawApiConfig();
-  if (rawResolution.config && rawResolution.providerMetadata?.providerName === 'gemini') {
-    return {
-      config: {
-        protocol: CoworkModelProtocol.GeminiNative,
-        apiKey: rawResolution.config.apiKey,
-        baseURL: rawResolution.config.baseURL,
-        model: rawResolution.config.model,
-      },
-    };
-  }
-
-  const resolution = resolveCurrentApiConfig();
-  if (!resolution.config) {
-    return {
-      config: null,
-      error: resolution.error ?? rawResolution.error,
-    };
-  }
-
-  return {
-    config: {
-      protocol: CoworkModelProtocol.Anthropic,
-      apiKey: resolution.config.apiKey,
-      baseURL: resolution.config.baseURL,
-      model: resolution.config.model,
-    },
-  };
-}
-
+/** Readiness uses the exact same selected gateway model/protocol as Work and Chat. */
 export async function probeCoworkModelReadiness(
   timeoutMs = COWORK_MODEL_PROBE_TIMEOUT_MS,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { config, error } = resolveSessionTitleApiConfig();
-  if (!config) {
-    return {
-      ok: false,
-      error: error || 'API configuration not found.',
-    };
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(
-      config.protocol === CoworkModelProtocol.GeminiNative
-        ? buildGeminiGenerateContentUrl(config.baseURL, config.model)
-        : buildAnthropicMessagesUrl(config.baseURL),
+    const { resolveDurableProvider } = await import('./agentEngine/durable/provider.js');
+    const provider = await resolveDurableProvider('model-readiness', undefined, 'chat');
+    const result = await provider.models.completeSimple(
+      provider.modelObject,
       {
-        method: 'POST',
-        headers:
-          config.protocol === CoworkModelProtocol.GeminiNative
-            ? {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': config.apiKey,
-              }
-            : {
-                'Content-Type': 'application/json',
-                'x-api-key': config.apiKey,
-                'anthropic-version': '2023-06-01',
-              },
-        body: JSON.stringify(
-          config.protocol === CoworkModelProtocol.GeminiNative
-            ? {
-                contents: [{ role: 'user', parts: [{ text: 'Reply with "ok".' }] }],
-                generationConfig: {
-                  maxOutputTokens: 1,
-                  temperature: 0,
-                },
-              }
-            : {
-                model: config.model,
-                max_tokens: 1,
-                temperature: 0,
-                messages: [{ role: 'user', content: 'Reply with "ok".' }],
-              },
-        ),
-        signal: controller.signal,
+        messages: [{ role: 'user', content: 'Reply with ok.', timestamp: Date.now() }],
       },
+      { signal: AbortSignal.timeout(timeoutMs), maxTokens: 32 },
     );
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      const errorSnippet = extractApiErrorSnippet(errorText);
-      return {
-        ok: false,
-        error: errorSnippet
-          ? `Model validation failed (${response.status}): ${errorSnippet}`
-          : `Model validation failed with status ${response.status}.`,
-      };
-    }
-
+    if (result.stopReason === 'error' || result.stopReason === 'aborted')
+      return { ok: false, error: 'The selected model could not complete a validation request.' };
     return { ok: true };
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      const timeoutSeconds = Math.ceil(timeoutMs / 1000);
-      return {
-        ok: false,
-        error: `Model validation timed out after ${timeoutSeconds}s.`,
-      };
-    }
     return {
       ok: false,
-      error: `Model validation failed: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : 'Model validation failed.',
     };
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 

@@ -4,9 +4,7 @@ import path from 'path';
 import { buildSessionTitleFromInput } from '../../common/sessionTitle';
 import {
   CodingAgentDriverKind,
-  CodingErrorDetailMessage,
   CodingErrorMessage,
-  CodingAgentProfileId,
   CodingAgentProfileStatus,
   CodingWorkflowStage,
   type CodingAgentLane,
@@ -16,7 +14,6 @@ import {
   type StartCodingSessionInput,
 } from '../../shared/codingAgent';
 import { t } from '../i18n';
-import { resolveCurrentApiConfig } from '../libs/claudeSettings';
 import { CodingAgentRegistry } from './codingAgentRegistry';
 import { CodingRoomRepository } from './codingRoomRepository';
 import type { CodingAgentDriver, CodingAgentSession } from './drivers/codingAgentDriver';
@@ -47,14 +44,6 @@ export const resolveSessionTarget = (
   const profile = registry.get(input.profileId);
   if (!profile) throw new Error(CodingErrorMessage.ProfileNotFound);
   if (profile.status !== CodingAgentProfileStatus.Ready) {
-    if (profile.id === CodingAgentProfileId.Builtin) {
-      const { error } = resolveCurrentApiConfig();
-      throw new Error(
-        error
-          ? `${CodingErrorDetailMessage.AgentNotReadyDetail} ${error}`
-          : CodingErrorMessage.ProfileNotReady,
-      );
-    }
     throw new Error(CodingErrorMessage.ProfileNotReady);
   }
   const sourceRoot = path.resolve(input.sourceRoot);

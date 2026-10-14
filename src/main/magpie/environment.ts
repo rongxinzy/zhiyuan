@@ -5,6 +5,7 @@ export function isolatedMagpieEnvironment(
   gatewayPort: number,
   webKey: string,
   source: NodeJS.ProcessEnv = process.env,
+  subscriptionAccountsEnabled = false,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of [
@@ -31,12 +32,15 @@ export function isolatedMagpieEnvironment(
     XDG_CACHE_HOME: path.join(root, 'cache'),
     XDG_DATA_HOME: path.join(root, 'data'),
     XDG_STATE_HOME: path.join(root, 'state'),
-    MAGPIE_NO_ACCOUNTS: '1',
+    MAGPIE_NO_ACCOUNTS: subscriptionAccountsEnabled ? '0' : '1',
     MAGPIE_ADDR: `127.0.0.1:${gatewayPort}`,
     MAGPIE_WEB_KEY: webKey,
   };
 }
-export async function prepareMagpieHome(root: string): Promise<void> {
+export async function prepareMagpieHome(
+  root: string,
+  subscriptionAccountsEnabled = false,
+): Promise<void> {
   const dir = path.join(root, 'config', 'magpie');
   await fs.mkdir(dir, { recursive: true });
   const file = path.join(dir, 'settings.json');
@@ -54,7 +58,7 @@ export async function prepareMagpieHome(root: string): Promise<void> {
     file,
     JSON.stringify({
       ...settings,
-      noAccountDiscovery: true,
+      noAccountDiscovery: !subscriptionAccountsEnabled,
       noWSLAgents: true,
       noStats: true,
       noUsageStats: true,

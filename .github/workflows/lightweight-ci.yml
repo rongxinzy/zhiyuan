@@ -43,13 +43,13 @@ jobs:
       - name: Test renderer and shared behavior
         run: bun x --no-install vitest run src/renderer src/shared --maxWorkers=2
       - name: Test native durable execution and work documents
-        run: bun x --no-install vitest run src/main/libs/agentEngine/durable src/main/libs/agentEngine/piRuntimeAdapter.test.ts src/main/libs/agentEngine/piClassifierTriage.test.ts src/main/contentWorker src/main/toolApproval --maxWorkers=2
+        run: bun x --no-install vitest run src/main/libs/agentEngine/durable src/main/libs/agentEngine/piRuntimeAdapter.test.ts src/main/contentWorker src/main/toolApproval --maxWorkers=2
       - name: Build SQLite binding for history archive tests
         run: npm rebuild better-sqlite3
       - name: Test history indexing, managed attachments and maintenance recovery
         run: bun x --no-install vitest run src/main/history --maxWorkers=2
       - name: Test local CLI manager lifecycle and packaging contracts
-        run: bun x --no-install vitest run src/main/magpie scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts --maxWorkers=2
+        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts --maxWorkers=2
       - name: Build renderer without Electron packaging
         run: bun run build:vite
         env:

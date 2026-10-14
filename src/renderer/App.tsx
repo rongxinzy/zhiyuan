@@ -6,7 +6,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { type AppUpdateRuntimeState, AppUpdateStatus } from '../shared/appUpdate/constants';
-import { ProviderName } from '../shared/providers';
 import {
   ManagedProviderAccessMode,
   type ManagedProviderAccessPolicy,
@@ -27,9 +26,7 @@ import WindowTitleBar from './components/window/WindowTitleBar';
 import { defaultConfig } from './config';
 import { agentService } from './services/agent';
 import {
-  collectAvailableModels,
-  collectConfiguredModelKeys,
-  getManagedProviderAccessPolicy,
+  refreshMagpieModels,
   LLAMACPP_RUNNING_MODELS_CHANGED_EVENT,
   notifyLlamaCppRunningModelsChanged,
 } from './services/availableModels';
@@ -48,16 +45,11 @@ import {
 } from './services/toastNotification';
 import { themeService } from './services/theme';
 import { workspaceService } from './services/workspace';
-import { RootState, store } from './store';
+import { RootState } from './store';
 import {
   selectCurrentSessionId,
   selectPendingPermissionForSession,
 } from './store/selectors/coworkSelectors';
-import {
-  pruneUnconfiguredSelectedModels,
-  setAvailableModels,
-  setDefaultSelectedModel,
-} from './store/slices/modelSlice';
 import { WorkMode } from './store/workMode/constants';
 import { setWorkMode } from './store/workMode/workModeSlice';
 import type { CoworkPermissionResult } from './types/cowork';
@@ -205,7 +197,6 @@ const App: React.FC = () => {
   const hasInitialized = useRef(false);
   const appShellRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch();
-  const defaultSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
   const currentSessionId = useSelector(selectCurrentSessionId);
   const currentWorkspaceIsHidden = useSelector((state: RootState) => {
     const currentWorkspaceId = state.workspace.currentWorkspaceId;
@@ -282,7 +273,7 @@ const App: React.FC = () => {
         const [entConfig, , providerPolicy] = await Promise.all([
           window.electron.enterprise.getConfig(),
           waitWithTimeout(i18nService.initialize(), initTimeoutMs, 'i18nService.initialize'),
-          getManagedProviderAccessPolicy(),
+          window.electron.managedProviders.policy(),
         ]);
         setEnterpriseConfig(entConfig);
         setManagedProviderPolicy(providerPolicy);
@@ -290,20 +281,12 @@ const App: React.FC = () => {
 
         dispatch(setWorkMode(config.workMode ?? WorkMode.Work));
 
-        const resolvedModels = await collectAvailableModels(config);
-        dispatch(setAvailableModels(resolvedModels));
-        dispatch(pruneUnconfiguredSelectedModels(collectConfiguredModelKeys(config)));
-        if (resolvedModels.length > 0) {
-          const allModels = store.getState().model.availableModels;
-          const preferredModel =
-            allModels.find(
-              model =>
-                model.id === config.model.defaultModel &&
-                (!config.model.defaultModelProvider ||
-                  model.providerKey === config.model.defaultModelProvider),
-            ) ?? allModels[0];
-          dispatch(setDefaultSelectedModel(preferredModel));
-        }
+        // Catalog access never starts Magpie; unavailable models do not block the shell.
+        await waitWithTimeout(refreshMagpieModels(), initTimeoutMs, 'magpie.catalog').catch(
+          error => {
+            console.error('[App] model catalog unavailable:', error);
+          },
+        );
         mark('model resolution done');
 
         setIsInitialized(true);
@@ -343,9 +326,9 @@ const App: React.FC = () => {
   const refreshAvailableModels = useCallback(async () => {
     const requestId = ++availableModelsRefreshRequestIdRef.current;
     try {
-      const [config, policy] = await Promise.all([
-        configService.reload(),
-        getManagedProviderAccessPolicy(),
+      const [, policy] = await Promise.all([
+        refreshMagpieModels(),
+        window.electron.managedProviders.policy(),
       ]);
       if (requestId !== availableModelsRefreshRequestIdRef.current) return;
       setManagedProviderPolicy(policy);
@@ -353,16 +336,10 @@ const App: React.FC = () => {
         setLocalInferenceInstallRequestId(undefined);
         setMainView(currentView => (currentView === 'localInference' ? 'cowork' : currentView));
       }
-      const allModels = await collectAvailableModels(config);
-      if (requestId !== availableModelsRefreshRequestIdRef.current) return;
-      dispatch(setAvailableModels(allModels));
-      dispatch(pruneUnconfiguredSelectedModels(collectConfiguredModelKeys(config)));
     } catch (error) {
-      // Keep the previous list on failure, but log it: a silent swallow left
-      // the picker showing stale or empty state with no trace.
       console.error('[App] failed to refresh available models:', error);
     }
-  }, [dispatch]);
+  }, []);
 
   useEffect(() => {
     if (!isInitialized) {
@@ -389,6 +366,7 @@ const App: React.FC = () => {
     };
 
     window.addEventListener('config-updated', handleConfigUpdated);
+    window.addEventListener('focus', handleConfigUpdated);
     window.addEventListener(
       LLAMACPP_RUNNING_MODELS_CHANGED_EVENT,
       handleLlamaCppRunningModelsChanged,
@@ -402,6 +380,7 @@ const App: React.FC = () => {
     );
     return () => {
       window.removeEventListener('config-updated', handleConfigUpdated);
+      window.removeEventListener('focus', handleConfigUpdated);
       window.removeEventListener(
         LLAMACPP_RUNNING_MODELS_CHANGED_EVENT,
         handleLlamaCppRunningModelsChanged,
@@ -422,28 +401,6 @@ const App: React.FC = () => {
     return () => {
       unsubscribe();
     };
-  }, []);
-
-  // Listen for Copilot token auto-refresh events from the main process
-  useEffect(() => {
-    const removeListener = window.electron.githubCopilot.onTokenUpdated(({ token, baseUrl }) => {
-      console.log('[App] received Copilot token update from main process');
-      const currentConfig = configService.getConfig();
-      const copilotProvider = currentConfig.providers?.['github-copilot'];
-      if (copilotProvider) {
-        void configService.updateConfig({
-          providers: {
-            ...currentConfig.providers,
-            'github-copilot': {
-              ...copilotProvider,
-              apiKey: token,
-              ...(baseUrl ? { baseUrl } : {}),
-            },
-          },
-        } as Partial<typeof currentConfig>);
-      }
-    });
-    return removeListener;
   }, []);
 
   useEffect(() => {
@@ -501,31 +458,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    // In exclusive managed mode the host bridge owns model.defaultModel in app_config;
-    // writing the renderer selection back would race its refresh loop.
-    if (!isInitialized || managedModelsOnly || !defaultSelectedModel?.id) return;
-    const config = configService.getConfig();
-    if (
-      config.model.defaultModel === defaultSelectedModel.id &&
-      (config.model.defaultModelProvider ?? '') === (defaultSelectedModel.providerKey ?? '')
-    ) {
-      return;
-    }
-    void configService.updateConfig({
-      model: {
-        ...config.model,
-        defaultModel: defaultSelectedModel.id,
-        defaultModelProvider: defaultSelectedModel.providerKey,
-      },
-    });
-  }, [
-    isInitialized,
-    managedModelsOnly,
-    defaultSelectedModel?.id,
-    defaultSelectedModel?.providerKey,
-  ]);
-
   const handleShowSettings = useCallback((options?: SettingsOpenOptions) => {
     setSettingsOptions({
       initialTab: options?.initialTab,
@@ -535,34 +467,8 @@ const App: React.FC = () => {
     setMainView('settings');
   }, []);
 
-  const handleOpenLocalModelSettings = useCallback(async () => {
-    try {
-      const config = await configService.reload();
-      const providers = config.providers ?? defaultConfig.providers;
-      const localProvider = providers?.[ProviderName.LlamaCpp];
-      if (localProvider && (localProvider.enabled !== true || localProvider.userEnabled !== true)) {
-        await configService.updateConfig({
-          providers: {
-            ...providers,
-            [ProviderName.LlamaCpp]: {
-              ...localProvider,
-              enabled: true,
-              userEnabled: true,
-            },
-          },
-        });
-      }
-    } catch (error) {
-      console.error(
-        '[App] failed to enable the local model provider before opening settings:',
-        error,
-      );
-    } finally {
-      handleShowSettings({
-        initialTab: 'model',
-        initialProvider: ProviderName.LlamaCpp,
-      });
-    }
+  const handleOpenLocalModelSettings = useCallback(() => {
+    handleShowSettings({ initialTab: 'model' });
   }, [handleShowSettings]);
 
   const handleShowCowork = useCallback(() => {
@@ -737,23 +643,8 @@ const App: React.FC = () => {
     const previousView = previousMainViewRef.current;
     previousMainViewRef.current = mainView;
     if (previousView !== 'settings' || mainView === 'settings') return;
-    // Reload instead of reading the in-memory snapshot: an async persistence
-    // still in flight (e.g. a connection test finishing during save) may not
-    // be reflected by getConfig() yet, which collected models against stale
-    // connectionTest metadata and flapped the picker list.
-    const requestId = ++availableModelsRefreshRequestIdRef.current;
-    void (async () => {
-      try {
-        const config = await configService.reload();
-        const allModels = await collectAvailableModels(config);
-        if (requestId !== availableModelsRefreshRequestIdRef.current) return;
-        dispatch(setAvailableModels(allModels));
-        dispatch(pruneUnconfiguredSelectedModels(collectConfiguredModelKeys(config)));
-      } catch (error) {
-        console.error('[App] failed to refresh available models after leaving settings:', error);
-      }
-    })();
-  }, [mainView, dispatch]);
+    void refreshAvailableModels();
+  }, [mainView, refreshAvailableModels]);
 
   const isShortcutInputActive = () => {
     const activeElement = document.activeElement;

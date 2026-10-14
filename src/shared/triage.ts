@@ -15,10 +15,6 @@ export interface TriageConfig {
     maxConversationRoundsForTriage: number;
     allowCrossProviderSwitch: boolean;
     cooldownRounds: number;
-    useLocalModelTriage: boolean;
-    triageModelName: string;
-    /** llama.cpp server root for pi classifier calls; empty disables them. */
-    classifierBaseUrl: string;
   };
 }
 
@@ -30,9 +26,6 @@ export const DEFAULT_TRIAGE_CONFIG: TriageConfig = {
     maxConversationRoundsForTriage: 20,
     allowCrossProviderSwitch: false,
     cooldownRounds: 3,
-    useLocalModelTriage: false,
-    triageModelName: '',
-    classifierBaseUrl: '',
   },
 };
 

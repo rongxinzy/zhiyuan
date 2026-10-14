@@ -172,7 +172,11 @@ export function MagpieAgentsPanel() {
         {status?.version && <span className="text-xs text-muted-foreground">{status.version}</span>}
       </div>
       <p className="text-sm text-muted-foreground">{i18nService.t('magpieActivationNotice')}</p>
-      <p className="text-xs text-muted-foreground">{i18nService.t('magpiePrivacyNotice')}</p>
+      <p className="text-xs text-muted-foreground">
+        {i18nService.t(
+          status?.subscriptionAccountsEnabled ? 'magpiePrivacyWithAccounts' : 'magpiePrivacyNotice',
+        )}
+      </p>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {i18nService.t(error)}

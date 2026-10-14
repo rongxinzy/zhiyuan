@@ -1,55 +1,12 @@
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createRegistry, Harness, MemoryStorage } from '@earendil-works/pi-durable';
 import { createFauxCore, fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux';
-import type { ApiConfigResolution } from '../../claudeSettings';
-import { ProviderName } from '../../../../shared/providers';
-import { resolveModelEndpoint } from '../../../../shared/providers/modelEndpoint';
-import { ZhiyuanModelPoolHeader } from '../../../../shared/modelPool/constants';
-import { createDurableModels, resolveDurableProviderFromConfiguration } from './provider';
+import { createDurableModels, resolveDurableProvider } from './provider';
 import { buildDurableModel } from './providerConfiguration';
+import { MagpieModelService, installMagpieModelService } from '../../../magpie/modelService';
 
-function configured(providerName: string = ProviderName.Ollama): ApiConfigResolution {
-  return {
-    config: {
-      model: 'fixture',
-      baseURL: 'http://127.0.0.1:11434/v1',
-      apiKey: '',
-      apiType: 'openai',
-    },
-    providerMetadata: { providerName, codingPlanEnabled: false },
-  };
-}
-
-describe('native durable configured provider', () => {
-  test('retains native catalog capabilities, costs and limits when application metadata is absent', async () => {
-    const { getBuiltinModels } = await import('@earendil-works/pi-ai/providers/all');
-    const builtin = getBuiltinModels('anthropic').find(
-      model => model.reasoning && model.input.includes('image'),
-    )!;
-    expect(builtin).toBeDefined();
-    const resolution = configured(ProviderName.Anthropic);
-    resolution.config = {
-      model: builtin.id,
-      baseURL: builtin.baseUrl,
-      apiType: 'anthropic',
-      apiKey: 'configured',
-    };
-    const result = await resolveDurableProviderFromConfiguration(
-      resolution,
-      'session',
-      'work',
-      async () => builtin.baseUrl,
-      'unused',
-    );
-    expect(result.modelObject).toMatchObject({
-      reasoning: builtin.reasoning,
-      input: builtin.input,
-      contextWindow: builtin.contextWindow,
-      maxTokens: builtin.maxTokens,
-      cost: builtin.cost,
-    });
-  });
+describe('native durable gateway provider', () => {
   test('native Models dispatches a real Harness generation without a legacy runtime bridge', async () => {
     const faux = createFauxCore({
       provider: 'fixture',
@@ -89,86 +46,74 @@ describe('native durable configured provider', () => {
     }
   });
 
-  test('keeps keyless local endpoints configured and uses bounded local defaults', async () => {
-    const resolution = configured();
-    const resolveBaseUrl = vi.fn(async () => resolution.config!.baseURL);
-    const result = await resolveDurableProviderFromConfiguration(
-      resolution,
+  test('uses the native gateway protocol, exact id, limits, reasoning and vision', () => {
+    const model = buildDurableModel(
+      {
+        id: 'vendor/model',
+        native_endpoints: ['/v1/messages'],
+        context_window: 200000,
+        max_output_tokens: 64000,
+        reasoning: true,
+        supported_reasoning_levels: [{ effort: 'high' }],
+        modalities: { input: ['text', 'image'], output: ['text'] },
+      },
+      'http://127.0.0.1:1234',
       'session',
       'work',
-      resolveBaseUrl,
-      'unused',
     );
-    expect(result.model).toEqual({ provider: ProviderName.Ollama, modelId: 'fixture' });
-    expect(result.modelObject).toMatchObject({
-      api: 'openai-completions',
-      contextWindow: 32768,
-      maxTokens: 4096,
+    expect(model).toMatchObject({
+      id: 'vendor/model',
+      provider: 'magpie',
+      api: 'anthropic-messages',
+      baseUrl: 'http://127.0.0.1:1234',
+      contextWindow: 200000,
+      maxTokens: 64000,
+      reasoning: true,
+      input: ['text', 'image'],
+      thinkingLevelMap: { high: 'high', low: null },
     });
-    expect((await result.models.getAuth(result.modelObject))?.auth.apiKey).toBe('sk-zhiyuan-local');
-    expect(resolveBaseUrl).toHaveBeenCalledWith(resolution, 'openai-completions');
+    expect(model.headers?.['X-Magpie-Session']).toBe('session');
   });
-
-  test('managed provider uses loopback capability and propagates session/workload headers', async () => {
-    const resolution = configured(ProviderName.Zhiyuan);
-    resolution.config!.apiKey = 'must-not-send-upstream-token-directly';
-    const result = await resolveDurableProviderFromConfiguration(
-      resolution,
-      'room-42',
-      'chat',
-      async () => 'http://127.0.0.1:12345/v1',
-      'loopback-capability',
-    );
-    expect(result.modelObject.baseUrl).toBe('http://127.0.0.1:12345/v1');
-    expect(result.modelObject.headers).toEqual({
-      [ZhiyuanModelPoolHeader.ConversationId]: 'room-42',
-      [ZhiyuanModelPoolHeader.Workload]: 'chat',
-    });
-    expect((await result.models.getAuth(result.modelObject))?.auth.apiKey).toBe(
-      'loopback-capability',
+  test('prefers Responses over translated Chat and keeps the /v1 base only for OpenAI', () => {
+    expect(
+      buildDurableModel(
+        { id: 'vendor/gpt', native_endpoints: ['/v1/chat/completions', '/v1/responses'] },
+        'http://127.0.0.1:1234',
+        's',
+        'chat',
+      ),
+    ).toMatchObject({ api: 'openai-responses', baseUrl: 'http://127.0.0.1:1234/v1' });
+    expect(() => buildDurableModel({ id: 'x' }, 'https://evil.test', 's', 'work')).toThrow(
+      'gateway',
     );
   });
-
-  test.each([
-    [ProviderName.OpenAI, 'openai', 'openai-responses'],
-    [ProviderName.Anthropic, 'anthropic', 'anthropic-messages'],
-    [ProviderName.Gemini, 'gemini', 'google-generative-ai'],
-  ] as const)(
-    'retains %s protocol and supplied credentials',
-    async (provider, protocol, expectedApi) => {
-      const resolution = configured(provider);
-      resolution.config!.apiKey = 'supplied-key';
-      // Endpoint protocol is authoritative, including Gemini which older config aliases flatten.
-      resolution.providerMetadata!.piRuntime = {
-        ...(protocol === 'anthropic' ? { api: 'anthropic-messages' } : {}),
-      };
-      if (protocol === 'gemini') {
-        resolution.endpoint = resolveModelEndpoint(provider, 'fixture', {
-          apiFormat: 'gemini',
-          baseUrl: resolution.config!.baseURL,
-        });
-      }
-      const result = await resolveDurableProviderFromConfiguration(
-        resolution,
-        'session',
-        'work',
-        async () => resolution.config!.baseURL,
-        'unused',
+  test('uses only the registered gateway and rechecks policy on later requests', async () => {
+    let allowed = true;
+    let gatewayUrl = 'http://127.0.0.1:1234';
+    const service = new MagpieModelService(
+      {
+        status: () => ({ state: 'running', version: 'test', gatewayUrl }),
+        models: async () => [{ id: 'v/m' }],
+      },
+      {
+        readDefaultModelId: () => 'v/m',
+        writeDefaultModelId: () => {},
+        allowedModel: () => allowed,
+      },
+    );
+    const dispose = installMagpieModelService(service);
+    try {
+      const result = await resolveDurableProvider('s');
+      expect(result.model).toEqual({ provider: 'magpie', modelId: 'v/m' });
+      expect((await result.models.getAuth(result.modelObject))?.auth.apiKey).toBe('magpie-zhiyuan');
+      gatewayUrl = 'http://127.0.0.1:2345';
+      expect((await result.models.getAuth(result.modelObject))?.auth.baseUrl).toBe(
+        'http://127.0.0.1:2345/v1',
       );
-      expect(result.modelObject.api).toBe(expectedApi);
-      expect((await result.models.getAuth(result.modelObject))?.auth.apiKey).toBe('supplied-key');
-    },
-  );
-
-  test('preserves configured reasoning, compatibility, cache, input limits and sampling metadata', () => {
-    const resolution = configured();
-    resolution.providerMetadata!.piRuntime = {
-      compat: { maxTokensField: 'max_tokens', supportsStrictMode: false },
-      thinkingLevelMap: { high: 'enabled' },
-      inputLimits: { maxRequestBytes: 8192 },
-      samplingParams: { temperature: 0.2 },
-    };
-    const model = buildDurableModel(resolution, 'http://localhost/v1', 'session', 'work');
-    expect(model).toMatchObject(resolution.providerMetadata!.piRuntime);
+      allowed = false;
+      await expect(result.models.getAuth(result.modelObject)).rejects.toThrow();
+    } finally {
+      dispose();
+    }
   });
 });

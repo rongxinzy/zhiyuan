@@ -11,9 +11,6 @@ export function buildAppSettingsSavePatch(input: {
   useSystemProxy: boolean;
   sqliteAutoBackupEnabled: boolean;
   shortcuts: NonNullable<AppConfig['shortcuts']>;
-  providers: AppConfig['providers'];
-  api: AppConfig['api'];
-  model: AppConfig['model'];
 }): Partial<AppConfig> {
   const patch: Partial<AppConfig> = {};
 
@@ -27,12 +24,6 @@ export function buildAppSettingsSavePatch(input: {
   }
   if (hasSettingsValueChanged(input.current.shortcuts, input.shortcuts)) {
     patch.shortcuts = input.shortcuts;
-  }
-
-  if (hasSettingsValueChanged(input.current.providers, input.providers)) {
-    patch.providers = input.providers;
-    patch.api = input.api;
-    patch.model = input.model;
   }
 
   return patch;

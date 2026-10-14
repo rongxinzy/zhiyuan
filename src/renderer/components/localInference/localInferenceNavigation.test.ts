@@ -7,12 +7,10 @@ const readSource = (relativePath: string): string =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
 
 const appSource = readSource('../../App.tsx');
-const providersControllerSource = readSource('../settings/model/useProvidersController.ts');
-const connectionTestSource = readSource('../settings/model/useConnectionTest.ts');
-const providerModelsSectionSource = readSource('../settings/model/ProviderModelsSection.tsx');
+const modelSettingsSource = readSource('../settings/model/ModelSettingsPanel.tsx');
+const availableModelsSource = readSource('../../services/availableModels.ts');
 const localInferenceSource = readSource('./LocalInferenceView.tsx');
 const modelsPanelSource = readSource('./panels/ModelsPanel.tsx');
-const providerModelRowSource = readSource('../settings/ProviderModelRow.tsx');
 
 test('keeps model-load cancellation reachable through the loading overlay', () => {
   expect(modelsPanelSource).toContain('pointer-events-none absolute inset-0');
@@ -21,28 +19,26 @@ test('keeps model-load cancellation reachable through the loading overlay', () =
   expect(modelsPanelSource).toContain('{loadingModel ? null : isRunning ? (');
 });
 
-test('opens local model settings after enabling the local provider', () => {
-  expect(appSource).toContain('const handleOpenLocalModelSettings = useCallback(async () =>');
-  expect(appSource).toContain('await configService.reload();');
-  expect(appSource).toContain('[ProviderName.LlamaCpp]: {');
-  expect(appSource).toContain('userEnabled: true,');
-  expect(appSource).toContain('initialProvider: ProviderName.LlamaCpp,');
+test('opens unified model settings without rewriting local provider configuration', () => {
+  const handler = appSource.match(
+    /const handleOpenLocalModelSettings = useCallback\(\(\) => \{([\s\S]*?)\}, \[handleShowSettings\]\);/,
+  );
+  expect(handler).not.toBeNull();
+  expect(handler?.[1]).toContain("handleShowSettings({ initialTab: 'model' })");
+  expect(handler?.[1]).not.toContain('updateConfig');
+  expect(handler?.[1]).not.toContain('providers');
+  expect(handler?.[1]).not.toContain('magpie.start');
   expect(appSource).toContain('onOpenModelSettings={handleOpenLocalModelSettings}');
-  expect(appSource).toContain('initialProvider={settingsOptions.initialProvider}');
 });
 
-test('keeps the requested provider selected while settings configuration loads', () => {
-  expect(providersControllerSource).toContain('initialProvider?: ProviderType;');
-  expect(providersControllerSource).toContain('initialProvider ?? getDefaultActiveProvider()');
-  expect(providersControllerSource).toContain('if (!initialProvider && config.api)');
-  expect(providersControllerSource).toContain('if (!initialProvider && firstEnabledProvider)');
-  expect(providersControllerSource).toContain('if (isInitialProviderPending) return;');
-  expect(providersControllerSource).toContain('initialProvider === activeProvider ||');
-  expect(connectionTestSource).toContain('ModelConnectionStatus.Failure');
-  // 双向断言：模型设置面板继续消费提取出来的行组件，LlamaCpp 特判留在组件内部。
-  expect(providerModelsSectionSource).toContain('<ProviderModelRow');
-  expect(providerModelsSectionSource).toContain('providerId={activeProvider}');
-  expect(providerModelRowSource).toContain('providerId === ProviderName.LlamaCpp');
+test('model settings consume the unified catalog rather than a second local provider list', () => {
+  expect(modelSettingsSource).toContain('refreshMagpieModels()');
+  expect(modelSettingsSource).toContain('selectMagpieDefaultModel(selection)');
+  expect(availableModelsSource).toContain('window.electron.magpie.catalog()');
+  expect(availableModelsSource).toContain('window.electron.magpie.selectDefault(id)');
+  expect(availableModelsSource).not.toContain('listRunningModels');
+  expect(availableModelsSource).not.toContain('config.providers');
+  expect(modelSettingsSource).not.toContain('ProviderModelRow');
 });
 
 test('refreshes the kept-alive local inference view on navigation requests', () => {

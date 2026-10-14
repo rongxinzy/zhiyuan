@@ -1,5 +1,31 @@
 export const magpieTranslations = {
   zh: {
+    magpieSubscriptionsOn: '订阅账号已启用',
+    magpieSubscriptionsOff: '订阅账号已关闭',
+    magpieSubscriptionsHint: '订阅账号由 Magpie 官方管理界面维护，凭据不会返回应用页面。',
+    magpieSubscriptionsEnable: '启用订阅账号',
+    magpieSubscriptionsDisable: '关闭订阅账号',
+    magpieSubscriptionsEnableConsent:
+      '启用后会发现并读取本机 Claude Code、Codex、Copilot 等现有登录及钥匙串，并允许支持的订阅登录。',
+    magpieSubscriptionsDisableConsent:
+      '关闭后停止发现和使用订阅账号，不删除本机登录文件或钥匙串记录。',
+    magpieSubscriptionsRestartNotice:
+      '更改需要重启模型服务，进行中的模型请求可能中断，已有任务记录保留。',
+    magpieSubscriptionsConfirm: '确认并重启',
+    magpiePrivacyWithAccounts:
+      '已允许订阅账号发现与使用。遥测和局域网访问关闭。停止服务不会撤销已写入的 Agent 配置。',
+
+    magpieCatalogTitle: '模型',
+    magpieCatalogHint:
+      '聊天、计划任务与 Coding 使用同一模型目录。Provider、凭据与路由在官方管理界面维护；本地 GPU 和企业模型由应用注册。订阅账号默认关闭。',
+    magpieCatalogRefresh: '刷新目录',
+    magpieDefaultModel: '默认模型',
+    magpieCatalogEmpty: '目录暂无模型。请在管理界面配置 Provider，或启动本地模型后刷新。',
+    magpieCatalogEnable: '启用模型服务',
+    magpieCatalogConsent:
+      '启用会启动 Magpie，并读取及自动同步已连接的本机 Agent 配置。订阅账号需单独启用，遥测与局域网访问关闭。',
+    magpieSetDefault: '设为默认',
+
     magpieTitle: '本机 CLI 模型管理',
     magpieManagerDescription: '通过独立的 Magpie 管理本机 Agent 模型配置。',
     magpieActivationNotice:
@@ -33,6 +59,34 @@ export const magpieTranslations = {
     magpieState_failed: '启动失败',
   },
   en: {
+    magpieSubscriptionsOn: 'Subscription accounts enabled',
+    magpieSubscriptionsOff: 'Subscription accounts disabled',
+    magpieSubscriptionsHint:
+      'Manage subscription accounts in the official Magpie UI. Credentials are not returned to this app page.',
+    magpieSubscriptionsEnable: 'Enable subscription accounts',
+    magpieSubscriptionsDisable: 'Disable subscription accounts',
+    magpieSubscriptionsEnableConsent:
+      'Enabling discovers and reads existing local Claude Code, Codex, Copilot and other supported sign-ins and keychain entries, and permits supported subscription sign-ins.',
+    magpieSubscriptionsDisableConsent:
+      'Disabling stops account discovery and use. Local sign-in files and keychain entries are not deleted.',
+    magpieSubscriptionsRestartNotice:
+      'This change restarts the model service and may interrupt active model requests. Existing task records are retained.',
+    magpieSubscriptionsConfirm: 'Confirm and restart',
+    magpiePrivacyWithAccounts:
+      'Subscription account discovery and use are enabled. Telemetry and LAN access are disabled. Stopping does not undo Agent configuration already written.',
+
+    magpieCatalogTitle: 'Models',
+    magpieCatalogHint:
+      'Chat, scheduled work and Coding share one model catalog. Manage providers, credentials and routing in the official management UI. Local GPU and enterprise models are registered by the app. Subscription accounts are off by default.',
+    magpieCatalogRefresh: 'Refresh catalog',
+    magpieDefaultModel: 'Default model',
+    magpieCatalogEmpty:
+      'No models in the catalog. Configure a provider in management, or start a local model and refresh.',
+    magpieCatalogEnable: 'Enable model service',
+    magpieCatalogConsent:
+      'Enabling starts Magpie and reads and automatically synchronizes connected local Agent configuration. Subscription accounts require separate opt-in. Telemetry and LAN access are disabled.',
+    magpieSetDefault: 'Set as default',
+
     magpieTitle: 'Local CLI model management',
     magpieManagerDescription:
       'Manage local Agent model configuration through the standalone Magpie runtime.',

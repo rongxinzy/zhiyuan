@@ -1,13 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { TriageConfig, TriageResult, TriageState } from '../../../shared/triage';
-import { chooseTriageModelSwitch, classifyByLocalModel } from './modelTriage';
-import * as piClassifierTriage from './piClassifierTriage';
-
-vi.mock('./piClassifierTriage', () => ({
-  classifyTierForTriage: vi.fn(),
-}));
-
+import { chooseTriageModelSwitch, classifyMessage, classifyByRules } from './modelTriage';
 const config = (overrides: Partial<TriageConfig['rules']> = {}): TriageConfig => ({
   enabled: true,
   rules: {
@@ -16,9 +10,6 @@ const config = (overrides: Partial<TriageConfig['rules']> = {}): TriageConfig =>
     maxConversationRoundsForTriage: 20,
     allowCrossProviderSwitch: false,
     cooldownRounds: 3,
-    useLocalModelTriage: true,
-    triageModelName: 'Qwen3.6-35B-A3B',
-    classifierBaseUrl: 'http://172.18.5.123:8000',
     ...overrides,
   },
 });
@@ -29,32 +20,11 @@ const state = (overrides: Partial<TriageState> = {}): TriageState => ({
   ...overrides,
 });
 
-describe('classifyByLocalModel', () => {
-  it('maps confident classifier answers onto tier model refs', async () => {
-    vi.mocked(piClassifierTriage.classifyTierForTriage).mockResolvedValueOnce({
-      tier: 'heavy',
-      confidence: 0.9,
-    });
-
-    const result = await classifyByLocalModel('refactor this module', 'Qwen3.6-35B-A3B', config());
-
-    expect(result).toEqual({
-      tier: 'heavy',
-      modelRef: 'zhipu/glm-5.2',
-      reason: 'llm: heavy (0.90)',
-    });
-    expect(piClassifierTriage.classifyTierForTriage).toHaveBeenCalledWith(
-      'refactor this module',
-      'http://172.18.5.123:8000',
-      'Qwen3.6-35B-A3B',
+describe('deterministic triage', () => {
+  it('keeps ambiguous input on the rule result without an external endpoint', async () => {
+    expect(await classifyMessage('Please help me with this', 1, config())).toEqual(
+      classifyByRules('Please help me with this', 1, config()),
     );
-  });
-
-  it('returns null without a configured server url', async () => {
-    vi.mocked(piClassifierTriage.classifyTierForTriage).mockClear();
-    const result = await classifyByLocalModel('hi', 'm', config({ classifierBaseUrl: '' }));
-    expect(result).toBeNull();
-    expect(piClassifierTriage.classifyTierForTriage).not.toHaveBeenCalled();
   });
 });
 
