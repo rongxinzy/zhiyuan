@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import type { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +9,7 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { ExecutionError } from '@earendil-works/pi-durable/env';
 import { CodingTools } from '@earendil-works/pi-durable/tools';
 import { nativeCodingTools, nativeExecutionOptions } from './nativeExecutionEnv';
-import { runNativeExecutionSmoke } from './nativeExecutionSmoke';
+import { diagnoseWindowsPowerShell, runNativeExecutionSmoke } from './nativeExecutionSmoke';
 
 const directories: string[] = [];
 async function fixture() {
@@ -68,6 +70,8 @@ test.skipIf(process.platform === 'win32')(
     expect(progress.mock.calls.map(([value]) => value.stage)).toEqual([
       'started',
       'tool_started',
+      'exec_started',
+      'exec_returned',
       'tool_returned',
       'native_settled',
       'closed',
@@ -100,4 +104,97 @@ test('unchanged upstream powershell tries pwsh first and falls back only on a sp
   expect(exec).toHaveBeenCalledOnce();
   expect(exec.mock.calls[0][0][0]).toBe('pwsh');
   expect(result).toMatchObject({ isError: true, structuredOutput: { exitCode: 17 } });
+});
+
+test('failed native case diagnostic uses absolute official PowerShell and only varies Electron flag', async () => {
+  const root = await fixture();
+  const report = vi.fn();
+  const launch = vi.fn((_program, _args, _options) => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      kill: vi.fn(),
+    });
+    queueMicrotask(() => {
+      child.stdout.emit('data', 'native-direct-enter\n5.1');
+      child.emit('close', 0, null);
+    });
+    return child;
+  });
+  vi.stubEnv('ELECTRON_RUN_AS_NODE', '1');
+  try {
+    await diagnoseWindowsPowerShell(root, root, report, launch as unknown as typeof spawn);
+    expect(launch).toHaveBeenCalledTimes(2);
+    const [first, second] = launch.mock.calls;
+    expect(first[0]).toMatch(/WindowsPowerShell[\\/]v1.0[\\/]powershell.exe$/);
+    expect(first[1].slice(0, 5)).toEqual([
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+    ]);
+    expect(first[1]).toEqual(second[1]);
+    expect(first[2].stdio).toEqual(['ignore', 'pipe', 'pipe']);
+    expect(first[2].env.ELECTRON_RUN_AS_NODE).toBe('1');
+    expect(second[2].env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    const { ELECTRON_RUN_AS_NODE: _flag, ...rest } = first[2].env;
+    expect(second[2].env).toEqual(rest);
+    expect(report.mock.calls.map(([event]) => event.stage)).toEqual([
+      'started',
+      'closed',
+      'started',
+      'closed',
+    ]);
+    expect(JSON.parse(report.mock.calls[1][0].detail)).toMatchObject({
+      code: 0,
+      timedOut: false,
+      output: 'native-direct-enter\n5.1',
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+test('direct PowerShell diagnostics retain the 20 second bound and close timed-out children', async () => {
+  const root = await fixture();
+  const report = vi.fn();
+  const children: Array<EventEmitter & { kill: ReturnType<typeof vi.fn> }> = [];
+  const launch = vi.fn(() => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+      kill: vi.fn(() => {
+        child.emit('close', null, 'SIGTERM');
+        return true;
+      }),
+    });
+    children.push(child);
+    return child;
+  });
+  vi.useFakeTimers();
+  try {
+    const pending = diagnoseWindowsPowerShell(
+      root,
+      root,
+      report,
+      launch as unknown as typeof spawn,
+    );
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(children).toHaveLength(1);
+    expect(children[0].kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(children[0].kill).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(20_000);
+    await pending;
+    expect(children[1].kill).toHaveBeenCalledOnce();
+    expect(
+      report.mock.calls
+        .filter(([event]) => event.stage === 'closed')
+        .every(([event]) => JSON.parse(event.detail).timedOut),
+    ).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

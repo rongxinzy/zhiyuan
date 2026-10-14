@@ -1,7 +1,7 @@
 /** Fixed, account-free acceptance cases executed by the actual native tools.
  * This subprocess exposes no arbitrary command or Main IPC interface. */
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, readFile, stat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -13,7 +13,11 @@ import {
   MemoryStorage,
   type HarnessOptions,
 } from '@earendil-works/pi-durable';
-import { createNativeExecutionEnv, nativeCodingTools } from './nativeExecutionEnv';
+import {
+  createNativeExecutionEnv,
+  nativeCodingTools,
+  nativeExecutionOptions,
+} from './nativeExecutionEnv';
 import { authorizeNativeTool } from './toolBridge';
 
 const UNIX_COMMAND = "printf 'zhiyuan-native-bash-中文\\n'; printf '%s\\n' \"$PWD\"; git --version";
@@ -30,6 +34,78 @@ export interface NativeSmokeProgress {
   detail?: string;
 }
 type ReportProgress = (progress: NativeSmokeProgress) => void;
+
+/** Diagnostic only: same upstream argv/stdio, fixed harmless command, no model.
+ * Run after a failed native case so first-start timing cannot mask that failure. */
+export async function diagnoseWindowsPowerShell(
+  cwd: string,
+  resourcesRoot: string,
+  report: ReportProgress,
+  spawnProcess = spawn,
+) {
+  const options = await nativeExecutionOptions(cwd, resourcesRoot, 'win32');
+  const env = { ...process.env, ...options.shellEnv };
+  const executable = join(
+    env.SystemRoot || env.WINDIR || 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
+  const args = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    `try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\nWrite-Output 'native-direct-enter'; $PSVersionTable.PSVersion.ToString()`,
+  ];
+  for (const mode of ['same-environment', 'without-electron-node-flag']) {
+    const childEnv = { ...env };
+    if (mode === 'without-electron-node-flag') delete childEnv.ELECTRON_RUN_AS_NODE;
+    const startedAt = Date.now();
+    const emit = (stage: string, detail?: unknown) =>
+      report({
+        case: `direct-${mode}`,
+        stage,
+        elapsedMs: Date.now() - startedAt,
+        detail: JSON.stringify(detail)?.slice(0, 6000),
+      });
+    emit('started', { executable, electronNodeFlag: childEnv.ELECTRON_RUN_AS_NODE === '1' });
+    await new Promise<void>((resolve, reject) => {
+      const child = spawnProcess(executable, args, {
+        cwd,
+        env: childEnv,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let output = '';
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        // Only this known child; fixed diagnostic never launches descendants.
+        child.kill();
+      }, 20_000);
+      const closedTimer = setTimeout(() => {
+        child.kill();
+        reject(new Error('Direct PowerShell diagnostic did not close after timeout'));
+      }, 25_000);
+      child.stdout?.on('data', chunk => {
+        output = (output + String(chunk)).slice(-4000);
+      });
+      child.stderr?.on('data', chunk => {
+        output = (output + String(chunk)).slice(-4000);
+      });
+      child.once('error', error => emit('spawn_error', { message: error.message }));
+      child.once('close', (code, signal) => {
+        clearTimeout(timer);
+        clearTimeout(closedTimer);
+        emit('closed', { code, signal, timedOut, output });
+        resolve();
+      });
+    });
+  }
+}
 
 async function fixedCase(
   cwd: string,
@@ -57,6 +133,19 @@ async function fixedCase(
     : BACKGROUND_CONTEXT;
   const toolName = process.platform === 'win32' ? 'powershell' : 'bash';
   const environment = await createNativeExecutionEnv(cwd, resourcesRoot);
+  const originalExec = environment.exec.bind(environment);
+  environment.exec = async (command, executionOptions, executionContext) => {
+    const program = Array.isArray(command) ? command[0] : 'shell';
+    report('exec_started', { program });
+    const result = await originalExec(command, executionOptions, executionContext);
+    report(
+      'exec_returned',
+      result.ok
+        ? { program, ok: true, exitCode: result.value.exitCode }
+        : { program, ok: false, code: result.error.code, message: result.error.message },
+    );
+    return result;
+  };
   const registry = createRegistry();
   const tools = nativeCodingTools();
   let approvals = 0;
@@ -256,6 +345,9 @@ export async function runNativeExecutionSmoke(
     windows ? WINDOWS_COMMAND : UNIX_COMMAND,
     { signal, report, caseName: 'basic' },
   );
+  if (windows && basic.result.isError && report) {
+    await diagnoseWindowsPowerShell(workspace, resourcesRoot, report);
+  }
   assert.equal(basic.receipt.status, 'done');
   assert.equal(basic.result.isError, false, `basic: ${basic.output}`);
   assert.equal(basic.calls, 2);
