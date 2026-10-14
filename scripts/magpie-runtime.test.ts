@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 
 import { afterEach, describe, expect, test } from 'vitest';
 
@@ -16,7 +17,12 @@ const {
   configureMagpieResources,
   verifyPackagedMagpie,
 } = require('./magpie-runtime.cjs');
-const { buildArguments, cleanGoEnvironment, treeDigest } = require('./build-magpie-runtime.cjs');
+const {
+  buildArguments,
+  archiveArguments,
+  cleanGoEnvironment,
+  treeDigest,
+} = require('./build-magpie-runtime.cjs');
 const { signWithRuntimeManifest } = require('./sign-magpie-macos.cjs');
 const temporaryDirectories: string[] = [];
 
@@ -60,6 +66,63 @@ afterEach(() => {
 });
 
 describe('pinned Magpie runtime build', () => {
+  test.each(['core.autocrlf', 'core.eol', 'tar.umask', 'core.attributesFile'])(
+    'archives identical upstream bytes despite host %s settings',
+    setting => {
+      const root = temporaryRoot();
+      const repository = path.join(root, 'repository');
+      const baseline = path.join(root, 'baseline.tar');
+      const changed = path.join(root, 'changed.tar');
+      const actual = path.join(root, 'actual.tar');
+      const attributes = path.join(root, 'host.attributes');
+      const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull };
+      const git = (args: string[]) => execFileSync('git', args, { env, stdio: 'pipe' });
+      git(['init', repository]);
+      git(['-C', repository, 'config', 'core.autocrlf', 'false']);
+      git(['-C', repository, 'config', 'core.eol', 'lf']);
+      git(['-C', repository, 'config', 'tar.umask', '0002']);
+      fs.writeFileSync(path.join(repository, 'main.go'), 'package main\n\nfunc main() {}\n');
+      fs.writeFileSync(path.join(repository, '.gitattributes'), '*.go text\n');
+      fs.writeFileSync(attributes, '*.go export-ignore\n');
+      git(['-C', repository, 'add', 'main.go', '.gitattributes']);
+      git([
+        '-C',
+        repository,
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '-m',
+        'fixture',
+      ]);
+      const commit = git(['-C', repository, 'rev-parse', 'HEAD']).toString().trim();
+      const plainArchive = (output: string) => [
+        '-C',
+        repository,
+        'archive',
+        '--format=tar',
+        `--output=${output}`,
+        commit,
+      ];
+      git(plainArchive(baseline));
+      const values: Record<string, string> = {
+        'core.autocrlf': 'true',
+        'core.eol': 'crlf',
+        'tar.umask': '0077',
+        'core.attributesFile': attributes,
+      };
+      git(['-C', repository, 'config', setting, values[setting]]);
+      git(plainArchive(changed));
+      expect(sha256File(changed)).not.toBe(sha256File(baseline));
+      git(archiveArguments(repository, actual, commit));
+      expect(fs.readFileSync(actual)).toEqual(fs.readFileSync(baseline));
+      expect(git(['-C', repository, 'config', setting]).toString().trim()).toBe(values[setting]);
+    },
+  );
+
   test('uses the unchanged upstream CLI flags and readonly dependency resolution', () => {
     expect(buildArguments('/out/magpie')).toEqual([
       'build',

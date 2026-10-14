@@ -3,6 +3,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseArgs } = require('node:util');
@@ -105,6 +106,27 @@ function buildArguments(output) {
   ];
 }
 
+function archiveArguments(repository, output, commit = upstream.commit) {
+  // git archive applies checkout conversions and host configuration to stored blobs.
+  // Match the pinned LF tar bytes without changing repository or global settings.
+  return [
+    '-C',
+    repository,
+    '-c',
+    'core.autocrlf=false',
+    '-c',
+    'core.eol=lf',
+    '-c',
+    'tar.umask=0002',
+    '-c',
+    `core.attributesFile=${os.devNull}`,
+    'archive',
+    '--format=tar',
+    `--output=${output}`,
+    commit,
+  ];
+}
+
 function build(options = {}) {
   const keys =
     options.target === 'all'
@@ -140,16 +162,12 @@ function build(options = {}) {
     if (options.source && git(['status', '--porcelain', '--untracked-files=all'])) {
       throw new Error('The provided source checkout must be clean; no local patches are accepted');
     }
-    run('git', [
-      '-C',
-      repository,
-      'archive',
-      '--format=tar',
-      `--output=${archive}`,
-      upstream.commit,
-    ]);
-    if (sha256File(archive) !== upstream.archiveSha256)
-      throw new Error('Pinned upstream archive SHA-256 mismatch');
+    run('git', archiveArguments(repository, archive));
+    const archiveSha256 = sha256File(archive);
+    if (archiveSha256 !== upstream.archiveSha256)
+      throw new Error(
+        `Pinned upstream archive SHA-256 mismatch: expected ${upstream.archiveSha256}, got ${archiveSha256}`,
+      );
     fs.mkdirSync(source);
     run('tar', ['-xf', archive, '-C', source]);
     for (const [filename, expected] of [
@@ -246,4 +264,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { build, buildArguments, cleanGoEnvironment, treeDigest };
+module.exports = { build, buildArguments, archiveArguments, cleanGoEnvironment, treeDigest };
