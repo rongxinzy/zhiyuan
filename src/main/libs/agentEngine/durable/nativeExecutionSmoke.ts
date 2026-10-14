@@ -17,7 +17,7 @@ import { createNativeExecutionEnv, nativeCodingTools } from './nativeExecutionEn
 import { authorizeNativeTool } from './toolBridge';
 
 const UNIX_COMMAND = "printf 'zhiyuan-native-bash-中文\\n'; printf '%s\\n' \"$PWD\"; git --version";
-const WINDOWS_COMMAND = `@{ marker='zhiyuan-native-powershell-中文'; quote='quoted ''value'' "double"'; cwd=(Get-Location).Path; major=$PSVersionTable.PSVersion.Major; minor=$PSVersionTable.PSVersion.Minor; git=(& git --version) } | ConvertTo-Json -Compress`;
+const WINDOWS_COMMAND = `@{ marker='zhiyuan-native-powershell-中文'; quote='quoted ''value'' "double"'; cwd=(Get-Location).Path; major=$PSVersionTable.PSVersion.Major; minor=$PSVersionTable.PSVersion.Minor; gitSource=(Get-Command git -CommandType Application -ErrorAction Stop).Source; git=(& git --version) } | ConvertTo-Json -Compress`;
 const NONZERO_COMMAND = 'Write-Output "expected nonzero"; exit 17';
 const DENIED_COMMAND = "Set-Content -LiteralPath 'denied.txt' -Value 'must not execute'";
 const CHILD_COMMAND = `$child=Start-Process -FilePath $env:ComSpec -ArgumentList '/d /s /c "ping -n 120 127.0.0.1 >NUL"' -PassThru; Set-Content -LiteralPath 'child.pid' -Value $child.Id; Start-Sleep -Seconds 120`;
@@ -231,6 +231,9 @@ export async function runNativeExecutionSmoke(
   assert.equal(parsed.major, expectedPowerShellMajor);
   if (expectedPowerShellMajor === 5) assert.equal(parsed.minor, 1);
   assert.match(parsed.git, /^git version \d/);
+  assert.equal(typeof parsed.gitSource, 'string');
+  const gitExecutable = await realpath(parsed.gitSource);
+  assert.equal(gitExecutable, await realpath(join(resourcesRoot, 'mingit', 'cmd', 'git.exe')));
   const nonzero = await fixedCase(workspace, resourcesRoot, NONZERO_COMMAND, { signal });
   assert.equal(nonzero.result.isError, true);
   assert.ok(nonzero.output.includes('expected nonzero'));
@@ -262,6 +265,7 @@ export async function runNativeExecutionSmoke(
     tool: 'powershell',
     approvals: basic.approvals,
     output: basic.output,
+    gitExecutable,
     powerShellMajor: parsed.major,
     powerShellMinor: parsed.minor,
     checks: {

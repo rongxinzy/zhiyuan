@@ -48,22 +48,27 @@ async function closeApplication(app, systemRoot) {
 
 export function isolatedEnvironment(root, source = process.env) {
   const env = {};
+  const read = name =>
+    Object.entries(source).find(([key]) => key.toUpperCase() === name.toUpperCase())?.[1];
   // Deliberate allowlist: no API keys, account tokens, agent overrides, Electron
   // switches, inherited NODE_OPTIONS or Python configuration from the CI host.
   for (const key of [
     'SystemRoot',
     'WINDIR',
-    'COMSPEC',
     'SystemDrive',
     'NUMBER_OF_PROCESSORS',
     'PROCESSOR_ARCHITECTURE',
   ]) {
-    if (source[key]) env[key] = source[key];
+    if (read(key)) env[key] = read(key);
   }
-  const systemRoot = source.SystemRoot || source.WINDIR;
+  const systemRoot = env.SystemRoot || env.WINDIR;
   if (!systemRoot) throw new Error('Windows SystemRoot is required');
   return {
     ...env,
+    // PowerShell discovers suffixless native commands through PATHEXT. A
+    // secret-free profile still needs these standard Windows process values.
+    PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    COMSPEC: path.win32.join(systemRoot, 'System32', 'cmd.exe'),
     PATH: `${path.win32.join(systemRoot, 'System32')};${systemRoot}`,
     HOME: root,
     USERPROFILE: root,

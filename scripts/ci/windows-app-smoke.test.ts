@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -250,3 +251,51 @@ test('installed paths are canonicalized without weakening identity assertions', 
   expect(source).toContain('await realpath(state.appPath)');
   expect(source).toContain("await realpath(path.join(resources, 'app.asar'))");
 });
+
+test('isolated Windows environment preserves command discovery without inheriting custom executable extensions', () => {
+  const env = isolatedEnvironment('C:\\isolated', {
+    systemroot: 'C:\\Windows',
+    ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+    Path: 'C:\\user-tools',
+    PATHEXT: '.EXE;.UNTRUSTED',
+    PRIVATE_TOKEN: 'not-a-real-token',
+  });
+  expect(env.SystemRoot).toBe('C:\\Windows');
+  expect(env.COMSPEC).toBe('C:\\Windows\\System32\\cmd.exe');
+  expect(env.PATHEXT).toBe('.COM;.EXE;.BAT;.CMD');
+  expect(Object.keys(env).filter(key => key.toUpperCase() === 'PATH')).toEqual(['PATH']);
+  expect(Object.keys(env).filter(key => key.toUpperCase() === 'COMSPEC')).toEqual(['COMSPEC']);
+  expect(env).not.toHaveProperty('PRIVATE_TOKEN');
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'real PowerShell command discovery needs PATHEXT even when System32 is on PATH',
+  () => {
+    const env = isolatedEnvironment(process.env.TEMP!, process.env);
+    const pwsh = path.join(
+      process.env.ProgramFiles || 'C:\\Program Files',
+      'PowerShell',
+      '7',
+      'pwsh.exe',
+    );
+    const command =
+      "$ErrorActionPreference='Stop'; (Get-Command whoami -CommandType Application -ErrorAction Stop).Name";
+    const withoutExtensions = { ...env };
+    delete withoutExtensions.PATHEXT;
+    const before = spawnSync(pwsh, ['-NoProfile', '-NonInteractive', '-Command', command], {
+      env: withoutExtensions,
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    expect(before.error).toBeUndefined();
+    expect(before.status).not.toBe(0);
+    const after = spawnSync(pwsh, ['-NoProfile', '-NonInteractive', '-Command', command], {
+      env,
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    expect(after.error).toBeUndefined();
+    expect(after.status, after.stderr).toBe(0);
+    expect(after.stdout.trim().toLowerCase()).toBe('whoami.exe');
+  },
+);
