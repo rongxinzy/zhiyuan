@@ -640,10 +640,12 @@ Function ZYFinishCreate
   nsDialogs::Show
 FunctionEnd
 
+!ifndef HIDE_RUN_AFTER_FINISH
 Function ZYFinishLaunchClick
   StrCpy $zyLaunchApp "1"
   !insertmacro ZY_ClickWizardNext
 FunctionEnd
+!endif
 
 Function ZYFinishCloseClick
   !insertmacro ZY_ClickWizardNext

@@ -28,3 +28,13 @@ describe('Windows acceptance delivery gate', () => {
     expect(workflow).toContain('--production --ignore-scripts');
   });
 });
+
+it('omits the NSIS launch callback when its button is disabled', () => {
+  const pages = readFileSync('scripts/installer-ui/zy-pages.nsh', 'utf8');
+  expect(pages).toMatch(
+    /!ifndef HIDE_RUN_AFTER_FINISH\s+Function ZYFinishLaunchClick[\s\S]*?FunctionEnd\s+!endif/,
+  );
+  expect(pages).toMatch(
+    /!ifndef HIDE_RUN_AFTER_FINISH[\s\S]*?\$\{NSD_OnClick\} \$0 ZYFinishLaunchClick\s+!endif/,
+  );
+});

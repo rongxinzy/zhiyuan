@@ -10,6 +10,7 @@ on:
       - 'scripts/ci/windows-acceptance*'
       - 'scripts/ci/windows-app-smoke*'
       - 'scripts/build-magpie-runtime.cjs'
+      - 'scripts/installer-ui/**'
 
 permissions:
   contents: read
