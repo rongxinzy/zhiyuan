@@ -329,6 +329,17 @@ export class PiRuntimeAdapter extends EventEmitter {
     );
     return extractPiBackgroundCompletionText(result);
   }
+  historyExists(sessionId: string): Promise<boolean> {
+    return this.runtime().runner.owner.exists(sessionId);
+  }
+  readHistory(
+    sessionId: string,
+    limit: number,
+    cursor?: import('@earendil-works/pi-durable').Cursor,
+    anchor?: import('@earendil-works/pi-durable').EntryId,
+  ) {
+    return this.runtime().runner.owner.readHistory(sessionId, limit, cursor, anchor);
+  }
   getWorkDocument(sessionId: string) {
     return this.runtime().runner.getWorkDocument(sessionId);
   }

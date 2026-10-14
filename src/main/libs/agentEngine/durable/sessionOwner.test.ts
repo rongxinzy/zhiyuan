@@ -150,3 +150,50 @@ test('submitting in another session does not resume interrupted work', async () 
   expect((await restored.harness.inspect(context)).scheduling).toBe('paused');
   expect((await restored.harness.inspect(context)).tasks.length).toBeGreaterThan(0);
 });
+
+test('history reads all native entries before reset and reads closed sessions without a model configuration', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'zhiyuan-history-'));
+  cleanups.push(() => rm(directory, { recursive: true, force: true }));
+  const provider = models(false);
+  const owner = new DurableSessionOwner(directory, async () => ({
+    models: provider.models,
+    registry: createRegistry(),
+  }));
+  cleanups.push(() => owner.close());
+  const session = await owner.open('history', agent);
+  const first = await session.conversation.commit(
+    tx =>
+      tx.appendEntry(session.conversation.id, {
+        kind: 'test.user',
+        model: [{ role: 'user', content: 'Before reset', timestamp: 1 }],
+      }),
+    context,
+  );
+  await session.conversation.reset(undefined, context);
+  const last = await session.conversation.commit(
+    tx =>
+      tx.appendEntry(session.conversation.id, {
+        kind: 'test.user',
+        model: [{ role: 'user', content: 'After reset', timestamp: 2 }],
+      }),
+    context,
+  );
+  await owner.close();
+  const offline = new DurableSessionOwner(directory, async () => {
+    throw new Error('No model configured');
+  });
+  cleanups.push(() => offline.close());
+  const page = await offline.readHistory('history', 1);
+  expect(page.items[0].id).toBe(last.id);
+  let cursor = page.next;
+  const ids = page.items.map(entry => entry.id);
+  while (cursor) {
+    const next = await offline.readHistory('history', 1, cursor);
+    ids.push(...next.items.map(entry => entry.id));
+    cursor = next.next;
+  }
+  expect(ids).toContain(first.id);
+  expect(provider.calls).toEqual([]);
+  await expect(offline.readHistory('missing', 10)).rejects.toThrow();
+  expect(await offline.exists('missing')).toBe(false);
+});

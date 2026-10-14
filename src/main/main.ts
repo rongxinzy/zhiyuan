@@ -1,3 +1,5 @@
+import Database from 'better-sqlite3';
+import { registerHistoryIpc } from './history/registerHistoryIpc';
 import crypto from 'crypto';
 import type { WebContents } from 'electron';
 import {
@@ -1544,6 +1546,7 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
   );
   const broadcastUiEvent = (event: PiUiEvent): void => {
     runtimeSnapshots.observe(event);
+    historyService?.invalidate();
     const windows = BrowserWindow.getAllWindows();
     windows.forEach(win => {
       if (win.isDestroyed()) return;
@@ -1840,6 +1843,8 @@ const ensureWindowsTaskbarBrand = (): void => {
 
 // 保存对主窗口的引用
 let mainWindow: BrowserWindow | null = null;
+let historyService: ReturnType<typeof registerHistoryIpc> | undefined;
+let historyIndexDb: Database.Database | undefined;
 let disposeMagpie: (() => Promise<void>) | undefined;
 
 let isQuitting = false;
@@ -2877,6 +2882,23 @@ if (!gotTheLock) {
   registerDurableIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
   );
+  historyIndexDb = new Database(path.join(app.getPath('userData'), 'history-index.sqlite'));
+  historyIndexDb.pragma('journal_mode = WAL');
+  historyService = registerHistoryIpc({
+    ipcMain,
+    db: getStore().getDatabase(),
+    indexDb: historyIndexDb,
+    native: getPiRuntimeAdapter(),
+    assertTrustedSender(event) {
+      if (
+        !mainWindow ||
+        mainWindow.isDestroyed() ||
+        event.sender !== mainWindow.webContents ||
+        event.senderFrame !== mainWindow.webContents.mainFrame
+      )
+        throw new Error('Untrusted history request');
+    },
+  });
   registerWorkDocumentIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
   );
@@ -5019,6 +5041,10 @@ if (!gotTheLock) {
 
   const runAppCleanup = async (): Promise<void> => {
     console.log('[AppLifecycle] App cleanup started.');
+    await historyService?.dispose();
+    historyService = undefined;
+    historyIndexDb?.close();
+    historyIndexDb = undefined;
     await disposeMagpie?.();
     disposeMagpie = undefined;
     destroyTray();

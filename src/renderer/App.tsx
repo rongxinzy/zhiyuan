@@ -1,3 +1,4 @@
+import type { HistoryLocator } from '../shared/history';
 import { Button } from '@shared/components/ui/button';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
 import { MessageCircle } from 'lucide-react';
@@ -40,6 +41,7 @@ import { TOAST_DEFAULT_DURATION_MS, TOAST_MAX_DURATION_MS } from './services/err
 import { matchesShortcut } from './services/shortcuts';
 import {
   resolveToastMessage,
+  showAppErrorToast,
   resolveToastNotification,
   type ToastNotificationDetail,
   type ToastNotificationOptions,
@@ -103,6 +105,12 @@ const lazyViewFallback = (
   </div>
 );
 
+const HistoryBrowser = React.lazy(() =>
+  import('./components/history/HistoryBrowser').then(module => ({
+    default: module.HistoryBrowser,
+  })),
+);
+
 const App: React.FC = () => {
   const [settingsOptions, setSettingsOptions] = useState<SettingsOpenOptions>({});
   const [initErrorSettingsOpen, setInitErrorSettingsOpen] = useState(false);
@@ -115,7 +123,44 @@ const App: React.FC = () => {
     | 'expert'
     | 'coding'
     | 'todo'
+    | 'history'
   >('cowork');
+  const historyNavigation = useRef(0);
+  const mainViewRef = useRef(mainView);
+  mainViewRef.current = mainView;
+  const handleOpenHistoryConversation = useCallback(async (locator: HistoryLocator) => {
+    const version = ++historyNavigation.current;
+    const stillCurrent = () =>
+      version === historyNavigation.current && mainViewRef.current === 'history';
+    try {
+      if (locator.source === 'cowork') {
+        const session = await coworkService.loadSession(locator.id);
+        if (!stillCurrent()) return;
+        if (!session) throw new Error('The source conversation is unavailable');
+        setMainView('cowork');
+      } else {
+        const result = await window.electron.codingAgent.listWorkspaces();
+        if (!stillCurrent()) return;
+        if (!result.success) throw new Error(result.error);
+        for (const workspace of result.workspaces ?? []) {
+          const lane = workspace.sessions.find(session => session.id === locator.id);
+          if (!lane) continue;
+          setCodingSelection({
+            workspaceId: workspace.id,
+            workspaceRoot: lane.sourceRoot,
+            laneId: lane.id,
+            draft: null,
+          });
+          setMainView('coding');
+          return;
+        }
+        throw new Error('The source conversation is unavailable');
+      }
+    } catch (error) {
+      console.error('[History] Unable to open source conversation', error);
+      if (stillCurrent()) showAppErrorToast(i18nService.t('historyLoadFailed'));
+    }
+  }, []);
   const [hasMountedLocalInference, setHasMountedLocalInference] = useState(false);
   const [isLocalInferenceDormant, setIsLocalInferenceDormant] = useState(false);
   // 2026/09/21 lixiang  keep-alive 视图隐藏超过该时长后真正卸载以释放内存，
@@ -899,6 +944,7 @@ const App: React.FC = () => {
             onShowCowork={handleShowCowork}
             onShowScheduledTasks={handleShowScheduledTasks}
             onShowActivity={handleShowActivity}
+            onShowHistory={() => setMainView('history')}
             onShowLocalInference={handleShowLocalInference}
             onShowExpert={handleShowExpert}
             onShowCoding={handleShowCoding}
@@ -965,6 +1011,14 @@ const App: React.FC = () => {
                       onToggleSidebar={handleToggleSidebar}
                       onNewChat={handleNewChat}
                       updateBadge={null}
+                    />
+                  ) : mainView === 'history' ? (
+                    <HistoryBrowser
+                      api={window.electron.history}
+                      onClose={() => setMainView('cowork')}
+                      onOpenConversation={handleOpenHistoryConversation}
+                      isSidebarCollapsed={isSidebarCollapsed}
+                      onToggleSidebar={handleToggleSidebar}
                     />
                   ) : mainView === 'activity' ? (
                     <ActivityView

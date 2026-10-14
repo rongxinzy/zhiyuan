@@ -714,6 +714,7 @@ interface IElectronAPI {
       callback: (event: import('../../shared/todo').TodoChangedEvent) => void,
     ) => () => void;
   };
+  history: import('../../shared/history').HistoryApi;
   codingAgent: {
     listProfiles: () => Promise<CodingAgentProfilesResult>;
     listWorkspaces: () => Promise<CodingWorkspaceActionResult>;

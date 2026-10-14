@@ -10,10 +10,14 @@ export type PrefetchableFeatureView =
   | 'activity'
   | 'localInference'
   | 'expert'
-  | 'todo';
+  | 'todo'
+  | 'history';
 
 export const prefetchFeatureView = (view: PrefetchableFeatureView): void => {
   switch (view) {
+    case 'history':
+      void import('./history/HistoryBrowser').catch(() => undefined);
+      break;
     case 'settings':
       void import('./settings/SettingsPage').catch(() => undefined);
       break;

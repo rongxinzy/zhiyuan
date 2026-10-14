@@ -62,11 +62,11 @@
 
 第二批远端验证：[IM / Cron / Document / 单主题 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38517317459)。
 
-## 7. 移除重复 Workbench 审计 — 已实现，验证中
+## 7. 移除重复 Workbench 审计 — 已发布并通过 CI
 
 - 删除另一套任务 / 运行 / 审批记录 / 交付验收引擎、SQLite 新表初始化、IPC、轨迹审计与验收界面，以及 Coding 的重复运行绑定。
 - 保留原生 Durable 执行、工作档案、普通会话产物、Coding 自身事件 / diff / 文件内容。通用工具审批分类和有界内容 Worker 迁为独立模块。
-- 旧用户审计数据原地保留；新增数据库不再创建旧表。本地完整 renderer/shared 1803 项、原生与保留工具等 76 项、Coding 206 项通过；双类型检查、lint、格式和 Main / Preload / 内容 Worker 构建通过。远端 CI 待本批发布后核验。
+- 旧用户审计数据原地保留；新增数据库不再创建旧表。本地完整 renderer/shared 1803 项、原生与保留工具等 76 项、Coding 206 项通过；双类型检查、lint、格式和 Main / Preload / 内容 Worker 构建通过。[已发布](https://github.com/rongxinzy/zhiyuan/commit/54e7fbe6255f5185fbe904e8bf4cd49d046cb0fd)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38524922618)。
 
 ## 8. Magpie 统一模型设置 — 实施中
 
@@ -78,7 +78,8 @@
 
 - 用户已确认：Pi 原生历史与 Coding 自身事件各自保存真实记录，提供统一目录、cursor 分页、可重建 FTS5 检索、附件管理及一致备份恢复。
 - 不再重建另一套任务执行真相，不主动清除用户历史数据。
-- 待交付：跨来源读取 / 检索 / 备份后端、实际界面接线与恢复一致性验证。
+- 首批只读目录 / cursor 分页 / 可重建 FTS5 / 原会话定位已经接入侧栏与实际 IPC；19 项组合测试、双类型检查与 Main / Preload 构建通过。
+- 备份 / 恢复采用用户明确确认后的维护重启，在所有数据库与原生执行器打开前执行；附件受管快照与一致恢复验证进行中，不宣称首批只读界面已经提供完整备份。
 
 ## 六阶段基线验证与剩余验收
 

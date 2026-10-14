@@ -17,7 +17,8 @@ export type SidebarActiveView =
   | 'localInference'
   | 'expert'
   | 'coding'
-  | 'todo';
+  | 'todo'
+  | 'history';
 
 interface SidebarNavigationControlsProps {
   activeView: SidebarActiveView;
@@ -28,6 +29,7 @@ interface SidebarNavigationControlsProps {
   onShowLocalInference: () => void;
   onShowScheduledTasks: () => void;
   onShowActivity: () => void;
+  onShowHistory?: () => void;
   onWorkModeChange: (checked: boolean) => void;
   workMode: WorkMode;
   managedModelsOnly?: boolean;
@@ -44,6 +46,7 @@ export const SidebarNavigationControls = ({
   onShowLocalInference,
   onShowScheduledTasks,
   onShowActivity,
+  onShowHistory,
   onWorkModeChange,
   workMode,
   managedModelsOnly = false,
@@ -63,7 +66,7 @@ export const SidebarNavigationControls = ({
     onClick: () => void,
     prefetch?: PrefetchableFeatureView,
   ) => {
-    (id === 'localInference' ? entries : workEntries).push({
+    (id === 'localInference' || id === 'history' ? entries : workEntries).push({
       id,
       icon: id,
       label,
@@ -84,6 +87,7 @@ export const SidebarNavigationControls = ({
       'localInference',
     );
   }
+  if (onShowHistory) addView('history', i18nService.t('historyTitle'), onShowHistory, 'history');
   if (!isChat) {
     addView('coding', i18nService.t('codingAgent'), onShowCoding);
     addView('todo', i18nService.t('todoTitle'), onShowTodo, 'todo');

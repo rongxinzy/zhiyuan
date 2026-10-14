@@ -7,6 +7,10 @@ import type {
   Conversation,
   Harness,
   HarnessOptions,
+  Cursor,
+  EntryId,
+  EntryRecord,
+  Page,
 } from '@earendil-works/pi-durable';
 
 export interface DurableSession {
@@ -18,11 +22,13 @@ export interface DurableSession {
 // Storage has no cross-process lock. The Electron main process is its sole owner.
 // Sharing this map also prevents two owner instances opening the same database.
 const owners = new Map<string, Promise<DurableSession>>();
+const historyReaders = new Map<string, Promise<unknown>>();
 
 /** Owns native persistence only; Pi remains responsible for execution and checkpoints. */
 export class DurableSessionOwner {
   private readonly sessions = new Map<string, Promise<DurableSession>>();
   private closing: Promise<void> | undefined;
+  private readonly reads = new Set<Promise<unknown>>();
 
   constructor(
     private readonly directory: string,
@@ -68,6 +74,8 @@ export class DurableSessionOwner {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
     const path = this.databasePath(sessionId);
+    const reading = historyReaders.get(path);
+    if (reading) return reading.then(() => this.open(sessionId, agent));
     if (owners.has(path)) {
       return Promise.reject(new Error('This durable session already has an owner.'));
     }
@@ -79,6 +87,58 @@ export class DurableSessionOwner {
       if (owners.get(path) === pending) owners.delete(path);
     });
     return pending;
+  }
+
+  /** Full fork-aware native history, including entries before reset/compaction. Never schedules work. */
+  readHistory(
+    sessionId: string,
+    limit: number,
+    cursor?: Cursor,
+    anchor?: EntryId,
+  ): Promise<Page<EntryRecord, Cursor>> {
+    if (this.closing) return Promise.reject(new Error('Durable sessions are closing.'));
+    const path = this.databasePath(sessionId);
+    const previous = historyReaders.get(path);
+    const reading = (async () => {
+      await previous;
+      const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
+      const active = this.sessions.get(sessionId);
+      if (active) {
+        const session = await active;
+        return session.conversation.entries(
+          { maxEntryId: anchor },
+          limit,
+          cursor,
+          BACKGROUND_CONTEXT,
+        );
+      }
+      if (owners.has(path)) throw new Error('This durable session already has an owner.');
+      await access(path); // A history read must never create a missing database.
+      const { openNodeSqliteStorage } =
+        await import('@earendil-works/pi-durable/storage/sqlite/node');
+      const storage = await openNodeSqliteStorage(path);
+      try {
+        const roots = await storage.scanConversations({}, 1, undefined, BACKGROUND_CONTEXT);
+        const root = roots.items[0];
+        if (!root) return { items: [] };
+        return await storage.scanEntries(
+          { conversationId: root.id, maxEntryId: anchor },
+          limit,
+          cursor,
+          BACKGROUND_CONTEXT,
+        );
+      } finally {
+        await storage.close(BACKGROUND_CONTEXT);
+      }
+    })();
+    historyReaders.set(path, reading);
+    this.reads.add(reading);
+    const cleanup = () => {
+      this.reads.delete(reading);
+      if (historyReaders.get(path) === reading) historyReaders.delete(path);
+    };
+    void reading.then(cleanup, cleanup);
+    return reading;
   }
 
   private async openStorage(
@@ -122,6 +182,7 @@ export class DurableSessionOwner {
   }
 
   private async closeSessions(): Promise<void> {
+    await Promise.allSettled([...this.reads]);
     const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
     const results = await Promise.allSettled(
       [...this.sessions.values()].map(async pending => {

@@ -9,6 +9,7 @@ import {
 import { cn } from '@shared/lib/utils';
 import {
   Activity,
+  History,
   AlarmClock,
   Bot,
   ChevronDown,
@@ -28,6 +29,7 @@ const icons = {
   todo: ListTodo,
   scheduledTasks: AlarmClock,
   activity: Activity,
+  history: History,
   expert: Users,
 };
 

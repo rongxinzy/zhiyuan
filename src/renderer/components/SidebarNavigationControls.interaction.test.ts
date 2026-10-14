@@ -148,3 +148,26 @@ test('preserves activity status and highlights the current conversation route', 
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
   expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active', 'true');
 });
+
+test.each([WorkMode.Work, WorkMode.Chat])(
+  'opens read-only history from %s without starting work',
+  async workMode => {
+    const user = userEvent.setup();
+    const handlers = props();
+    const onShowHistory = vi.fn();
+    render(
+      createElement(SidebarNavigationControls, {
+        ...handlers,
+        workMode,
+        activeView: 'history',
+        onShowHistory,
+      }),
+    );
+    const history = screen.getByRole('button', { name: 'historyTitle' });
+    expect(history).toHaveAttribute('aria-current', 'page');
+    await user.click(history);
+    expect(onShowHistory).toHaveBeenCalledTimes(1);
+    expect(handlers.onNewChat).not.toHaveBeenCalled();
+    expect(mocks.clearWorkspaceSelection).not.toHaveBeenCalled();
+  },
+);

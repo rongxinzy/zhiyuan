@@ -1,3 +1,4 @@
+import { HistoryIpc, type HistoryApi } from '../shared/history';
 import { contextBridge, ipcRenderer } from 'electron';
 import { MagpieIpc, type MagpieModelSelection } from '../shared/magpie/types';
 
@@ -563,6 +564,13 @@ contextBridge.exposeInMainWorld('electron', {
     onChanged: (callback: (event: import('../shared/todo').TodoChangedEvent) => void) =>
       onPush(TodoIpc.Changed, callback),
   },
+
+  history: {
+    list: request => ipcRenderer.invoke(HistoryIpc.List, request),
+    readPage: request => ipcRenderer.invoke(HistoryIpc.ReadPage, request),
+    search: request => ipcRenderer.invoke(HistoryIpc.Search, request),
+    rebuildIndex: () => ipcRenderer.invoke(HistoryIpc.RebuildIndex),
+  } satisfies HistoryApi,
 
   codingAgent: {
     listProfiles: () => ipcRenderer.invoke(CodingAgentIpc.ListProfiles),
