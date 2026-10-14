@@ -33,6 +33,11 @@ function regularFile(filename) {
   return fs.readFileSync(filename);
 }
 
+function readArchiveFile(archive, relativePath) {
+  // ASAR's lookup splits directories on the host path.sep, even for archive members.
+  return asar.extractFile(archive, path.normalize(relativePath));
+}
+
 function assertPeBytes(bytes, label, machines = [0x8664]) {
   if (bytes.length < 128 || bytes.toString('ascii', 0, 2) !== 'MZ')
     throw new Error(`Missing PE executable header: ${label}`);
@@ -141,7 +146,7 @@ function verifyPackage(appOutDir, projectRoot = ROOT) {
     );
     assert.ok(!entry.endsWith('.map'), `Source map shipped: ${entry}`);
   }
-  const packagedJson = JSON.parse(asar.extractFile(archive, 'package.json'));
+  const packagedJson = JSON.parse(readArchiveFile(archive, 'package.json'));
   const sourceJson = JSON.parse(regularFile(path.join(projectRoot, 'package.json')));
   assert.equal(
     packagedJson.version,
@@ -152,28 +157,28 @@ function verifyPackage(appOutDir, projectRoot = ROOT) {
   assert.equal(packagedJson.main, 'dist-electron/main.js');
   for (const bundle of [...BUNDLES, 'photon_rs_bg.wasm']) {
     assert.ok(
-      asar
-        .extractFile(archive, `dist-electron/${bundle}`)
-        .equals(regularFile(path.join(projectRoot, 'dist-electron', bundle))),
+      readArchiveFile(archive, `dist-electron/${bundle}`).equals(
+        regularFile(path.join(projectRoot, 'dist-electron', bundle)),
+      ),
       `Packaged bundle differs: ${bundle}`,
     );
   }
   assert.ok(
-    asar
-      .extractFile(archive, 'dist/index.html')
-      .equals(regularFile(path.join(projectRoot, 'dist/index.html'))),
+    readArchiveFile(archive, 'dist/index.html').equals(
+      regularFile(path.join(projectRoot, 'dist/index.html')),
+    ),
   );
   assert.ok(
-    asar
-      .extractFile(archive, 'resources/SYSTEM_PROMPT.md')
-      .equals(regularFile(path.join(projectRoot, 'resources/SYSTEM_PROMPT.md'))),
+    readArchiveFile(archive, 'resources/SYSTEM_PROMPT.md').equals(
+      regularFile(path.join(projectRoot, 'resources/SYSTEM_PROMPT.md')),
+    ),
   );
   for (const name of [
     '@earendil-works/pi-durable',
     '@earendil-works/chord',
     '@agentclientprotocol/sdk',
   ]) {
-    const manifest = JSON.parse(asar.extractFile(archive, `node_modules/${name}/package.json`));
+    const manifest = JSON.parse(readArchiveFile(archive, `node_modules/${name}/package.json`));
     assert.equal(manifest.version, sourceJson.dependencies[name]);
     const exports =
       name === '@earendil-works/pi-durable'
@@ -190,7 +195,7 @@ function verifyPackage(appOutDir, projectRoot = ROOT) {
         'Unsafe package export',
       );
       assert.ok(
-        asar.extractFile(archive, `node_modules/${name}/${target.slice(2)}`).length,
+        readArchiveFile(archive, `node_modules/${name}/${target.slice(2)}`).length,
         `Empty native export: ${name}${key}`,
       );
     }
@@ -313,6 +318,7 @@ async function afterPack(context) {
 
 module.exports = {
   BUNDLES,
+  readArchiveFile,
   assertPeBytes,
   nativeFiles,
   verifyPreparedResources,

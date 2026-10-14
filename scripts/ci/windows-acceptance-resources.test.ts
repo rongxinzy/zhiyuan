@@ -13,6 +13,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { runInNewContext } from 'node:vm';
 import { createPackageWithOptions } from '@electron/asar';
 import { afterEach, test } from 'vitest';
 
@@ -237,6 +238,39 @@ test('Windows x64 PE inspection rejects missing, malformed and wrong-architectur
 test('complete native resource fixture passes without executing any bundled binary', () => {
   const project = fixture();
   assert.equal(verifyInputs(project).natives.length, 4);
+});
+
+test('ASAR reads normalize scoped and nested member paths for Windows traversal', () => {
+  const source = readFileSync(path.join(__dirname, 'windows-acceptance-resources.cjs'), 'utf8');
+  const calls: string[] = [];
+  const bytes = Buffer.from('archive member');
+  const isolatedModule = {
+    exports: {} as { readArchiveFile: (archive: string, member: string) => Buffer },
+  };
+  runInNewContext(source, {
+    __dirname,
+    module: isolatedModule,
+    require: (name: string) => {
+      if (name === 'node:path') return path.win32;
+      if (name === '@electron/asar')
+        return {
+          extractFile: (_archive: string, member: string) => {
+            calls.push(member);
+            return bytes;
+          },
+        };
+      return require(name);
+    },
+  });
+  for (const member of [
+    'node_modules/@earendil-works/pi-durable/package.json',
+    'node_modules/@earendil-works/pi-durable/dist/storage/sqlite/node.js',
+    'node_modules/@earendil-works/chord/dist/context.js',
+    'dist-electron/main.js',
+  ]) {
+    assert.equal(isolatedModule.exports.readArchiveFile('app.asar', member), bytes);
+    assert.equal(calls.at(-1), member.replaceAll('/', '\\'));
+  }
 });
 
 test('missing preparation, stale hashes, credentials and native bindings fail closed', () => {
