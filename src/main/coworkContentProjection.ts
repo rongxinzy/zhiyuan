@@ -1,5 +1,5 @@
 import { getCoworkStreamMetadata } from './coworkStreamMetadata';
-import { CoworkRunPolicy, type CoworkContentPatch } from '../shared/cowork/runState';
+import { CoworkContentPolicy, type CoworkContentPatch } from '../shared/cowork/contentProjection';
 import { transformCoworkTextAsync } from './contentWorker/contentWorkerPool';
 import {
   TextWorkerKind,
@@ -44,15 +44,15 @@ export class CoworkContentProjection {
           metadata = previous.metadata;
         }
         const truncated =
-          content.length > CoworkRunPolicy.MaximumContentCharacters ||
+          content.length > CoworkContentPolicy.MaximumContentCharacters ||
           Boolean(latest && previous?.truncated);
         const result = await this.transform({
           kind: TextWorkerKind.Content,
-          content: content.slice(0, CoworkRunPolicy.MaximumContentCharacters + 1),
+          content: content.slice(0, CoworkContentPolicy.MaximumContentCharacters + 1),
           previous: previous?.content ?? '',
           reset,
         });
-        const visible = content.slice(0, CoworkRunPolicy.MaximumContentCharacters);
+        const visible = content.slice(0, CoworkContentPolicy.MaximumContentCharacters);
         const revision = ++this.revision;
         this.previous.delete(messageId);
         this.previous.set(messageId, {
@@ -75,7 +75,7 @@ export class CoworkContentProjection {
         do {
           const end = Math.min(
             result.content.length,
-            cursor + CoworkRunPolicy.ContentChunkCharacters,
+            cursor + CoworkContentPolicy.ContentChunkCharacters,
           );
           patches.push({
             sessionId,

@@ -40,7 +40,7 @@ import type {
   CoworkSessionMode,
   CoworkSessionSource,
 } from '../shared/cowork/constants';
-import type { CoworkRunSnapshot, CoworkContentPatch } from '../shared/cowork/runState';
+import type { CoworkContentPatch } from '../shared/cowork/contentProjection';
 import { LlamaCppIpcChannel } from '../shared/llamacpp/constants';
 import { MarketplaceIpcChannel } from '../shared/marketplace/constants';
 import type { MarketplaceSearchRequest } from '../shared/marketplace/types';
@@ -373,10 +373,8 @@ contextBridge.exposeInMainWorld('electron', {
     getDurableWork: (sessionId: string) => ipcRenderer.invoke('cowork:getDurableWork', sessionId),
     resumeDurableWork: (sessionId: string) =>
       ipcRenderer.invoke('cowork:resumeDurableWork', sessionId),
-    getRunSnapshot: (sessionId: string, replayContent = false) =>
-      ipcRenderer.invoke(CoworkSessionIpc.RunSnapshot, sessionId, replayContent),
-    onStreamRunState: (callback: (snapshot: CoworkRunSnapshot) => void) =>
-      onPush(CoworkStreamIpc.RunState, callback),
+    replayContent: (sessionId: string) =>
+      ipcRenderer.invoke(CoworkSessionIpc.ReplayContent, sessionId),
     onStreamContentPatch: (callback: (patch: CoworkContentPatch) => void) =>
       onPush(CoworkStreamIpc.ContentPatch, callback),
     listWorkspaces: () => ipcRenderer.invoke(WorkspaceIpc.List),

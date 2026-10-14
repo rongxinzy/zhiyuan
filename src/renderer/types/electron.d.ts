@@ -447,19 +447,9 @@ interface IElectronAPI {
       error?: string;
     }>;
     resumeDurableWork: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
-    getRunSnapshot: (
-      sessionId: string,
-      replayContent?: boolean,
-    ) => Promise<{
-      success: boolean;
-      snapshot: import('../../shared/cowork/runState').CoworkRunSnapshot | null;
-      running: boolean;
-    }>;
-    onStreamRunState: (
-      callback: (snapshot: import('../../shared/cowork/runState').CoworkRunSnapshot) => void,
-    ) => () => void;
+    replayContent: (sessionId: string) => Promise<{ success: boolean }>;
     onStreamContentPatch: (
-      callback: (patch: import('../../shared/cowork/runState').CoworkContentPatch) => void,
+      callback: (patch: import('../../shared/cowork/contentProjection').CoworkContentPatch) => void,
     ) => () => void;
     listWorkspaces: () => Promise<{
       success: boolean;

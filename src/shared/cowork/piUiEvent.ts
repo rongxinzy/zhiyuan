@@ -2,7 +2,7 @@ import type { CoworkError } from '../../common/coworkError';
 import type { CoworkPendingMessage } from './pendingMessageQueue';
 import type { CoworkSessionInterruption } from './interruption';
 import type { CoworkToolActivityEvent } from './toolActivity';
-import { CoworkRunPolicy, type CoworkContentPatch } from './runState';
+import { CoworkContentPolicy, type CoworkContentPatch } from './contentProjection';
 
 export const PiUiEventType = {
   Started: 'started',
@@ -242,7 +242,7 @@ export const isPiUiEvent = (value: unknown): value is PiUiEvent => {
         patch.sessionId === candidate.sessionId &&
         isNonEmptyString(patch.messageId) &&
         typeof patch.content === 'string' &&
-        patch.content.length <= CoworkRunPolicy.ContentChunkCharacters &&
+        patch.content.length <= CoworkContentPolicy.ContentChunkCharacters &&
         [patch.revision, patch.baseRevision, patch.offset, patch.totalLength].every(
           n => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0,
         ) &&

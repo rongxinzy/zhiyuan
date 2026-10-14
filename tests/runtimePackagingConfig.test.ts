@@ -35,24 +35,6 @@ test('desktop packages exclude removed managed tool resources', () => {
   assert.match(hooks, /ensurePortableGit/);
 });
 
-test('unpacks AnyDoc native bindings from the application archive', () => {
-  const config = JSON.parse(readFileSync(path.join(root, 'electron-builder.json'), 'utf8')) as {
-    asarUnpack?: string[];
-  };
-  assert.ok(config.asarUnpack?.includes('node_modules/@firecrawl/**'));
-
-  const viteConfig = readFileSync(path.join(root, 'vite.config.ts'), 'utf8');
-  const runtimeDependencies = readFileSync(
-    path.join(root, 'scripts', 'electron-runtime-dependencies.mjs'),
-    'utf8',
-  );
-  assert.match(viteConfig, /ELECTRON_MAIN_EXTERNALS\.includes\(id\)/);
-  assert.match(
-    runtimeDependencies,
-    /ELECTRON_MAIN_EXTERNALS\s*=\s*\[[\s\S]*['"]@firecrawl\/anydoc['"]/,
-  );
-});
-
 test('unpacks npm for connector installation without a system Node.js runtime', () => {
   const config = JSON.parse(readFileSync(path.join(root, 'electron-builder.json'), 'utf8')) as {
     asarUnpack?: string[];

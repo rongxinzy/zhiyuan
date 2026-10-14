@@ -6,6 +6,13 @@
       "branches": [
         "main"
       ]
+    },
+    {
+      "name": "Python runtime process containment",
+      "path": ".github/workflows/python-runtime.yml",
+      "branches": [
+        "main"
+      ]
     }
   ]
 }

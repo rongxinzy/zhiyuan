@@ -23,13 +23,13 @@ import { getCodingAgentEnvironment } from './agentEnvironment';
 const BUILTIN_CAPABILITIES: CodingAgentCapabilities = {
   supportsLoadSession: false,
   supportsResumeSession: true,
-  supportsPlans: true,
+  supportsPlans: false,
   supportsPermissions: true,
   supportsFilesystem: true,
   supportsTerminal: true,
   supportsConfigOptions: true,
   supportsUsage: true,
-  supportsElicitation: true,
+  supportsElicitation: false,
 };
 
 export class CodingAgentRegistry extends EventEmitter {

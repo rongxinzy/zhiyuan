@@ -15,6 +15,8 @@
 
 /** Errors thrown or returned verbatim, with no trailing detail. */
 export const CodingErrorMessage = {
+  ArchivedElicitationUnavailable:
+    'This archived question can no longer receive an answer. Cancel the question and send a new message explicitly.',
   // Workspace
   WorkspaceNotFound: 'Coding workspace was not found.',
   WorkspaceRootRequired: 'Coding workspace root is required.',
@@ -194,6 +196,7 @@ export type CodingErrorDetailMessage =
 
 /** i18n key for every message above. The record must stay exhaustive. */
 export const CodingErrorI18nKey: Record<CodingErrorMessage | CodingErrorDetailMessage, string> = {
+  [CodingErrorMessage.ArchivedElicitationUnavailable]: 'codingErrorArchivedElicitationUnavailable',
   [CodingErrorMessage.WorkspaceNotFound]: 'codingErrorWorkspaceNotFound',
   [CodingErrorMessage.WorkspaceRootRequired]: 'codingErrorWorkspaceRootRequired',
   [CodingErrorMessage.WorkspaceNameRequired]: 'codingErrorWorkspaceNameRequired',

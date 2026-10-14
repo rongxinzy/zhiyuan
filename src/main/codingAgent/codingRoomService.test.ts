@@ -349,15 +349,14 @@ test('re-projects builtin commands for an already bound lane on the next prompt'
   ]);
 });
 
-test('reacquires the workspace writer lease before resuming a builtin elicitation', async () => {
+test('rejects an archived builtin elicitation without fabricating a new model turn', async () => {
   db = new Database(':memory:');
   initializeCodingAgentSchema(db);
   const repository = new CodingRoomRepository(db);
-  const respondBuiltinElicitation = vi.fn(() => true);
+  const startBuiltinSession = vi.fn(async () => undefined);
   const service = createService(repository, new CodingAgentRegistry(), {
-    startBuiltinSession: async () => undefined,
+    startBuiltinSession,
     cancelBuiltinSession: async () => undefined,
-    respondBuiltinElicitation,
   });
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'zhiyuan-coding-elicitation-lease-'));
   tempDirectories.push(workspaceRoot);
@@ -373,20 +372,27 @@ test('reacquires the workspace writer lease before resuming a builtin elicitatio
     prompt: 'Implement the requested change.',
   });
   const lane = created.lanes[0];
-  service.recordBuiltinElicitation(lane.localSessionId, {
-    requestId: 'elicitation-lease',
-    question: 'Which API version should I use?',
+  const historicalRepository = new CodingRoomRepository(db);
+  historicalRepository.createElicitation(
+    lane.id,
+    'Which API version should I use?',
+    'elicitation-lease',
+  );
+  historicalRepository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingElicitation);
+  historicalRepository.updateMissionStatus(lane.missionId, CodingMissionStatus.WaitingElicitation);
+
+  startBuiltinSession.mockClear();
+  await expect(
+    service.respondElicitation(workspaceRoot, {
+      requestId: 'elicitation-lease',
+      answer: 'Use v2.',
+    }),
+  ).rejects.toThrow('This archived question can no longer receive an answer');
+  expect(startBuiltinSession).not.toHaveBeenCalled();
+  expect(service.bootstrap(workspaceRoot).elicitations[0]).toMatchObject({
+    status: CodingElicitationStatus.Pending,
+    answer: null,
   });
-
-  expect(repository.getWriterLease(created.room.id, lane.sourceRoot)).toBeNull();
-
-  await service.respondElicitation(workspaceRoot, {
-    requestId: 'elicitation-lease',
-    answer: 'Use v2.',
-  });
-
-  expect(respondBuiltinElicitation).toHaveBeenCalledWith('elicitation-lease', 'Use v2.');
-  expect(repository.getWriterLease(created.room.id, lane.sourceRoot)).toBe(lane.id);
 });
 
 test('blocks builtin prompts while an elicitation awaits an answer', async () => {
@@ -406,10 +412,14 @@ test('blocks builtin prompts while an elicitation awaits an answer', async () =>
   const lane = created.lanes[0];
   await service.prompt(workspaceRoot, { laneId: lane.id, prompt: 'Start the work.' });
   await Promise.resolve();
-  service.recordBuiltinElicitation(lane.localSessionId, {
-    requestId: 'elicitation-block',
-    question: 'Which endpoint should I change?',
-  });
+  const historicalRepository = new CodingRoomRepository(db);
+  historicalRepository.createElicitation(
+    lane.id,
+    'Which endpoint should I change?',
+    'elicitation-block',
+  );
+  historicalRepository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingElicitation);
+  historicalRepository.updateMissionStatus(lane.missionId, CodingMissionStatus.WaitingElicitation);
   startBuiltinSession.mockClear();
 
   await expect(
@@ -434,10 +444,14 @@ test('cancels a stale question and frees its lane after an application restart',
   const lane = created.lanes[0];
   await service.prompt(workspaceRoot, { laneId: lane.id, prompt: 'Start the work.' });
   await Promise.resolve();
-  service.recordBuiltinElicitation(lane.localSessionId, {
-    requestId: 'elicitation-restart',
-    question: 'Which endpoint should I change?',
-  });
+  const historicalRepository = new CodingRoomRepository(db);
+  historicalRepository.createElicitation(
+    lane.id,
+    'Which endpoint should I change?',
+    'elicitation-restart',
+  );
+  historicalRepository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingElicitation);
+  historicalRepository.updateMissionStatus(lane.missionId, CodingMissionStatus.WaitingElicitation);
   expect(service.bootstrap(workspaceRoot).lanes[0].status).toBe(
     CodingLaneStatus.WaitingElicitation,
   );
@@ -462,11 +476,11 @@ test('cancels a pending elicitation before stopping its session and blocks delet
   db = new Database(':memory:');
   initializeCodingAgentSchema(db);
   const repository = new CodingRoomRepository(db);
-  const cancelBuiltinElicitation = vi.fn(() => true);
+  const cancelBuiltinSession = vi.fn(async () => undefined);
+
   const service = createService(repository, new CodingAgentRegistry(), {
     startBuiltinSession: async () => undefined,
-    cancelBuiltinSession: async () => undefined,
-    cancelBuiltinElicitation,
+    cancelBuiltinSession,
   });
   const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'zhiyuan-coding-elicitation-cancel-'));
   tempDirectories.push(workspaceRoot);
@@ -482,10 +496,14 @@ test('cancels a pending elicitation before stopping its session and blocks delet
     prompt: 'Implement the requested change.',
   });
   const lane = created.lanes[0];
-  service.recordBuiltinElicitation(lane.localSessionId, {
-    requestId: 'elicitation-cancel',
-    question: 'Should I preserve the legacy endpoint?',
-  });
+  const historicalRepository = new CodingRoomRepository(db);
+  historicalRepository.createElicitation(
+    lane.id,
+    'Should I preserve the legacy endpoint?',
+    'elicitation-cancel',
+  );
+  historicalRepository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingElicitation);
+  historicalRepository.updateMissionStatus(lane.missionId, CodingMissionStatus.WaitingElicitation);
 
   expect(() => service.deleteSession(workspaceRoot, lane.id)).toThrow(
     'Stop the running coding session',
@@ -493,11 +511,8 @@ test('cancels a pending elicitation before stopping its session and blocks delet
   expect(() => service.deleteWorkspace(workspace.id)).toThrow('Stop all running coding sessions');
 
   await service.cancel(workspaceRoot, lane.id);
+  expect(cancelBuiltinSession).toHaveBeenCalledWith(lane.localSessionId);
 
-  expect(cancelBuiltinElicitation).toHaveBeenCalledWith(
-    'elicitation-cancel',
-    '会话已停止，因此取消了此问题。',
-  );
   expect(service.bootstrap(workspaceRoot).elicitations).toEqual([
     expect.objectContaining({ status: CodingElicitationStatus.Cancelled }),
   ]);

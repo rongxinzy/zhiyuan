@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { ELECTRON_RUNTIME_DEPENDENCIES } from '../electron-runtime-dependencies.mjs';
 import {
   checkElectronRuntimeDependencies,
+  checkProductionDependencyManifest,
   collectLiteralExternalRoots,
 } from './check-electron-runtime-dependencies.mjs';
 
@@ -58,6 +59,28 @@ describe('Electron runtime dependency check', () => {
 
     expect(() => checkElectronRuntimeDependencies(root)).toThrow(
       'Production dependencies must match the Electron runtime allowlist',
+    );
+  });
+
+  test('checks the actual manifest before building and retains native execution deployment roots', () => {
+    const declared = checkProductionDependencyManifest(process.cwd());
+    expect(declared).toContain('@earendil-works/pi-durable');
+    expect(declared).toContain('@earendil-works/chord');
+    expect(declared).not.toContain('@firecrawl/anydoc');
+  });
+
+  test('rejects undeclared dependencies in workers as well as the main entry', () => {
+    const root = createFixture();
+    fs.writeFileSync(
+      path.join(root, 'dist-electron', 'archiveWorker.js'),
+      "require('undeclared-worker-dependency');",
+    );
+    expect(() => checkElectronRuntimeDependencies(root)).toThrow('undeclared-worker-dependency');
+  });
+
+  test('does not allow development dependencies to mask an incomplete deployment', () => {
+    expect(() => checkElectronRuntimeDependencies(createFixture(), { resolve: true })).toThrow(
+      'Desktop runtime resolution failed',
     );
   });
 

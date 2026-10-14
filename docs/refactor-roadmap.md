@@ -116,6 +116,14 @@
 
 - 额外架构审查已复现总 build 的后置门禁失败：check:electron-runtime-dependencies 的生产依赖 allowlist 未纳入已实际使用的 @earendil-works/chord / pi-durable。本轮仅 build:vite 产物与轻量 CI 构建通过，不代表总 build、安装包或发行通过；该问题另行记录，不以删除真实依赖绕过。
 
+## 13. 原生迁移后的恢复链与构建收口 — 已实现，验证中
+
+- 用户已批准按只读审查清理：恢复入口迁到现有原生 UI 恢复，保留请求水位与长消息内容投影；删除无生产者的旧 RunSnapshot 协议，不删除活跃会话消息缓存。
+- 构建保持严格部署清单，明确保留真实 Durable / chord 运行依赖；移除无消费者 AnyDoc。门禁同时检查主入口与 Worker 外部依赖，并验证部署根目录解析，不以开发依赖兜底。
+- 删除 Office 截图孤岛 / 专属交付策略 / 旧 WSL 脚本，保留正常 DOCX / XLSX 产物预览；内置 Coding plan / elicitation 能力按实际实现收口，外部 ACP 协议保留。
+- 本地 renderer/shared 260 套 / 1444 项、原生执行 / 内容投影 / 保留 Coding 合同 144 项、恢复专项 26 项、依赖 / 清理契约 14 项通过；计数包含重叠，不合计为总数。双类型、lint / 格式、清洁总 build、严格运行依赖解析和 bundle budget 通过，干净产物没有旧 Office 截图入口。
+- 新 CI 将运行总 build（先清理生成目录）、严格依赖门禁、预算与独立 production-only 依赖解析。本地独立目录 Native 导出与外部模块解析通过，但安装进程最终回执被工具取消，完整安装终态交 CI 复证。尚未发布，不运行安装包 / 签名 / 发行或清除用户历史。
+
 ## 六阶段基线验证与剩余验收
 
 六阶段代码均已发布。六阶段代码版本：[9abb416](https://github.com/rongxinzy/zhiyuan/commit/9abb41682d1949b9296e0daffc1f8d2a5183ddc2)。后续用户追加需求单独列项；上述版本的验证证据仍保留。

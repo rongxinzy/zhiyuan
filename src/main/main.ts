@@ -27,10 +27,9 @@ import { pathToFileURL } from 'url';
 
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
 import { parseCoworkExecutionMode } from '../shared/cowork/executionMode';
-import { setPiCapabilityCorrectionStoreGetter } from './libs/agentEngine/piCapabilityCorrection';
 import { createPiUiEventBatcher } from './piUiEventBatcher';
 import { persistCoworkTerminalError } from './coworkTerminalErrorPersistence';
-import { bindCoworkRunBridge } from './coworkRunBridge';
+import { bindCoworkContentBridge } from './coworkContentBridge';
 import { registerArtifactFileAvailabilityHandler } from './artifactFileAvailability';
 
 import { LocalSchedulerRuntime } from '../scheduledTask/localSchedulerRuntime';
@@ -1050,8 +1049,6 @@ const getCodingRoomService = (): CodingRoomService => {
             workspaceRoot,
             sessionMode: 'work' as const,
             approvalMode,
-            planTool: true,
-            codingElicitation: true,
             ...(modelOverride ? { modelOverride } : {}),
             ...(thinkingLevel ? { thinkingLevel: thinkingLevel as PiThinkingLevel } : {}),
             ...(expertSelection
@@ -1096,10 +1093,6 @@ const getCodingRoomService = (): CodingRoomService => {
               description: agent.description,
             })),
         }),
-        respondBuiltinElicitation: (requestId, answer) =>
-          runtime.respondToCodingElicitation(requestId, answer),
-        cancelBuiltinElicitation: (requestId, reason) =>
-          runtime.cancelCodingElicitation(requestId, reason),
         compactBuiltinSession: sessionId => runtime.compactSession(sessionId),
         enqueueBuiltinControlAction: (sessionId, action) =>
           runtime.enqueueControlAction(sessionId, action),
@@ -1226,17 +1219,6 @@ const getCodingRoomService = (): CodingRoomService => {
         request,
       });
     });
-    runtime.on('plan', (sessionId: string, plan: { entries?: unknown }) => {
-      codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.Plan, {
-        entries: Array.isArray(plan?.entries) ? plan.entries : [],
-      });
-    });
-    runtime.on(
-      'codingElicitationRequest',
-      (sessionId: string, request: { requestId: string; question: string }) => {
-        codingRoomService?.recordBuiltinElicitation(sessionId, request);
-      },
-    );
     runtime.on('complete', (sessionId: string) => {
       codingRoomService?.recordBuiltinEvent(sessionId, CodingEventKind.TurnComplete, {});
     });
@@ -1481,7 +1463,7 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
     broadcastUiEvent(sequencer.next(payload));
   });
 
-  const contentProjection = bindCoworkRunBridge(
+  const contentProjection = bindCoworkContentBridge(
     runtime,
     () => getStore().getDatabase(),
     patch => emitUiEvent({ type: PiUiEventType.ContentPatch, sessionId: patch.sessionId, patch }),
@@ -5076,7 +5058,6 @@ if (!gotTheLock) {
       .catch(error => {
         console.warn('[CodingAgent] External ACP discovery failed:', error);
       });
-    setPiCapabilityCorrectionStoreGetter(() => store);
     const localInferenceManager = getLlamaCppManager();
     localInferenceManager.initializeModelsDir();
     llamaCppModelDaemonController = registerLlamaCppIpcHandlers(localInferenceManager, {

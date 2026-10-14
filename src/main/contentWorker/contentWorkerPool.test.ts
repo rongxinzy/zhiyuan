@@ -7,7 +7,7 @@ import { afterAll, beforeAll, expect, test } from 'vitest';
 import { ContentWorkerPool } from './contentWorkerPool';
 import { ContentWorkerLimit } from './contentWorkerConstants';
 import { TextWorkerKind } from './textWorkerOperations';
-import { CoworkRunPolicy } from '../../shared/cowork/runState';
+import { CoworkContentPolicy } from '../../shared/cowork/contentProjection';
 
 const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'content-worker-test-')));
 const compiled = path.join(fixture, 'compiled');
@@ -111,7 +111,7 @@ test('tool display and content comparison share the bounded worker pool and supp
   await expect(
     pool.transform({
       kind: TextWorkerKind.Content,
-      content: 'x'.repeat(CoworkRunPolicy.MaximumContentCharacters + 2),
+      content: 'x'.repeat(CoworkContentPolicy.MaximumContentCharacters + 2),
       previous: '',
       reset: false,
     }),

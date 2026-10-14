@@ -1,4 +1,7 @@
-import { CoworkRunPolicy, type CoworkContentPatch } from '../../shared/cowork/runState';
+import {
+  CoworkContentPolicy,
+  type CoworkContentPatch,
+} from '../../shared/cowork/contentProjection';
 import type { StreamMessageUpdate } from './rafMessageUpdateBatcher';
 
 type Entry = {
@@ -21,8 +24,8 @@ export class CoworkContentBuffer {
       patch.totalLength < 0 ||
       !Number.isSafeInteger(patch.offset) ||
       patch.offset < 0 ||
-      patch.content.length > CoworkRunPolicy.ContentChunkCharacters ||
-      patch.totalLength > CoworkRunPolicy.MaximumContentCharacters
+      patch.content.length > CoworkContentPolicy.ContentChunkCharacters ||
+      patch.totalLength > CoworkContentPolicy.MaximumContentCharacters
     )
       return null;
     const previous = this.entries.get(patch.messageId);

@@ -1,4 +1,4 @@
-import { CoworkRunPolicy } from '../shared/cowork/runState';
+import { CoworkContentPolicy } from '../shared/cowork/contentProjection';
 
 /** Message seeds own attachments and inputs. Content frames carry only bounded display state. */
 export function getCoworkStreamMetadata(
@@ -26,7 +26,7 @@ export function getCoworkStreamMetadata(
     if (typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)))
       result[key] = value;
     else if (typeof value === 'string')
-      result[key] = value.slice(0, CoworkRunPolicy.PreviewCharacters);
+      result[key] = value.slice(0, CoworkContentPolicy.PreviewCharacters);
   }
   for (const key of ['metrics', 'usage', 'contextUsage']) {
     const value = metadata[key];

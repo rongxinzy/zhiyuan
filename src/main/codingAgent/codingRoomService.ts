@@ -111,10 +111,6 @@ export interface CodingRoomRuntime {
   /** Applies approval-mode changes to a live built-in session. */
   setBuiltinApprovalMode?(sessionId: string, mode: ToolApprovalMode): void;
   cancelBuiltinSession(sessionId: string): Promise<void>;
-  /** Delivers the user's answer to a question the live built-in session asked. */
-  respondBuiltinElicitation?(requestId: string, answer: string): boolean;
-  /** Cancels a question the live built-in session asked. */
-  cancelBuiltinElicitation?(requestId: string, reason: string): boolean;
   enqueueBuiltinMessage?(
     sessionId: string,
     prompt: string,
@@ -880,8 +876,7 @@ export class CodingRoomService extends EventEmitter {
   async cancel(workspaceRoot: string, laneId: string): Promise<CodingRoomSnapshot> {
     const snapshot = this.bootstrap(workspaceRoot);
     const lane = this.requireLane(snapshot.lanes, laneId);
-    // A pending question keeps the turn alive in the Pi runtime, so it must be
-    // resolved before the turn itself is cancelled.
+    // Historical pending questions are closed locally when their lane is stopped.
     const pendingElicitation = snapshot.elicitations.find(
       elicitation =>
         elicitation.laneId === lane.id && elicitation.status === CodingElicitationStatus.Pending,
@@ -889,7 +884,6 @@ export class CodingRoomService extends EventEmitter {
     if (pendingElicitation) {
       const reason = t('codingAgentElicitationCancelledBySessionStop');
       this.repository.cancelElicitation(pendingElicitation.id, reason);
-      this.runtime.cancelBuiltinElicitation?.(pendingElicitation.id, reason);
       this.repository.appendEvent(lane.id, CodingEventKind.Elicitation, {
         requestId: pendingElicitation.id,
         question: pendingElicitation.question,
@@ -1506,41 +1500,7 @@ export class CodingRoomService extends EventEmitter {
     if (this.registry.get(lane.profileId)?.driverKind !== CodingAgentDriverKind.Builtin) {
       throw new Error(t('codingAgentElicitationBuiltinOnly'));
     }
-    const executionRoot = this.executionRoot(lane, workspaceRoot);
-    const requiresWriterLease = this.requiresWriterLease(lane.sourceRoot, executionRoot);
-    if (requiresWriterLease) {
-      this.repository.acquireWriterLease(snapshot.room.id, lane.sourceRoot, lane.id);
-    }
-    try {
-      const delivered = this.runtime.respondBuiltinElicitation?.(elicitation.id, answer) === true;
-      if (!delivered) {
-        // The live session is gone: resume the lane with the answer as context.
-        await this.runtime.startBuiltinSession({
-          sessionId: lane.localSessionId,
-          workspaceRoot: executionRoot,
-          prompt: `${t('codingAgentElicitationAnsweredPrompt')} ${answer}`,
-          modelOverride: lane.modelOverride,
-          thinkingLevel: this.getThinkingLevel(lane),
-          permissionMode: this.getApprovalMode(lane),
-        });
-      }
-    } catch (error) {
-      if (requiresWriterLease) {
-        this.repository.releaseWriterLease(snapshot.room.id, lane.sourceRoot, lane.id);
-      }
-      throw error;
-    }
-    this.repository.answerElicitation(elicitation.id, answer);
-    this.repository.appendEvent(lane.id, CodingEventKind.Elicitation, {
-      requestId: elicitation.id,
-      question: elicitation.question,
-      answer,
-      status: CodingElicitationStatus.Answered,
-    });
-    this.repository.updateLaneStatus(lane.id, CodingLaneStatus.Running);
-    this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.Running);
-    this.updateLaneAssignmentStatus(snapshot, lane.id, CodingAssignmentStatus.Running);
-    return this.publish(workspaceRoot);
+    throw new Error(CodingErrorMessage.ArchivedElicitationUnavailable);
   }
 
   async cancelElicitation(workspaceRoot: string, requestId: string): Promise<CodingRoomSnapshot> {
@@ -1555,7 +1515,6 @@ export class CodingRoomService extends EventEmitter {
     }
     const reason = t('codingAgentElicitationCancelledByUser');
     this.repository.cancelElicitation(requestId, reason);
-    this.runtime.cancelBuiltinElicitation?.(requestId, reason);
     this.repository.appendEvent(lane.id, CodingEventKind.Elicitation, {
       requestId,
       question: elicitation.question,
@@ -1564,40 +1523,6 @@ export class CodingRoomService extends EventEmitter {
     });
     await this.cancel(workspaceRoot, lane.id);
     return this.publish(workspaceRoot);
-  }
-
-  recordBuiltinElicitation(
-    sessionId: string,
-    request: { requestId: string; question: string },
-  ): void {
-    const laneId = this.builtinSessionLaneMap.get(sessionId);
-    const question = request.question.trim();
-    if (!question) return;
-    for (const workspaceRoot of this.knownRooms()) {
-      const snapshot = this.bootstrap(workspaceRoot);
-      // A lane started without a prompt has not cached its session mapping yet,
-      // so fall back to the persisted local session id before giving up.
-      const lane = snapshot.lanes.find(
-        candidate => candidate.id === laneId || candidate.localSessionId === sessionId,
-      );
-      if (!lane) continue;
-      if (this.registry.get(lane.profileId)?.driverKind !== CodingAgentDriverKind.Builtin) return;
-      this.builtinSessionLaneMap.set(sessionId, lane.id);
-      this.repository.createElicitation(lane.id, question, request.requestId);
-      this.repository.appendEvent(lane.id, CodingEventKind.Elicitation, {
-        requestId: request.requestId,
-        question,
-        status: CodingElicitationStatus.Pending,
-      });
-      this.repository.updateLaneStatus(lane.id, CodingLaneStatus.WaitingElicitation);
-      this.repository.updateMissionStatus(lane.missionId, CodingMissionStatus.WaitingElicitation);
-      this.updateLaneAssignmentStatus(snapshot, lane.id, CodingAssignmentStatus.WaitingElicitation);
-      if (this.requiresWriterLease(lane.sourceRoot, this.executionRoot(lane, workspaceRoot))) {
-        this.repository.releaseWriterLease(snapshot.room.id, lane.sourceRoot, lane.id);
-      }
-      this.publish(workspaceRoot);
-      return;
-    }
   }
 
   private getThinkingLevel(lane: CodingAgentLane): string | undefined {

@@ -1,5 +1,5 @@
 import { boundWorkerInput } from './boundedWorkerInput';
-import { CoworkRunPolicy } from '../../shared/cowork/runState';
+import { CoworkContentPolicy } from '../../shared/cowork/contentProjection';
 
 export const TextWorkerKind = { Content: 'content', Tool: 'tool' } as const;
 export type TextWorkerInput =
@@ -12,14 +12,14 @@ export function boundToolResult(value: unknown): unknown {
   return boundWorkerInput(value, {
     nodes: 512,
     depth: 8,
-    characters: CoworkRunPolicy.MaximumContentCharacters,
+    characters: CoworkContentPolicy.MaximumContentCharacters,
     toolText: true,
   });
 }
 
 export function runTextWorkerOperation(input: TextWorkerInput): TextWorkerOutput {
   if (input.kind === TextWorkerKind.Content) {
-    const content = input.content.slice(0, CoworkRunPolicy.MaximumContentCharacters);
+    const content = input.content.slice(0, CoworkContentPolicy.MaximumContentCharacters);
     const offset = !input.reset && content.startsWith(input.previous) ? input.previous.length : 0;
     return {
       content: content.slice(offset),
@@ -42,8 +42,8 @@ export function runTextWorkerOperation(input: TextWorkerInput): TextWorkerOutput
   };
   const text = extract(input.result);
   return {
-    content: text.slice(0, CoworkRunPolicy.MaximumContentCharacters),
+    content: text.slice(0, CoworkContentPolicy.MaximumContentCharacters),
     offset: 0,
-    truncated: text.length > CoworkRunPolicy.MaximumContentCharacters,
+    truncated: text.length > CoworkContentPolicy.MaximumContentCharacters,
   };
 }

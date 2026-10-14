@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { CoworkRunPolicy } from '../shared/cowork/runState';
+import { CoworkContentPolicy } from '../shared/cowork/contentProjection';
 import { CoworkContentBuffer } from '../renderer/services/coworkContentBuffer';
 import { TextWorkerKind, runTextWorkerOperation } from './contentWorker/textWorkerOperations';
 import { CoworkContentProjection } from './coworkContentProjection';
@@ -14,7 +14,7 @@ test('keeps growing past the old IPC cap with bounded frames and exact final met
       isFinal: length === 190_000,
     });
     expect(
-      patches.every(patch => patch.content.length <= CoworkRunPolicy.ContentChunkCharacters),
+      patches.every(patch => patch.content.length <= CoworkContentPolicy.ContentChunkCharacters),
     ).toBe(true);
     let update;
     for (const patch of patches) update = buffer.apply(patch) ?? update;

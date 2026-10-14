@@ -23,9 +23,25 @@ export class PiUiRecovery {
   private readonly statuses = new Map<string, PiUiRuntimeSnapshot['status']>();
   private readonly pending = new Map<string, Promise<void>>();
   private readonly requested = new Set<string>();
+  private readonly submissionVersions = new Map<string, number>();
+  private readonly admissions = new Map<string, number>();
   private disposed = false;
 
   constructor(private readonly dependencies: RecoveryDependencies) {}
+
+  /** A request is only an admission barrier, never an execution status. */
+  beginSubmission(sessionId: string): () => void {
+    this.submissionVersions.set(sessionId, (this.submissionVersions.get(sessionId) ?? 0) + 1);
+    this.admissions.set(sessionId, (this.admissions.get(sessionId) ?? 0) + 1);
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      const remaining = (this.admissions.get(sessionId) ?? 1) - 1;
+      if (remaining) this.admissions.set(sessionId, remaining);
+      else this.admissions.delete(sessionId);
+    };
+  }
 
   observe(event: PiUiEvent): boolean {
     if (!event.sessionId) return true;
@@ -39,9 +55,17 @@ export class PiUiRecovery {
   }
 
   async bootstrap(): Promise<void> {
+    const versions = new Map(this.submissionVersions);
     const snapshots = await this.dependencies.readRuntime();
     if (this.disposed) return;
-    for (const snapshot of snapshots) this.applyStatus(snapshot);
+    for (const snapshot of snapshots) {
+      if (
+        this.admissions.has(snapshot.sessionId) ||
+        versions.get(snapshot.sessionId) !== this.submissionVersions.get(snapshot.sessionId)
+      )
+        continue;
+      this.applyStatus(snapshot);
+    }
     // Hydrate active sessions even if no more events arrive (e.g. a long tool).
     await Promise.all(
       snapshots
@@ -82,12 +106,19 @@ export class PiUiRecovery {
   }
 
   private async read(sessionId: string): Promise<void> {
+    if (this.admissions.has(sessionId)) return;
+    const submissionVersion = this.submissionVersions.get(sessionId);
     const revision = this.revisions.get(sessionId);
     const session = await this.dependencies.readSession(sessionId);
     const [snapshot] = await this.dependencies.readRuntime(sessionId);
     if (!snapshot || this.disposed) return;
     if (session) await this.dependencies.prepare(session);
-    if (this.disposed) return;
+    if (
+      this.disposed ||
+      this.admissions.has(sessionId) ||
+      submissionVersion !== this.submissionVersions.get(sessionId)
+    )
+      return;
     this.dependencies.flush();
     const preserveLiveContent = revision !== this.revisions.get(sessionId);
     // A later lifecycle event may have arrived during either IPC or preparation.

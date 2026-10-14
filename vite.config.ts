@@ -20,12 +20,7 @@ const packageJson = JSON.parse(
 const electronDevelopmentExternalRoots = new Set(extractExternalDeps(packageJson, true));
 const electronReadyPath = path.resolve(projectRoot, 'dist-electron/.electron-ready');
 const rendererWatchDirectories = new Set(['public', 'src']);
-const rendererWatchFiles = new Set([
-  'index.html',
-  'office-preview.html',
-  'package.json',
-  'vite.config.ts',
-]);
+const rendererWatchFiles = new Set(['index.html', 'package.json', 'vite.config.ts']);
 
 function ignoreOutsideRendererSources(filePath: string): boolean {
   const relative = path.relative(projectRoot, filePath).replaceAll('\\', '/');
@@ -266,7 +261,6 @@ export default defineConfig(async ({ command }) => {
       rolldownOptions: {
         input: {
           main: path.resolve(projectRoot, 'index.html'),
-          officePreview: path.resolve(projectRoot, 'office-preview.html'),
         },
       },
       // CI 中指定 chrome130（Electron 40 运行时）跳过降级转译省内存

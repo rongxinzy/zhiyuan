@@ -1,6 +1,5 @@
 export const ELECTRON_MAIN_EXTERNALS = [
   '@agentclientprotocol/sdk',
-  '@firecrawl/anydoc',
   'better-sqlite3',
   'bufferutil',
   'node-pty',
@@ -11,8 +10,11 @@ export const ELECTRON_RUNTIME_DEPENDENCIES = [
   '@agentclientprotocol/claude-agent-acp',
   '@agentclientprotocol/codex-acp',
   '@agentclientprotocol/sdk',
+  // Explicit deployment roots: bundled application imports and Node-native storage
+  // entry points must remain usable without development dependencies.
+  '@earendil-works/chord',
+  '@earendil-works/pi-durable',
   '@earendil-works/pi-tui',
-  '@firecrawl/anydoc',
   '@mariozechner/clipboard',
   'ajv',
   'ajv-formats',

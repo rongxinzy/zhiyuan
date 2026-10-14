@@ -138,3 +138,46 @@ test('disposed listeners never apply outstanding recovery results', async () => 
   expect(dependencies.applySession).not.toHaveBeenCalled();
   expect(dependencies.applyStatus).not.toHaveBeenCalled();
 });
+
+test('new admission retires an older completed read before any native start event arrives', async () => {
+  const { dependencies, recovery } = fixture();
+  const preparation = deferred<void>();
+  dependencies.prepare.mockReturnValueOnce(preparation.promise);
+  const pending = recovery.recover('A');
+  await vi.waitFor(() => expect(dependencies.prepare).toHaveBeenCalled());
+  const finish = recovery.beginSubmission('A');
+  preparation.resolve();
+  await pending;
+  expect(dependencies.applyStatus).not.toHaveBeenCalled();
+  expect(dependencies.applySession).not.toHaveBeenCalled();
+  finish();
+  await recovery.recover('A');
+  expect(dependencies.applyStatus).toHaveBeenCalledOnce();
+});
+
+test('overlapping admissions release independently and do not synthesize run status', async () => {
+  const { dependencies, recovery } = fixture();
+  const first = recovery.beginSubmission('A');
+  const second = recovery.beginSubmission('A');
+  first();
+  first();
+  await recovery.recover('A');
+  expect(dependencies.readSession).not.toHaveBeenCalled();
+  second();
+  await recovery.recover('A');
+  expect(dependencies.applyStatus).toHaveBeenCalledWith(
+    expect.objectContaining({ status: CoworkSessionStatus.Completed }),
+  );
+});
+
+test('bootstrap started before admission cannot apply the previous completed turn', async () => {
+  const { dependencies, recovery } = fixture();
+  const response = deferred<PiUiRuntimeSnapshot[]>();
+  dependencies.readRuntime.mockReturnValue(response.promise);
+  const pending = recovery.bootstrap();
+  const finish = recovery.beginSubmission('A');
+  finish();
+  response.resolve([{ sessionId: 'A', sequence: 2, status: CoworkSessionStatus.Completed }]);
+  await pending;
+  expect(dependencies.applyStatus).not.toHaveBeenCalled();
+});

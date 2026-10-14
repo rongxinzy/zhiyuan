@@ -4,10 +4,10 @@ import { ipcMain } from 'electron';
 import { expect, test, vi } from 'vitest';
 import { CoworkSessionIpc, CoworkStreamIpc } from '../shared/ipc/channels';
 import type { PiRuntimeAdapter } from './libs/agentEngine/piRuntimeAdapter';
-import { bindCoworkRunBridge } from './coworkRunBridge';
+import { bindCoworkContentBridge } from './coworkContentBridge';
 import { runTextWorkerOperation, type TextWorkerInput } from './contentWorker/textWorkerOperations';
 import { CoworkContentBuffer } from '../renderer/services/coworkContentBuffer';
-import type { CoworkContentPatch } from '../shared/cowork/runState';
+import type { CoworkContentPatch } from '../shared/cowork/contentProjection';
 
 vi.mock('./contentWorker/contentWorkerPool', () => ({
   transformCoworkTextAsync: async (input: TextWorkerInput) => runTextWorkerOperation(input),
@@ -23,12 +23,12 @@ test('recovery queries persisted sequence and creation time and replays the comp
   database
     .prepare('INSERT INTO cowork_messages VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run('message', 'session', 'assistant', content, null, 100, 1);
-  const runtime = Object.assign(new EventEmitter(), { isSessionRunning: () => false });
+  const runtime = new EventEmitter();
   const handler = vi.spyOn(ipcMain, 'handle');
   try {
-    bindCoworkRunBridge(runtime as unknown as PiRuntimeAdapter, () => database, vi.fn());
-    const snapshotHandler = handler.mock.calls.find(
-      ([channel]) => channel === CoworkSessionIpc.RunSnapshot,
+    bindCoworkContentBridge(runtime as unknown as PiRuntimeAdapter, () => database, vi.fn());
+    const replayHandler = handler.mock.calls.find(
+      ([channel]) => channel === CoworkSessionIpc.ReplayContent,
     )![1];
     const frames: CoworkContentPatch[] = [];
     const event = {
@@ -40,12 +40,9 @@ test('recovery queries persisted sequence and creation time and replays the comp
         },
       },
     };
-    const result = await snapshotHandler(
-      event as unknown as Electron.IpcMainInvokeEvent,
-      'session',
-      true,
-    );
-    expect(result).toMatchObject({ success: true, running: false, snapshot: null });
+    const result = await replayHandler(event as unknown as Electron.IpcMainInvokeEvent, 'session');
+    expect(result).toEqual({ success: true });
+    expect(runtime.eventNames()).toEqual(['message']);
     const gap = vi.fn();
     const buffer = new CoworkContentBuffer(gap);
     let update;

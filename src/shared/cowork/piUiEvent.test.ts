@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { CoworkRunPolicy } from './runState';
+import { CoworkContentPolicy } from './contentProjection';
 import {
   isPiUiEvent,
   PiUiEventSequenceTracker,
@@ -32,7 +32,10 @@ test('content patches share the canonical event sequence and validate bounded pa
   expect(
     isPiUiEvent({
       ...event,
-      patch: { ...event.patch, content: 'x'.repeat(CoworkRunPolicy.ContentChunkCharacters + 1) },
+      patch: {
+        ...event.patch,
+        content: 'x'.repeat(CoworkContentPolicy.ContentChunkCharacters + 1),
+      },
     }),
   ).toBe(false);
 });

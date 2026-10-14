@@ -235,13 +235,6 @@ export class PiRuntimeAdapter extends EventEmitter {
       console.error('[DurableRuntime] Stop failed after session removal:', error),
     );
   }
-  respondToCodingElicitation(_requestId: string, _answer: string): boolean {
-    return false;
-  }
-  cancelCodingElicitation(_requestId: string, _reason: string): boolean {
-    return false;
-  }
-
   async compactSession(sessionId: string): Promise<{ cancelled: boolean }> {
     const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
     const session = await this.runtime().runner.owner.open(sessionId);

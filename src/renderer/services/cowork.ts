@@ -1,4 +1,3 @@
-import { clearExpectedRunStart, expectRunStart } from '../store/slices/coworkRunSlice';
 import {
   type CoworkError,
   CoworkErrorKind,
@@ -61,7 +60,7 @@ import {
 import { RafMessageUpdateBatcher } from './rafMessageUpdateBatcher';
 import { workspaceService } from './workspace';
 import { CoworkContentBuffer } from './coworkContentBuffer';
-import { CoworkRunSync } from './coworkRunSync';
+import { CoworkRecoverySync } from './coworkRecoverySync';
 import { PiUiRecovery } from './piUiRecovery';
 import {
   PiUiEventSequenceTracker,
@@ -81,7 +80,8 @@ const classifyError = (error: string | CoworkError): string => {
 class CoworkService {
   private streamListenerCleanups: Array<() => void> = [];
   private initialized = false;
-  private runSync?: CoworkRunSync;
+  private recoverySync?: CoworkRecoverySync;
+  private uiRecovery?: PiUiRecovery;
   private latestLoadSessionsRequestId = 0;
   private latestLoadChatSessionsRequestId = 0;
   private latestLoadSessionRequestId = 0;
@@ -138,14 +138,15 @@ class CoworkService {
         store.dispatch(recoverSession({ session, preserveLiveContent })),
       flush: () => updateBatcher.flush(),
     });
+    this.uiRecovery = recovery;
     this.streamListenerCleanups.push(() => recovery.dispose());
-    const runSync = new CoworkRunSync(
+    const recoverySync = new CoworkRecoverySync(
       () => updateBatcher.flush(),
       id => recovery.recover(id),
     );
-    this.runSync = runSync;
-    const contentBuffer = new CoworkContentBuffer(id => runSync.requestRecovery(id));
-    this.streamListenerCleanups.push(runSync.start());
+    this.recoverySync = recoverySync;
+    const contentBuffer = new CoworkContentBuffer(id => recoverySync.requestRecovery(id));
+    this.streamListenerCleanups.push(recoverySync.start());
     this.streamListenerCleanups.push(
       cowork.onStreamContentPatch(patch => {
         const update = contentBuffer.apply(patch);
@@ -159,7 +160,7 @@ class CoworkService {
       const applyEvent = recovery.observe(event);
       if (sequenceTracker.consumeGap(event.sessionId) > 0 && event.sessionId) {
         console.warn('[CoworkService] detected a Pi UI event sequence gap, reloading the session');
-        runSync.requestRecovery(event.sessionId);
+        recoverySync.requestRecovery(event.sessionId);
         void recovery
           .recover(event.sessionId)
           .catch(error =>
@@ -467,19 +468,24 @@ class CoworkService {
       return false;
     }
 
-    store.dispatch(expectRunStart({ sessionId: options.sessionId, startedAt: Date.now() }));
+    const finishSubmission = this.uiRecovery?.beginSubmission(options.sessionId);
 
     options.requestId ??= crypto.randomUUID();
-    const result = await cowork.continueSession({
-      requestId: options.requestId,
-      sessionId: options.sessionId,
-      prompt: options.prompt,
-      systemPrompt: options.systemPrompt,
-      expertIds: options.expertIds,
-      permissionMode: options.permissionMode,
-      imageAttachments: options.imageAttachments,
-      fileAttachments: options.fileAttachments,
-    });
+    const result = await cowork
+      .continueSession({
+        requestId: options.requestId,
+        sessionId: options.sessionId,
+        prompt: options.prompt,
+        systemPrompt: options.systemPrompt,
+        expertIds: options.expertIds,
+        permissionMode: options.permissionMode,
+        imageAttachments: options.imageAttachments,
+        fileAttachments: options.fileAttachments,
+      })
+      .finally(() => {
+        finishSubmission?.();
+        this.recoverySync?.requestRecovery(options.sessionId);
+      });
     if (!result.success) {
       const terminalError = result.error
         ? resolveCoworkTerminalError(result.error, result.code)
@@ -508,7 +514,6 @@ class CoworkService {
     }
 
     if (result.session && result.session.id !== options.sessionId) {
-      store.dispatch(clearExpectedRunStart(options.sessionId));
       store.dispatch(addSession(result.session));
     }
     if (result.session?.workspaceId) {
@@ -715,7 +720,7 @@ class CoworkService {
         store.dispatch(setCurrentAgentId(result.session.agentId));
       }
       store.dispatch(setCurrentSession(result.session));
-      this.runSync?.requestRecovery(sessionId);
+      this.recoverySync?.requestRecovery(sessionId);
       // Only restore streaming for running sessions — never clear it here.
       // Clearing is the responsibility of complete/error stream events.
       // loadSession can be called reactively (onSessionsChanged) while a task

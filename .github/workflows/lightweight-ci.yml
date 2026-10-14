@@ -34,6 +34,8 @@ jobs:
           bun-version: '1.4.0'
       - name: Install locked source dependencies without desktop setup
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: Verify production dependency manifest
+        run: node scripts/ci/check-electron-runtime-dependencies.mjs --manifest-only
       - name: Apply repository dependency patches
         run: bun run apply:patches
       - name: Typecheck renderer and shared sources
@@ -44,13 +46,23 @@ jobs:
         run: bun x --no-install vitest run src/renderer src/shared --maxWorkers=2
       - name: Test native durable execution and work documents
         run: bun x --no-install vitest run src/main/libs/agentEngine/durable src/main/libs/agentEngine/piRuntimeAdapter.test.ts src/main/contentWorker src/main/toolApproval --maxWorkers=2
-      - name: Build SQLite binding for history archive tests
-        run: npm rebuild better-sqlite3
+      - name: Build native bindings for history and Coding tests
+        run: npm rebuild better-sqlite3 node-pty
+      - name: Test native content replay and retained Coding contracts
+        run: bun x --no-install vitest run src/main/coworkContentBridge.test.ts src/main/coworkContentProjection.test.ts src/main/codingAgent/codingBuiltinCapabilities.test.ts src/main/codingAgent/codingRoomService.test.ts src/main/codingAgent/drivers/acpCodingDriver.test.ts src/main/codingAgent/drivers/builtinCodingDriver.test.ts --maxWorkers=2
       - name: Test history indexing, managed attachments and maintenance recovery
         run: bun x --no-install vitest run src/main/history --maxWorkers=2
       - name: Test local CLI manager lifecycle and packaging contracts
-        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts tests/nativePhotonPackaging.test.ts --maxWorkers=2
-      - name: Build renderer without Electron packaging
-        run: bun run build:vite
-        env:
-          VITE_SKIP_ELECTRON: '1'
+        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts tests/nativePhotonPackaging.test.ts tests/retiredPackagingResources.test.ts scripts/ci/check-electron-runtime-dependencies.test.ts --maxWorkers=2
+      - name: Build source outputs and verify desktop runtime dependencies
+        run: bun run build
+      - name: Verify renderer bundle budget
+        run: bun run test:bundle-budget
+      - name: Resolve packaged runtime with production-only dependencies
+        run: |
+          probe=$(mktemp -d)
+          trap 'rm -rf "$probe"' EXIT
+          cp package.json bun.lock "$probe/"
+          (cd "$probe" && bun install --frozen-lockfile --production --ignore-scripts)
+          cp -R dist-electron "$probe/"
+          RUNTIME_PROBE_ROOT="$probe" node --input-type=module -e "import { checkElectronRuntimeDependencies } from './scripts/ci/check-electron-runtime-dependencies.mjs'; checkElectronRuntimeDependencies(process.env.RUNTIME_PROBE_ROOT, { resolve: true });"

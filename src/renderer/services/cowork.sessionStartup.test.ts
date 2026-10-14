@@ -5,7 +5,6 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import { CoworkSessionMode, CoworkSessionSource } from '../../shared/cowork/constants';
 import coworkReducer, { addSession, updateSessionStatus } from '../store/slices/coworkSlice';
-import coworkRunReducer, { expectRunStart } from '../store/slices/coworkRunSlice';
 import { CoworkSessionStatusValue, type CoworkSession } from '../types/cowork';
 import { coworkService } from './cowork';
 import { workspaceService } from './workspace';
@@ -30,7 +29,6 @@ const makeStore = () =>
   configureStore({
     reducer: {
       cowork: coworkReducer,
-      coworkRun: coworkRunReducer,
       workspace: () => ({ currentWorkspaceId: 'workspace-1' }),
     },
   });
@@ -81,14 +79,12 @@ test('selects the linked native continuation while retaining the original histor
   const original = makeSession('legacy-session', CoworkSessionMode.Work);
   const native = makeSession('native-session', CoworkSessionMode.Work);
   testStore.dispatch(addSession(original));
-  testStore.dispatch(expectRunStart({ sessionId: original.id, startedAt: 1 }));
   continueSession.mockResolvedValue({ success: true, session: native });
   await expect(
     coworkService.continueSession({ sessionId: original.id, prompt: 'Continue' }),
   ).resolves.toBe(true);
   expect(testStore.getState().cowork.currentSessionId).toBe(native.id);
   expect(listIds()).toContain(original.id);
-  expect(testStore.getState().coworkRun.awaitingSince[original.id]).toBeUndefined();
   expect(continueSession.mock.calls[0][0].prompt).toBe('Continue');
 });
 

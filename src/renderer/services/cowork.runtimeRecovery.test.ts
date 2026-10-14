@@ -78,6 +78,10 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (id: string) => ({ success: true, session: session(id) }));
   vi.stubGlobal('window', {
+    setInterval,
+    clearInterval,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     electron: {
       cowork: {
         onStreamUiEvent: (listener: typeof deliver) => {
@@ -92,6 +96,11 @@ beforeEach(() => {
         listSessions: async () => ({ success: true, sessions: [] }),
       },
     },
+  });
+  vi.stubGlobal('document', {
+    visibilityState: 'visible',
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
   });
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });

@@ -13,13 +13,13 @@
 - 跨仓变更链接依赖 PR，并在需要时说明兼容和发布顺序。合并、构建、部署、业务验收分别记录，不能相互代替。
 - 紧急生产修复保留 PR、最小验证与回滚说明，取得 approval 且通过必需 CI 后合并；下一工作日补充完整验证，不绕过分支保护和安全/发布门。
 
-## 当前仓库 CI（2026-10-13）
+## 当前仓库 CI（2026-10-14）
 
 按仓库所有者要求，继承的 CI、签名、安装器、发布和定时工作流已移至
 `.github/archived-workflows/`，不再触发。原 `ci-gate` 不再运行。
-唯一活动工作流为 `Lightweight CI`：Node 24、Bun 1.4.0，检查 renderer/shared
-与主进程类型、renderer/shared 测试和非打包 renderer 构建；不使用 secrets，
-不下载桌面运行时，不签名、不发布。触发范围同步于 `.github/devops-ci.json`。
+`Lightweight CI` 使用 Node 24、Bun 1.4.0，检查 renderer/shared 与主进程类型、原生恢复 / 档案 / 历史与 Coding 契约，执行清洁总 build、严格生产依赖门禁及 renderer 包预算。另在临时目录只安装 production 依赖，验证所有生成 bundle 的外部模块解析及原生执行导出，防止开发依赖掩盖遗漏。
+
+现有 `Python runtime process containment` 保留针对 Python 相关路径的 Windows / Linux 专项测试。两个工作流均不使用发布 secrets，不签名、不发布；轻量源码构建不下载 Electron 二进制，Python 专项会验证固定的官方 Python / uv 运行时。触发范围同步于 `.github/devops-ci.json`。
 
 本次调整不修改 GitHub 分支保护或 rulesets，也不把新检查设置为必需门禁。
 是否允许直接推送以所有者对具体工作的授权及服务器实际规则为准；禁止强推和删除。

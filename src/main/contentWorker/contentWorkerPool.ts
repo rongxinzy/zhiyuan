@@ -4,7 +4,7 @@ import {
   type TextWorkerInput,
   type TextWorkerOutput,
 } from './textWorkerOperations';
-import { CoworkRunPolicy } from '../../shared/cowork/runState';
+import { CoworkContentPolicy } from '../../shared/cowork/contentProjection';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { ContentWorkerLimit, ContentWorkerTask } from './contentWorkerConstants';
@@ -36,8 +36,8 @@ export class ContentWorkerPool {
   transform(input: TextWorkerInput, signal?: AbortSignal): Promise<TextWorkerOutput> {
     if (
       input.kind === TextWorkerKind.Content &&
-      (input.content.length > CoworkRunPolicy.MaximumContentCharacters + 1 ||
-        input.previous.length > CoworkRunPolicy.MaximumContentCharacters)
+      (input.content.length > CoworkContentPolicy.MaximumContentCharacters + 1 ||
+        input.previous.length > CoworkContentPolicy.MaximumContentCharacters)
     )
       return Promise.reject(new Error('Content input limit exceeded.'));
     try {
@@ -124,7 +124,7 @@ export class ContentWorkerPool {
               response.error ||
               !text ||
               typeof text.content !== 'string' ||
-              text.content.length > CoworkRunPolicy.MaximumContentCharacters ||
+              text.content.length > CoworkContentPolicy.MaximumContentCharacters ||
               !Number.isSafeInteger(text.offset) ||
               text.offset < 0
             )
