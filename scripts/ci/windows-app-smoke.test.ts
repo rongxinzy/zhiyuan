@@ -332,3 +332,19 @@ test('progress-only Runner exit never passes as a terminal success response', as
   f.child.emit('exit', 0, null);
   await expect(pending).rejects.toThrow('Runner exited');
 });
+
+test.each([
+  [5, 360_000],
+  [7, 120_000],
+])('native suite budget for PowerShell %s remains bounded', async (major, budget) => {
+  vi.useFakeTimers();
+  const f = runnerFixture();
+  const pending = runNativeShellProbe({ ...f.options, expectedPowerShellMajor: major }, f.spawn);
+  const rejected = expect(pending).rejects.toThrow('timed out');
+  await vi.advanceTimersByTimeAsync(budget - 1);
+  expect(f.child.send).not.toHaveBeenCalledWith({ cancel: true }, expect.any(Function));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(f.child.send).toHaveBeenLastCalledWith({ cancel: true }, expect.any(Function));
+  f.child.emit('exit', null, 'SIGTERM');
+  await rejected;
+});

@@ -107,6 +107,16 @@ export async function diagnoseWindowsPowerShell(
   }
 }
 
+/** Acceptance budgets only. Windows 5.1 took 25–27s per launch on the
+ * official CI host, with and without Electron's Node flag. */
+export function nativeSmokeBudgets(expectedPowerShellMajor?: number) {
+  return {
+    commandSeconds: expectedPowerShellMajor === 5 ? 60 : 20,
+    childReadyMs: expectedPowerShellMajor === 5 ? 60_000 : 15_000,
+    childExitMs: 10_000,
+  };
+}
+
 async function fixedCase(
   cwd: string,
   resourcesRoot: string,
@@ -115,10 +125,12 @@ async function fixedCase(
     signal?: AbortSignal;
     deny?: boolean;
     cancelAfterChild?: boolean;
+    expectedPowerShellMajor?: number;
     report?: ReportProgress;
     caseName?: string;
   } = {},
 ) {
+  const budgets = nativeSmokeBudgets(options.expectedPowerShellMajor);
   const startedAt = Date.now();
   const report = (stage: string, detail?: unknown) =>
     options.report?.({
@@ -211,7 +223,10 @@ async function fixedCase(
                 type: 'toolCall' as const,
                 id: 'native-shell-1',
                 name: toolName,
-                arguments: { command, timeout: options.cancelAfterChild ? 120 : 20 },
+                arguments: {
+                  command,
+                  timeout: options.cancelAfterChild ? 120 : budgets.commandSeconds,
+                },
               },
             ]
           : [{ type: 'text' as const, text: 'Acceptance complete' }],
@@ -258,7 +273,7 @@ async function fixedCase(
       context,
     );
     if (options.cancelAfterChild) {
-      const deadline = Date.now() + 15_000;
+      const deadline = Date.now() + budgets.childReadyMs;
       while (Date.now() < deadline) {
         options.signal?.throwIfAborted();
         try {
@@ -299,7 +314,7 @@ async function fixedCase(
       .join('\n');
     report('native_settled', { receipt, isError: results[0].isError, output });
     // Verify Stop itself reaps descendants, before close/cleanup can mask it.
-    if (options.cancelAfterChild) await assertChildExited(childPid!);
+    if (options.cancelAfterChild) await assertChildExited(childPid!, budgets.childExitMs);
     return { receipt, result: results[0], output, approvals, calls, childPid, entries };
   } finally {
     await harness.close(BACKGROUND_CONTEXT);
@@ -308,8 +323,8 @@ async function fixedCase(
   }
 }
 
-async function assertChildExited(pid: number) {
-  const deadline = Date.now() + 10_000;
+async function assertChildExited(pid: number, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       process.kill(pid, 0);
@@ -343,7 +358,7 @@ export async function runNativeExecutionSmoke(
     workspace,
     resourcesRoot,
     windows ? WINDOWS_COMMAND : UNIX_COMMAND,
-    { signal, report, caseName: 'basic' },
+    { signal, report, expectedPowerShellMajor, caseName: 'basic' },
   );
   if (windows && basic.result.isError && report) {
     await diagnoseWindowsPowerShell(workspace, resourcesRoot, report);
@@ -371,6 +386,7 @@ export async function runNativeExecutionSmoke(
   const nonzero = await fixedCase(workspace, resourcesRoot, NONZERO_COMMAND, {
     signal,
     report,
+    expectedPowerShellMajor,
     caseName: 'nonzero',
   });
   assert.equal(nonzero.result.isError, true);
@@ -382,6 +398,7 @@ export async function runNativeExecutionSmoke(
     signal,
     deny: true,
     report,
+    expectedPowerShellMajor,
     caseName: 'denied',
   });
   assert.equal(denied.receipt.status, 'unanswered');
@@ -394,6 +411,7 @@ export async function runNativeExecutionSmoke(
     signal,
     cancelAfterChild: true,
     report,
+    expectedPowerShellMajor,
     caseName: 'cancel',
   });
   assert.equal(cancelled.receipt.status, 'unanswered');
@@ -405,6 +423,7 @@ export async function runNativeExecutionSmoke(
   const worktree = await fixedCase(repository, resourcesRoot, WORKTREE_COMMAND, {
     signal,
     report,
+    expectedPowerShellMajor,
     caseName: 'worktree',
   });
   assert.equal(worktree.result.isError, false, `worktree: ${worktree.output}`);

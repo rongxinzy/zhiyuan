@@ -138,7 +138,7 @@ export function runPythonProbe(options, spawnRunner = fork) {
 
 export function runNativeShellProbe(options, spawnRunner = fork) {
   return runPackagedProbe(
-    { ...options, timeoutMs: 120_000 },
+    { ...options, timeoutMs: options.expectedPowerShellMajor === 5 ? 360_000 : 120_000 },
     {
       cwd: options.root,
       resourcesRoot: options.resourcesRoot,

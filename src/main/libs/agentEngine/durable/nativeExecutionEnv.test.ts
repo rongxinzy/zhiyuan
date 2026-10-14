@@ -9,7 +9,11 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { ExecutionError } from '@earendil-works/pi-durable/env';
 import { CodingTools } from '@earendil-works/pi-durable/tools';
 import { nativeCodingTools, nativeExecutionOptions } from './nativeExecutionEnv';
-import { diagnoseWindowsPowerShell, runNativeExecutionSmoke } from './nativeExecutionSmoke';
+import {
+  nativeSmokeBudgets,
+  diagnoseWindowsPowerShell,
+  runNativeExecutionSmoke,
+} from './nativeExecutionSmoke';
 
 const directories: string[] = [];
 async function fixture() {
@@ -196,5 +200,20 @@ test('direct PowerShell diagnostics retain the 20 second bound and close timed-o
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     vi.useRealTimers();
+  }
+});
+
+test('5.1 launch budget does not relax cancellation after the child is ready', () => {
+  expect(nativeSmokeBudgets(5)).toEqual({
+    commandSeconds: 60,
+    childReadyMs: 60_000,
+    childExitMs: 10_000,
+  });
+  for (const major of [7, undefined]) {
+    expect(nativeSmokeBudgets(major)).toEqual({
+      commandSeconds: 20,
+      childReadyMs: 15_000,
+      childExitMs: 10_000,
+    });
   }
 });
