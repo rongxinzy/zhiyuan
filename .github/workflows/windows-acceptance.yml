@@ -19,8 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-acceptance-${{ github.ref }}
-  cancel-in-progress: false
+  group: windows-acceptance-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-manual-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
 
 jobs:
   acceptance:
@@ -89,7 +89,7 @@ jobs:
           retention-days: 14
           compression-level: 0
       - name: Upload diagnostics when acceptance fails
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: windows-acceptance-diagnostics-${{ github.run_id }}

@@ -23,8 +23,13 @@ describe('Windows acceptance delivery gate', () => {
 
   it('uploads an installer only after acceptance and keeps failed diagnostics separate', () => {
     expect(workflow).toContain('retention-days: 14');
+    expect(workflow).toContain('group: windows-acceptance-${{ github.ref }}');
+    expect(workflow).toContain(
+      "github.event_name == 'workflow_dispatch' && format('-manual-{0}', github.run_id)",
+    );
+    expect(workflow).toContain('cancel-in-progress: true');
     expect(workflow).toContain('path: acceptance-output/');
-    expect(workflow).toMatch(/if: failure\(\)[\s\S]*acceptance-diagnostics\//);
+    expect(workflow).toMatch(/if: failure\(\) \|\| cancelled\(\)[\s\S]*acceptance-diagnostics\//);
     expect(workflow).not.toMatch(/secrets\.|contents: write|softprops|release-action/);
     expect(workflow).toContain('--publish never');
     expect(workflow).toContain('bun run build');
