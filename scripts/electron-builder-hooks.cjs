@@ -14,6 +14,7 @@ const {
 } = require('fs');
 const { spawnSync } = require('child_process');
 const { ensurePortableGit } = require('./setup-mingit.js');
+const { verifyNativePackage } = require('./native-package-hygiene.cjs');
 const { configureMagpieResources, verifyPackagedMagpie } = require('./magpie-runtime.cjs');
 const {
   buildWindowsResourceBundleManifest,
@@ -282,8 +283,34 @@ async function beforePack(context) {
   }
 }
 
+function verifyPackagedNativeResources(context) {
+  const platform = context.electronPlatformName === 'mas' ? 'darwin' : context.electronPlatformName;
+  const arch =
+    typeof context.arch === 'string'
+      ? context.arch
+      : { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[context.arch];
+  const resources =
+    platform === 'darwin'
+      ? path.join(
+          context.appOutDir,
+          `${context.packager.appInfo.productFilename}.app`,
+          'Contents',
+          'Resources',
+        )
+      : path.join(context.appOutDir, 'resources');
+  const report = verifyNativePackage(resources, { platform, arch });
+  const reports = path.join(context.packager.projectDir, 'build-tar', 'native-package-hygiene');
+  mkdirSync(reports, { recursive: true });
+  writeFileSync(
+    path.join(reports, `${platform}-${arch}.json`),
+    `${JSON.stringify(report, null, 2)}\n`,
+  );
+  return report;
+}
+
 async function afterPack(context) {
   verifyPackagedMagpie(context);
+  verifyPackagedNativeResources(context);
   if (isMacTarget(context)) {
     const appName = context.packager.appInfo.productFilename;
     const appPath = path.join(context.appOutDir, `${appName}.app`);
@@ -299,6 +326,7 @@ async function afterPack(context) {
 module.exports = {
   beforePack,
   afterPack,
+  verifyPackagedNativeResources,
   configureMacAutoUpdateMetadata,
   packWindowsResourceComponent7z,
 };

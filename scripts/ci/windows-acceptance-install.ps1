@@ -39,12 +39,13 @@ $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.T
 "$hash  $($installer.Name)" | Set-Content -Encoding utf8 (Join-Path $output 'SHA256SUMS.txt')
 @{
   commit=$env:GITHUB_SHA; runId=$env:GITHUB_RUN_ID; architecture='x64'; platform='win32';
-  signed=$false; installer=$installer.Name; sha256=$hash; verifiedAt=(Get-Date).ToUniversalTime().ToString('o');
-  checks=@('clean build','production-only dependency resolution','installation','packaged Electron UI','packaged Magpie','packaged Python Runner')
+  signed=$false; installer=$installer.Name; installerBytes=$installer.Length; sha256=$hash; verifiedAt=(Get-Date).ToUniversalTime().ToString('o');
+  checks=@('clean build','production-only dependency resolution','installation','packaged Electron UI','packaged Magpie','packaged Python Runner','packaged PowerShell 7 and 5.1','native package hygiene')
 } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $output 'build-manifest.json')
 @'
 Windows x64 acceptance build, unsigned. This artifact is a ZIP containing the NSIS installer, SHA-256 checksum, source commit and automated acceptance evidence.
 Windows may display an unsigned-app or reputation warning. This build does not have a verified publisher signature.
+Python downloads and verifies its pinned interpreter and uv on first use; this requires network access. Installing new third-party packages may also require network access.
 No account sign-in or paid model call was used in CI. Model sources and subscription accounts require explicit configuration by the user.
 Automated CI checks are not a substitute for the user's desktop acceptance or signing/release certification.
 '@ | Set-Content -Encoding utf8 (Join-Path $output 'READ-ME.txt')

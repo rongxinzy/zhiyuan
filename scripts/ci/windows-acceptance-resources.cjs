@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const asar = require('@electron/asar');
 const PORTABLE_GIT_REQUIRED_FILES = require('../portable-git-required-files.json');
 const baseHooks = require('../electron-builder-hooks.cjs');
+const { verifyNativePackage } = require('../native-package-hygiene.cjs');
 const { verifyRuntime, sha256File, upstream } = require('../magpie-runtime.cjs');
 const { checkElectronRuntimeDependencies } = require('./check-electron-runtime-dependencies.mjs');
 
@@ -239,6 +240,16 @@ function verifyPackage(appOutDir, projectRoot = ROOT) {
     magpie.sha256,
     prepared.magpie.sha256,
     'Magpie compiler output changed during packaging',
+  );
+  const hygiene = verifyNativePackage(path.join(appOutDir, 'resources'), {
+    platform: 'win32',
+    arch: 'x64',
+  });
+  const evidence = path.join(projectRoot, 'build-tar', 'windows-acceptance');
+  fs.mkdirSync(evidence, { recursive: true });
+  fs.writeFileSync(
+    path.join(evidence, 'native-package-hygiene.json'),
+    JSON.stringify(hygiene, null, 2),
   );
   return {
     schemaVersion: 1,

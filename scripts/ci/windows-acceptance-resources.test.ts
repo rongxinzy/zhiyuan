@@ -135,6 +135,11 @@ function fixture() {
     ['node-pty', 'conpty_console_list.node'],
   ])
     write(project, `node_modules/${name}/build/Release/${filename}`, pe());
+  write(
+    project,
+    'node_modules/@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node',
+    pe(),
+  );
   for (const name of [
     '@earendil-works/pi-durable',
     '@earendil-works/chord',

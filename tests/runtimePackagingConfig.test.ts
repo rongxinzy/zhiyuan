@@ -20,7 +20,7 @@ import { prerelease } from 'semver';
 import { afterEach, test } from 'vitest';
 
 import { beforePack, afterPack } from '../scripts/electron-builder-hooks.cjs';
-import { sha256File, upstream } from '../scripts/magpie-runtime.cjs';
+import { sha256File, upstream, verifyPackagedMagpie } from '../scripts/magpie-runtime.cjs';
 import { checkProductionDependencyManifest } from '../scripts/ci/check-electron-runtime-dependencies.mjs';
 import pythonManifest from '../src/main/pythonRuntime/manifest.json';
 
@@ -468,7 +468,9 @@ test('real packaging hooks require pinned Magpie bytes before packaging and rech
   await assert.rejects(afterPack(context), /Magpie linux-x64 is unavailable or invalid/);
   const packagedRuntime = path.join(context.appOutDir, 'resources/magpie');
   cpSync(path.join(projectDir, 'resources/magpie'), packagedRuntime, { recursive: true });
-  await afterPack(context);
+  verifyPackagedMagpie(context);
+  // A valid sidecar alone cannot bypass the final application-payload gate.
+  await assert.rejects(afterPack(context), /app\.asar/);
   const sourceHash = sha256File(binary);
   appendFileSync(path.join(packagedRuntime, 'linux-x64/magpie'), 'tampered');
   await assert.rejects(afterPack(context), /SHA-256 mismatch/);
