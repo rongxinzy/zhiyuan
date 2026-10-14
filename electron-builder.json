@@ -114,6 +114,8 @@
       "NSAppleEventsUsageDescription": "知远需要使用 Apple Events 来控制 Calendar 应用执行自动化操作。"
     },
     "files": [
+      "package.json",
+      "resources/SYSTEM_PROMPT.md",
       "!node_modules/better-sqlite3/build/**/*.iobj",
       "!node_modules/better-sqlite3/build/**/*.ipdb",
       "!node_modules/better-sqlite3/build/**/*.obj",
@@ -193,6 +195,8 @@
       }
     ],
     "files": [
+      "package.json",
+      "resources/SYSTEM_PROMPT.md",
       "!node_modules/better-sqlite3/build/**/*.iobj",
       "!node_modules/better-sqlite3/build/**/*.ipdb",
       "!node_modules/better-sqlite3/build/**/*.obj",
@@ -262,6 +266,8 @@
     "category": "Utility",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "files": [
+      "package.json",
+      "resources/SYSTEM_PROMPT.md",
       "!node_modules/better-sqlite3/build/**/*.iobj",
       "!node_modules/better-sqlite3/build/**/*.ipdb",
       "!node_modules/better-sqlite3/build/**/*.obj",

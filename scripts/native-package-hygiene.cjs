@@ -80,7 +80,19 @@ function verifyNativePackage(resourcesRoot, target) {
   validateTarget(target);
   const archive = path.join(resourcesRoot, 'app.asar');
   const unpackedRoot = `${archive}.unpacked`;
-  if (!fs.statSync(archive).isFile()) throw new Error(`Missing packaged archive: ${archive}`);
+  const archiveStat = fs.statSync(archive);
+  if (!archiveStat.isFile()) throw new Error(`Missing packaged archive: ${archive}`);
+  // Explicit reviewed Windows x64 budget; other targets retain structural gates.
+  // Increasing this requires reviewing a real artifact's inventory, not disabling
+  // the gate in response to an unexpectedly larger build.
+  const sizeLimits =
+    target.platform === 'win32' && target.arch === 'x64'
+      ? { asarBytes: 128 * 1024 * 1024, unpackedBytes: 128 * 1024 * 1024 }
+      : null;
+  if (sizeLimits && archiveStat.size > sizeLimits.asarBytes)
+    throw new Error(
+      `Application archive exceeds size budget: ${archiveStat.size} > ${sizeLimits.asarBytes}`,
+    );
   const matchers = nativePackageExclusions(target).map(
     pattern => new Minimatch(pattern.slice(1), { dot: true }),
   );
@@ -113,6 +125,13 @@ function verifyNativePackage(resourcesRoot, target) {
     }
   }
   if (fs.existsSync(unpackedRoot)) visitDisk(unpackedRoot);
+  const unpackedBytes = inventory
+    .filter(item => item.storage === 'unpacked')
+    .reduce((sum, item) => sum + item.size, 0);
+  if (sizeLimits && unpackedBytes > sizeLimits.unpackedBytes)
+    throw new Error(
+      `Unpacked application exceeds size budget: ${unpackedBytes} > ${sizeLimits.unpackedBytes}`,
+    );
   const physical = new Map(
     inventory.filter(item => item.storage === 'unpacked').map(item => [item.path, item]),
   );
@@ -120,6 +139,18 @@ function verifyNativePackage(resourcesRoot, target) {
     if (physical.get(relative)?.size !== size)
       throw new Error(`Missing or truncated unpacked file: ${relative}`);
   }
+  // A platform-only negative matcher can silently make electron-builder include
+  // the entire repository. Guard the actual archive, independently of filters.
+  const unexpectedRootFiles = inventory.filter(
+    item =>
+      !/^(?:package\.json|resources\/SYSTEM_PROMPT\.md|(?:dist|dist-electron|node_modules)\/.+|(?:LICENSE|NOTICE|COPYING)(?:\.[A-Za-z0-9_-]+)?)$/.test(
+        item.path,
+      ),
+  );
+  if (unexpectedRootFiles.length)
+    throw new Error(
+      `Unexpected application payload files:\n${unexpectedRootFiles.map(item => item.path).join('\n')}`,
+    );
   const forbidden = inventory.filter(item => matchers.some(matcher => matcher.match(item.path)));
   if (forbidden.length)
     throw new Error(
@@ -158,10 +189,9 @@ function verifyNativePackage(resourcesRoot, target) {
   return {
     target: { ...target },
     checkedFiles: inventory.length,
-    asarBytes: fs.statSync(archive).size,
-    unpackedBytes: inventory
-      .filter(item => item.storage === 'unpacked')
-      .reduce((sum, item) => sum + item.size, 0),
+    asarBytes: archiveStat.size,
+    unpackedBytes,
+    sizeLimits,
     requiredModules,
     forbidden: [],
     inventory,

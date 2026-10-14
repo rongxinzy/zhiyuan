@@ -42,6 +42,7 @@ $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.T
   signed=$false; installer=$installer.Name; installerBytes=$installer.Length; sha256=$hash; verifiedAt=(Get-Date).ToUniversalTime().ToString('o');
   checks=@('clean build','production-only dependency resolution','installation','packaged Electron UI','packaged Magpie','packaged Python Runner','packaged PowerShell 7 and 5.1','native package hygiene')
 } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $output 'build-manifest.json')
+Get-Content -LiteralPath (Join-Path $output 'build-manifest.json') -Raw | Write-Output
 @'
 Windows x64 acceptance build, unsigned. This artifact is a ZIP containing the NSIS installer, SHA-256 checksum, source commit and automated acceptance evidence.
 Windows may display an unsigned-app or reputation warning. This build does not have a verified publisher signature.

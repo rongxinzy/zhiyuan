@@ -260,6 +260,12 @@ function verifyPackage(appOutDir, projectRoot = ROOT) {
     vcRedistSha256: prepared.report.vcRedist.sha256,
     nativeBindings: natives.map(filename => path.relative(resources, filename)),
     bundleCount: BUNDLES.length,
+    nativeHygiene: {
+      checkedFiles: hygiene.checkedFiles,
+      asarBytes: hygiene.asarBytes,
+      unpackedBytes: hygiene.unpackedBytes,
+      forbiddenCount: hygiene.forbidden.length,
+    },
   };
 }
 

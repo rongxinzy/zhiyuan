@@ -206,7 +206,11 @@ test.each([
 ])('actual builder %s %s %s filters retain target binaries only', (key, platform, arch) => {
   const config = require('../electron-builder.json');
   const { getNodeModuleFileMatcher } = require('app-builder-lib/out/fileMatcher');
-  expect(config[key].files).toEqual(nativePackageExclusions({ platform }));
+  expect(config[key].files).toEqual([
+    'package.json',
+    'resources/SYSTEM_PROMPT.md',
+    ...nativePackageExclusions({ platform }),
+  ]);
   const root = path.resolve('/fixture');
   const matcher = getNodeModuleFileMatcher(
     root,
@@ -225,4 +229,152 @@ test.each([
   expect(accepts('node_modules/better-sqlite3/build/Release/better_sqlite3.iobj')).toBe(false);
   expect(accepts('node_modules/better-sqlite3/build/Debug/test_extension.node')).toBe(false);
   expect(accepts('node_modules/node-pty/LICENSE')).toBe(true);
+});
+
+test.each([
+  'src/main.ts',
+  'scripts/dev.js',
+  'build-tar/portable-git.7z',
+  'resources/toolchain/go.zip',
+  'resources/vc_redist.x64.exe',
+  'research/scratch.html',
+  'arbitrary-new-folder/data.bin',
+])('final archive gate rejects unapproved application root payload %s', async relative => {
+  const resources = await fixture([relative]);
+  expect(() => verifyNativePackage(resources, target)).toThrow(
+    'Unexpected application payload files',
+  );
+});
+
+test('root gate covers physical unpacked files absent from the archive header', async () => {
+  const resources = await fixture();
+  write(path.join(resources, 'app.asar.unpacked'), 'build-tar/toolchain.zip');
+  expect(() => verifyNativePackage(resources, target)).toThrow(
+    'Unexpected application payload files',
+  );
+});
+
+test('root gate preserves bundled application paths and license notices', async () => {
+  const resources = await fixture([
+    'dist/index.html',
+    'dist/assets/app.js',
+    'dist-electron/main.js',
+    'resources/SYSTEM_PROMPT.md',
+    'LICENSE',
+    'LICENSE.txt',
+    'NOTICE',
+    'COPYING',
+  ]);
+  expect(verifyNativePackage(resources, target).forbidden).toEqual([]);
+});
+
+function mainMatcherAccepts(config: any, key: string, arch: string) {
+  const { doMergeConfigs } = require('app-builder-lib/out/util/config/config');
+  const { getMainFileMatchers } = require('app-builder-lib/out/fileMatcher');
+  // getConfig uses this normalization before platformPackager constructs matchers.
+  // Raw JSON alone misses the platform-negative-only default matcher regression.
+  const normalized = doMergeConfigs([structuredClone(config)]);
+  const projectDir = path.resolve('/fixture');
+  const matchers = getMainFileMatchers(
+    projectDir,
+    '/output',
+    (value: string) => value.replaceAll('${arch}', arch),
+    normalized[key],
+    {
+      info: {
+        config: normalized,
+        projectDir,
+        buildResourcesDir: 'build',
+        debugLogger: { isEnabled: false },
+      },
+    },
+    '/release',
+    false,
+  );
+  return (relative: string) => {
+    const absolute = path.join(projectDir, relative);
+    return matchers.some((matcher: any) => {
+      // Walkers only visit each matcher's own source tree, not unrelated roots.
+      const fromRelative = path.relative(matcher.from, absolute);
+      if (
+        fromRelative === '..' ||
+        fromRelative.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(fromRelative)
+      )
+        return false;
+      return matcher.createFilter()(absolute, { isDirectory: () => false });
+    });
+  };
+}
+
+test.each([
+  ['win', 'x64'],
+  ['win', 'arm64'],
+  ['mac', 'x64'],
+  ['mac', 'arm64'],
+  ['linux', 'x64'],
+  ['linux', 'arm64'],
+])('normalized builder main matchers preserve the application allowlist for %s %s', (key, arch) => {
+  const config = require('../electron-builder.json');
+  const accepts = mainMatcherAccepts(config, key, arch);
+  for (const relative of [
+    'package.json',
+    'resources/SYSTEM_PROMPT.md',
+    'dist/index.html',
+    'dist/assets/main.js',
+    'dist-electron/main.js',
+  ]) {
+    expect(accepts(relative), relative).toBe(true);
+  }
+  for (const relative of [
+    'src/main.ts',
+    'scripts/dev.js',
+    'build-tar/portable-git.7z',
+    'resources/toolchain/go.zip',
+    'resources/vc_redist.x64.exe',
+    'docs/private.txt',
+    'node_modules/typescript/lib/typescript.js',
+    'node_modules/vitest/package.json',
+    'dist/assets/main.js.map',
+  ]) {
+    expect(accepts(relative), relative).toBe(false);
+  }
+  const broken = structuredClone(config);
+  broken[key].files = broken[key].files.filter((entry: string) => entry.startsWith('!'));
+  const previouslyAccepted = mainMatcherAccepts(broken, key, arch);
+  // Discriminating regression: the previous negative-only configuration admits
+  // source files and large offline inputs through its implicit **/* matcher.
+  for (const relative of [
+    'src/main.ts',
+    'build-tar/portable-git.7z',
+    'resources/toolchain/go.zip',
+  ]) {
+    expect(previouslyAccepted(relative), relative).toBe(true);
+  }
+});
+
+test('Windows x64 archive budget rejects an oversized real file before parsing', async () => {
+  const resources = await fixture();
+  fs.truncateSync(path.join(resources, 'app.asar'), 128 * 1024 * 1024 + 1);
+  expect(() => verifyNativePackage(resources, target)).toThrow(
+    'Application archive exceeds size budget',
+  );
+});
+
+test('Windows x64 unpacked budget rejects sparse oversized payload without reading it', async () => {
+  const resources = await fixture();
+  const relative = 'node_modules/unexpected-size/data.bin';
+  write(path.join(resources, 'app.asar.unpacked'), relative);
+  fs.truncateSync(path.join(resources, 'app.asar.unpacked', relative), 128 * 1024 * 1024 + 1);
+  expect(() => verifyNativePackage(resources, target)).toThrow(
+    'Unpacked application exceeds size budget',
+  );
+});
+
+test('hygiene report records reviewed size budgets', async () => {
+  const resources = await fixture();
+  expect(verifyNativePackage(resources, target).sizeLimits).toEqual({
+    asarBytes: 128 * 1024 * 1024,
+    unpackedBytes: 128 * 1024 * 1024,
+  });
 });
