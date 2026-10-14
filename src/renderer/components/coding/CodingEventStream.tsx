@@ -11,7 +11,7 @@ import {
   EmptyTitle,
 } from '@shared/components/ui/empty';
 import { Code2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import type { CodingElicitation, CodingEvent } from '../../../shared/codingAgent';
@@ -25,17 +25,20 @@ import { CodingConversationTurn } from './CodingConversationTurn';
 import { CodingElicitationCard } from './CodingElicitationCard';
 import { toDetectableCodingMessages } from './codingArtifactMessages';
 import { collectCodingFileArtifacts } from './codingArtifacts';
-import { projectCodingEvents } from './codingEventProjection';
+import {
+  projectCodingEvents,
+  type CodingConversationTurn as ProjectedCodingTurn,
+} from './codingEventProjection';
 
 interface CodingEventStreamProps {
   events: CodingEvent[];
+  projectedTurns?: ProjectedCodingTurn[];
   isStreaming: boolean;
   scrollAreaRef: RefObject<HTMLDivElement | null>;
   onScrollPositionChange: (scrollPosition: number) => void;
   onLoadOlderEvents?: () => void;
   onReEditUserMessage: (content: string) => void;
   emptyDescription?: string;
-  headerActions?: ReactNode;
   /**
    * Artifact store key for the active lane. When set, assistant messages are
    * scanned for previewable artifacts (HTML/SVG/Mermaid/code) and rendered as
@@ -63,13 +66,13 @@ const groupArtifactsByMessage = (artifacts: Artifact[]): Map<string, Artifact[]>
 
 export const CodingEventStream = ({
   events,
+  projectedTurns,
   isStreaming,
   scrollAreaRef,
   onScrollPositionChange,
   onLoadOlderEvents,
   onReEditUserMessage,
   emptyDescription,
-  headerActions,
   artifactSessionKey = null,
   artifactBaseDir = null,
   elicitation = null,
@@ -77,7 +80,10 @@ export const CodingEventStream = ({
   onCancelElicitation,
 }: CodingEventStreamProps) => {
   const dispatch = useDispatch();
-  const turns = useMemo(() => projectCodingEvents(events), [events]);
+  const turns = useMemo(
+    () => projectedTurns ?? projectCodingEvents(events),
+    [events, projectedTurns],
+  );
   const [expandedActivityIds, setExpandedActivityIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -198,11 +204,6 @@ export const CodingEventStream = ({
         }
       }}
     >
-      {headerActions ? (
-        <div className="absolute top-3 right-4 z-10 flex items-center gap-1 rounded-lg border border-border bg-background/80 p-1 shadow-sm backdrop-blur-sm">
-          {headerActions}
-        </div>
-      ) : null}
       <Conversation
         className="h-full"
         initial="instant"

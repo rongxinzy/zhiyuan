@@ -31,6 +31,8 @@ export class PiRuntimeAdapter extends EventEmitter {
   private host?: DurableRuntimeHost;
   private store?: CoworkStore;
   private closing = false;
+  private readonly admissions = new Map<string, Set<Promise<unknown>>>();
+  private readonly stopping = new Map<string, Promise<void>>();
   private readonly scheduledAdmissions = new Map<
     string,
     Promise<import('@earendil-works/pi-durable').Submission>
@@ -88,7 +90,25 @@ export class PiRuntimeAdapter extends EventEmitter {
   ): Promise<void> {
     this.approvalModes.set(sessionId, options.approvalMode ?? ToolApprovalMode.Ask);
     this.confirmationModes.set(sessionId, options.confirmationMode ?? 'modal');
-    await this.runtime().submit(sessionId, prompt, options);
+    await this.admit(sessionId, prompt, options);
+  }
+
+  private async admit(
+    sessionId: string,
+    prompt: string,
+    options: PiStartOptions | PiContinueOptions,
+  ): Promise<void> {
+    if (this.stopping.has(sessionId)) throw new Error('This work is still stopping.');
+    const request = this.runtime().submit(sessionId, prompt, options);
+    const pending = this.admissions.get(sessionId) ?? new Set<Promise<unknown>>();
+    pending.add(request);
+    this.admissions.set(sessionId, pending);
+    try {
+      await request;
+    } finally {
+      pending.delete(request);
+      if (!pending.size) this.admissions.delete(sessionId);
+    }
   }
 
   /** A scheduled occurrence waits on its native submission, not UI completion events. */
@@ -123,7 +143,7 @@ export class PiRuntimeAdapter extends EventEmitter {
     options: PiContinueOptions = {},
   ): Promise<void> {
     if (options.approvalMode) this.approvalModes.set(sessionId, options.approvalMode);
-    await this.runtime().submit(sessionId, prompt, options);
+    await this.admit(sessionId, prompt, options);
   }
 
   async patchSession(sessionId: string, patch: PiSessionPatch): Promise<void> {
@@ -164,11 +184,23 @@ export class PiRuntimeAdapter extends EventEmitter {
     await this.scheduledAdmissions.get(sessionId)?.catch((): void => {});
     await this.runtime().runner.abort(sessionId);
   }
-  stopSession(sessionId: string): void {
+  stopSession(sessionId: string): Promise<void> {
+    const existing = this.stopping.get(sessionId);
+    if (existing) return existing;
     this.host?.cancelPreparing(sessionId);
-    void this.runtime()
-      .runner.abort(sessionId)
-      .catch(error => console.error('[DurableRuntime] Failed to stop work:', error));
+    const pending = [...(this.admissions.get(sessionId) ?? [])];
+    const scheduled = this.scheduledAdmissions.get(sessionId);
+    if (scheduled) pending.push(scheduled);
+    const request = (async () => {
+      await Promise.allSettled(pending);
+      await this.runtime().runner.abort(sessionId);
+    })();
+    this.stopping.set(sessionId, request);
+    const clear = () => {
+      if (this.stopping.get(sessionId) === request) this.stopping.delete(sessionId);
+    };
+    void request.then(clear, clear);
+    return request;
   }
   async close(): Promise<void> {
     this.closing = true;
@@ -199,7 +231,9 @@ export class PiRuntimeAdapter extends EventEmitter {
     return this.confirmationModes.get(sessionId) ?? 'modal';
   }
   onSessionDeleted(sessionId: string): void {
-    this.stopSession(sessionId);
+    void this.stopSession(sessionId).catch(error =>
+      console.error('[DurableRuntime] Stop failed after session removal:', error),
+    );
   }
   respondToCodingElicitation(_requestId: string, _answer: string): boolean {
     return false;

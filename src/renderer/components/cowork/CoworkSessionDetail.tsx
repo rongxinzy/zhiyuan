@@ -115,10 +115,9 @@ import {
   useCoworkComposerInset,
 } from './hooks/useCoworkComposerInset';
 import AskUserQuestionCard from './AskUserQuestionCard';
-import { DurableRecoveryCard } from './durable/DurableRecoveryCard';
+import { CoworkExecutionStatus } from './status/CoworkExecutionStatus';
 import { WorkDocumentCard } from './durable/WorkDocumentCard';
 import CoworkPermissionModal from './CoworkPermissionModal';
-import { CoworkRunStatus } from './components/CoworkRunStatus';
 
 // The artifact panel only mounts when the user opens it, so keep its code
 // (and the whole renderers tree behind it) out of the cowork startup chunk.
@@ -138,6 +137,8 @@ interface CoworkSessionDetailProps {
     expertIds?: string[],
   ) => boolean | void | Promise<boolean | void>;
   onStop: () => void;
+  stopping?: boolean;
+  stopFailed?: boolean;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
@@ -198,6 +199,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onPermissionModeChange,
   onContinue,
   onStop,
+  stopping = false,
+  stopFailed = false,
   isSidebarCollapsed,
   onToggleSidebar,
   onNewChat,
@@ -1206,11 +1209,21 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       onToggleArtifactPanel={() => dispatch(togglePanel())}
       updateBadge={updateBadge}
       runIndicator={
-        isSessionSwitching ? null : (
-          <CoworkRunStatus
+        isSessionSwitching ? null : currentSession.id.startsWith('temp-') ? (
+          <p role="status" className="px-4 py-2 text-sm text-muted-foreground">
+            {i18nService.t('executionPreparing')}
+          </p>
+        ) : (
+          <CoworkExecutionStatus
             key={currentSession.id}
             sessionId={currentSession.id}
             isStreaming={isStreaming}
+            awaitingReply={Boolean(inlineQuestionPermission || inlinePermission)}
+            stopping={stopping}
+            stopFailed={stopFailed}
+            onStop={onStop}
+            onConversation={openConversation}
+            onReview={openDecision}
           />
         )
       }
@@ -1282,7 +1295,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       {/* Content row: chat + artifact panel */}
       {!isSessionSwitching && sessionId && workMode === CoworkSessionMode.Work && (
         <div className="max-h-64 shrink-0 overflow-y-auto px-4">
-          <DurableRecoveryCard sessionId={sessionId} disabled={isStreaming} compact />
           {(inlineQuestionPermission || inlinePermission) && section !== 'conversation' && (
             <div role="status" className="flex flex-wrap items-center gap-2 py-2 text-sm">
               <span>{i18nService.t('workSceneDecision')}</span>
@@ -1688,7 +1700,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                     workMode === 'chat' ? 'chatPlaceholder' : 'coworkContinuePlaceholder',
                   )}
                   disabled={
-                    !isSessionSwitching && (isAwaitingInlineQuestion || Boolean(inlinePermission))
+                    !isSessionSwitching &&
+                    (stopping || isAwaitingInlineQuestion || Boolean(inlinePermission))
                   }
                   sessionContextPending={isSessionSwitching}
                   size="large"

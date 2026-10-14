@@ -42,7 +42,7 @@ const answer = {
   },
 };
 
-function models(block: boolean) {
+function models(block: boolean, fail = false) {
   const calls: string[] = [];
   const fake = {
     getModel: () => model,
@@ -54,7 +54,9 @@ function models(block: boolean) {
               once: true,
             });
           })
-        : Promise.resolve(answer);
+        : fail
+          ? Promise.reject(new Error('Fixture provider failure'))
+          : Promise.resolve(answer);
       // A native model stream with no partial chunks and a final receipt.
       return {
         async *[Symbol.asyncIterator]() {
@@ -196,4 +198,114 @@ test('history reads all native entries before reset and reads closed sessions wi
   expect(provider.calls).toEqual([]);
   await expect(offline.readHistory('missing', 10)).rejects.toThrow();
   expect(await offline.exists('missing')).toBe(false);
+});
+
+test('closed SQLite inspect never constructs configuration or calls a provider and preserves pending work', async () => {
+  const { create } = await fixture();
+  const blocked = models(true);
+  const first = create(blocked);
+  const session = await first.open('stored-only', agent);
+  const submission = await session.conversation.submit(
+    { type: 'input', content: 'Pending' },
+    context,
+  );
+  await expect.poll(() => blocked.calls.length).toBe(1);
+  await first.close();
+  const unused = models(false);
+  const second = create(unused);
+  // Configuration is forbidden, even if no model request would be issued by Harness.open.
+  Object.assign(second, {
+    options: async () => {
+      throw new Error('must not configure while browsing');
+    },
+  });
+  const snapshot = await second.inspect('stored-only');
+  expect(snapshot).toMatchObject({
+    scheduling: 'paused',
+    canResume: false,
+    resumeRequiresCheck: true,
+    blockedReason: 'runtime_check_required',
+    latestInputKnown: true,
+    latestInput: { id: submission.id, status: 'placed' },
+  });
+  expect(unused.calls).toHaveLength(0);
+  expect(await second.inspect('missing')).toBeUndefined();
+  expect(await second.exists('missing')).toBe(false);
+  expect((await second.readHistory('stored-only', 10)).items.length).toBeGreaterThan(0);
+});
+
+test('stored inspection returns native done and aborted input receipts, excluding passive writes', async () => {
+  const { create } = await fixture();
+  const owner = create(models(false));
+  const session = await owner.open('receipts', agent);
+  const input = await session.conversation.submit({ type: 'input', content: 'Answer' }, context);
+  await input.wait(context);
+  await session.conversation.submit(
+    { type: 'write', entry: { kind: 'fixture', model: [], data: {} } },
+    context,
+  );
+  expect((await owner.inspect('receipts'))?.latestInput).toEqual({ id: input.id, status: 'done' });
+  await owner.close();
+  const reopened = create(models(false));
+  expect((await reopened.inspect('receipts'))?.latestInput).toEqual({
+    id: input.id,
+    status: 'done',
+  });
+
+  const blocked = models(true);
+  const active = create(blocked);
+  const pendingSession = await active.open('aborted-receipt', agent);
+  const pending = await pendingSession.conversation.submit(
+    { type: 'input', content: 'Pending' },
+    context,
+  );
+  await expect.poll(() => blocked.calls.length).toBe(1);
+  await pendingSession.conversation.abort(context);
+  const receipt = await pending.wait(context);
+  expect(receipt.status).toBe('unanswered');
+  await active.close();
+  expect((await reopened.inspect('aborted-receipt'))?.latestInput).toMatchObject({
+    id: pending.id,
+    status: 'unanswered',
+    reason: receipt.reason,
+  });
+});
+
+test('bounded receipt scan reports unknown when recent passive writes hide the last user input', async () => {
+  const { create } = await fixture();
+  const owner = create(models(false));
+  const session = await owner.open('bounded', agent);
+  const input = await session.conversation.submit({ type: 'input', content: 'Answer' }, context);
+  await input.wait(context);
+  for (let i = 0; i < 65; i++) {
+    await session.conversation.submit(
+      { type: 'write', entry: { kind: 'fixture', model: [], data: {} } },
+      context,
+    );
+  }
+  await owner.close();
+  const reader = create(models(false));
+  const snapshot = await reader.inspect('bounded');
+  expect(snapshot?.latestInputKnown).toBe(false);
+  expect(snapshot?.latestInput).toBeUndefined();
+  expect(snapshot?.blockedReason).toBe('no_pending_work');
+});
+
+test('closed inspection preserves failed input reason without retrying the provider', async () => {
+  const { create } = await fixture();
+  const failing = models(false, true);
+  const owner = create(failing);
+  const session = await owner.open('failed-receipt', agent);
+  const input = await session.conversation.submit({ type: 'input', content: 'Fail' }, context);
+  const receipt = await input.wait(context);
+  expect(receipt.status).toBe('unanswered');
+  await owner.close();
+  const unused = models(false);
+  const reader = create(unused);
+  expect((await reader.inspect('failed-receipt'))?.latestInput).toMatchObject({
+    id: input.id,
+    status: 'unanswered',
+    reason: receipt.reason,
+  });
+  expect(unused.calls).toHaveLength(0);
 });

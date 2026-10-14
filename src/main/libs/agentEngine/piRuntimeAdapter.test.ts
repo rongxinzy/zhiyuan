@@ -335,3 +335,36 @@ test('actual native work exposes Python and waits for approval before dispatchin
     ),
   ).toBe(true);
 });
+
+test('manual stop joins native cancellation and concurrent clicks share the same request', async () => {
+  fixture.hold = true;
+  await runtime.startSession('manual-stop', 'Hold');
+  await expect.poll(() => fixture.calls).toBe(1);
+  const first = runtime.stopSession('manual-stop');
+  const second = runtime.stopSession('manual-stop');
+  expect(second).toBe(first);
+  await first;
+  expect(runtime.isSessionRunning('manual-stop')).toBe(false);
+  const snapshot = await runtime.getDurableWork('manual-stop');
+  expect(snapshot?.tasks).toHaveLength(0);
+  expect(snapshot?.latestInput).toMatchObject({ status: 'unanswered', reason: 'aborted' });
+});
+
+test('stop during admission cannot report success and then start the cancelled work', async () => {
+  fixture.hold = true;
+  const admission = runtime.startSession('early-manual-stop', 'Hold').catch(() => {});
+  await runtime.stopSession('early-manual-stop');
+  await admission;
+  expect(runtime.isSessionRunning('early-manual-stop')).toBe(false);
+  expect(fixture.calls).toBe(0);
+});
+
+test('native cancellation failures reject the actual stop request and permit explicit retry', async () => {
+  const { DurableConversationRunner } = await import('./durable/conversationRunner');
+  const abort = vi.spyOn(DurableConversationRunner.prototype, 'abort');
+  abort.mockRejectedValueOnce(new Error('Native cancellation failed'));
+  await expect(runtime.stopSession('stop-failure')).rejects.toThrow('Native cancellation failed');
+  await expect(runtime.stopSession('stop-failure')).resolves.toBeUndefined();
+  expect(abort).toHaveBeenCalledTimes(2);
+  abort.mockRestore();
+});

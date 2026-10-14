@@ -3,18 +3,25 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DurableWorkSnapshot } from '../../../../shared/durable/types';
 
 /** Inspect and resume native work only. Never create a submission or synthesize execution state. */
-export function useDurableWorkSnapshot(sessionId: string) {
+export function useDurableWorkSnapshot(
+  sessionId: string,
+  observeVisible = false,
+  activeSignal = false,
+) {
   const [snapshot, setSnapshot] = useState<DurableWorkSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [resumeFailed, setResumeFailed] = useState(false);
   const [resuming, setResuming] = useState(false);
   const requestVersion = useRef(0);
+  const refreshing = useRef(false);
   const activeSession = useRef<string | null>(sessionId);
   const actionLock = useRef<symbol | null>(null);
 
   const refresh = useCallback(async () => {
     if (activeSession.current !== sessionId) return;
+    if (refreshing.current) return;
+    refreshing.current = true;
     const version = ++requestVersion.current;
     setLoading(true);
     setLoadFailed(false);
@@ -32,6 +39,7 @@ export function useDurableWorkSnapshot(sessionId: string) {
       }
     } finally {
       if (version === requestVersion.current && activeSession.current === sessionId) {
+        refreshing.current = false;
         setLoading(false);
       }
     }
@@ -39,6 +47,7 @@ export function useDurableWorkSnapshot(sessionId: string) {
 
   useEffect(() => {
     activeSession.current = sessionId;
+    refreshing.current = false;
     setSnapshot(null);
     setResumeFailed(false);
     setResuming(false);
@@ -47,14 +56,38 @@ export function useDurableWorkSnapshot(sessionId: string) {
       activeSession.current = null;
       requestVersion.current += 1;
       actionLock.current = null;
+      refreshing.current = false;
     };
   }, [refresh, sessionId]);
+
+  const hasPending = Boolean(
+    snapshot &&
+    (snapshot.tasks.length ||
+      snapshot.pendingSubmissionCount ||
+      snapshot.latestInput?.status === 'queued' ||
+      snapshot.latestInput?.status === 'placed'),
+  );
+  useEffect(() => {
+    if (!observeVisible) return;
+    const visibleRefresh = () => {
+      if (document.visibilityState === 'visible' && !actionLock.current) void refresh();
+    };
+    visibleRefresh();
+    const timer = hasPending || activeSignal ? window.setInterval(visibleRefresh, 5000) : undefined;
+    window.addEventListener('focus', visibleRefresh);
+    document.addEventListener('visibilitychange', visibleRefresh);
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer);
+      window.removeEventListener('focus', visibleRefresh);
+      document.removeEventListener('visibilitychange', visibleRefresh);
+    };
+  }, [observeVisible, refresh, hasPending, activeSignal]);
 
   const resume = useCallback(async () => {
     if (
       activeSession.current !== sessionId ||
       snapshot?.sessionId !== sessionId ||
-      !snapshot.canResume ||
+      !(snapshot.canResume || snapshot.resumeRequiresCheck) ||
       loading ||
       loadFailed ||
       actionLock.current

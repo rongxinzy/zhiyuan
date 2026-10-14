@@ -3299,7 +3299,7 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:stop', async (_event, sessionId: string) => {
     try {
       const runtime = getPiRuntimeAdapter();
-      runtime.stopSession(sessionId);
+      await runtime.stopSession(sessionId);
       return { success: true };
     } catch (error) {
       return {

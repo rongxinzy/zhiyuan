@@ -65,7 +65,7 @@ test('reserves conversation viewport above the absolutely positioned composer', 
     'className="mx-auto flex w-full max-w-6xl min-w-[320px] flex-col items-end pl-4"',
   );
   expect(source).not.toContain('WorkbenchTaskAcceptanceCard');
-  expect(source).toContain('<DurableRecoveryCard');
+  expect(source).toContain('<CoworkExecutionStatus');
   expect(source).toContain('<WorkDocumentCard');
   expect(source).toMatch(/<ConversationContent\r?\n\s+className="pt-3"/);
   expect(promptInput).toBeGreaterThan(overlay);
@@ -91,8 +91,8 @@ test('work scene keeps conversation and document mounted with native decisions o
   );
   expect(source).toMatch(/value="document"\s+keepMounted\s+inert=\{section !== 'document'\}/);
   expect(source.match(/<WorkDocumentCard/g)).toHaveLength(1);
-  expect(source.match(/<DurableRecoveryCard/g)).toHaveLength(1);
-  expect(source.indexOf('<DurableRecoveryCard')).toBeLessThan(
+  expect(source.match(/<CoworkExecutionStatus/g)).toHaveLength(1);
+  expect(source.indexOf('<CoworkExecutionStatus')).toBeLessThan(
     source.indexOf('ref={contentRowRef}'),
   );
   expect(source).toContain('onSnapshot={onDocumentSnapshot}');

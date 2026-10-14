@@ -19,15 +19,33 @@ export function DurableRecoveryCard({
   disabled = false,
   compact = false,
 }: DurableRecoveryCardProps) {
-  const { snapshot, loading, loadFailed, resumeFailed, resuming, refresh, resume } =
-    useDurableWorkSnapshot(sessionId);
+  const state = useDurableWorkSnapshot(sessionId);
+  return <DurableRecoveryDetails state={state} disabled={disabled} compact={compact} />;
+}
+
+export function DurableRecoveryDetails({
+  state,
+  disabled = false,
+  compact = false,
+}: {
+  state: ReturnType<typeof useDurableWorkSnapshot>;
+  disabled?: boolean;
+  compact?: boolean;
+}) {
+  const { snapshot, loading, loadFailed, resumeFailed, resuming, refresh, resume } = state;
   const [, setLanguage] = useState(i18nService.getLanguage());
   useEffect(() => i18nService.subscribe(() => setLanguage(i18nService.getLanguage())), []);
 
   if (!snapshot && !loadFailed) return null;
   if (snapshot && snapshot.scheduling !== DurableScheduling.Paused && !loadFailed && !resumeFailed)
     return null;
-  if (snapshot?.pendingSubmissionCount === 0 && !loadFailed && !resumeFailed) return null;
+  if (
+    snapshot?.pendingSubmissionCount === 0 &&
+    !snapshot.tasks.length &&
+    !loadFailed &&
+    !resumeFailed
+  )
+    return null;
 
   const blockedKey =
     snapshot?.blockedReason === DurableResumeBlockedReason.MissingTaskDefinition
@@ -69,13 +87,19 @@ export function DurableRecoveryCard({
           >
             {i18nService.t('durableRecoveryRefresh')}
           </Button>
-          {snapshot?.canResume && (
+          {(snapshot?.canResume || snapshot?.resumeRequiresCheck) && (
             <Button
               type="button"
               disabled={disabled || loading || loadFailed || resuming}
               onClick={() => void resume()}
             >
-              {i18nService.t(resuming ? 'durableRecoveryResuming' : 'durableRecoveryResume')}
+              {i18nService.t(
+                resuming
+                  ? 'durableRecoveryResuming'
+                  : snapshot?.resumeRequiresCheck
+                    ? 'executionCheckResume'
+                    : 'durableRecoveryResume',
+              )}
             </Button>
           )}
         </>
@@ -95,7 +119,7 @@ export function DurableRecoveryCard({
         <>
           <p className="theme-home-caption">
             {i18nService
-              .t('durableRecoveryPending')
+              .t(snapshot.pendingTruncated ? 'executionPendingLimited' : 'durableRecoveryPending')
               .replace('{count}', String(snapshot.pendingSubmissionCount))}
           </p>
           <details open={compact ? undefined : true} className="flex min-w-0 flex-col gap-2">
@@ -107,7 +131,9 @@ export function DurableRecoveryCard({
             </p>
           </details>
           <p className="theme-home-caption">{i18nService.t('durableRecoveryEffectsUnknown')}</p>
-          {!snapshot.canResume && <p className="theme-home-caption">{i18nService.t(blockedKey)}</p>}
+          {!snapshot.canResume && !snapshot.resumeRequiresCheck && (
+            <p className="theme-home-caption">{i18nService.t(blockedKey)}</p>
+          )}
         </>
       )}
     </PermissionRequestCard>

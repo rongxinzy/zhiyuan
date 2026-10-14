@@ -58,16 +58,13 @@ const copyPhotonWasmPlugin = () => ({
     const sourceCandidates = [
       path.resolve(
         projectRoot,
-        'node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm',
+        'node_modules/@earendil-works/pi-durable/node_modules/@silvia-odwyer/photon/photon_rs_bg.wasm',
       ),
-      path.resolve(projectRoot, 'node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm'),
+      path.resolve(projectRoot, 'node_modules/@silvia-odwyer/photon/photon_rs_bg.wasm'),
     ];
     const source = sourceCandidates.find(candidate => fs.existsSync(candidate));
     if (!source) {
-      console.warn(
-        '[Vite] Photon WASM asset was not found; Electron main process may fail to start.',
-      );
-      return;
+      throw new Error('[Vite] Required Photon WASM asset was not found.');
     }
     const targetDir = path.resolve(projectRoot, 'dist-electron');
     fs.mkdirSync(targetDir, { recursive: true });
@@ -242,18 +239,9 @@ export default defineConfig(async ({ command }) => {
                   },
                 },
                 onstart() {
-                  // Signal that the main process bundle is ready for electron to load
+                  // Package the native image dependency before signaling readiness.
+                  copyPhotonWasmPlugin().closeBundle();
                   fs.writeFileSync(electronReadyPath, '');
-
-                  // Copy photon-node WASM artifact into dist-electron so pi-coding-agent can load it
-                  const wasmSource = path.resolve(
-                    projectRoot,
-                    'node_modules/@earendil-works/pi-coding-agent/node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm',
-                  );
-                  const wasmDest = path.resolve(projectRoot, 'dist-electron/photon_rs_bg.wasm');
-                  if (fs.existsSync(wasmSource) && !fs.existsSync(wasmDest)) {
-                    fs.copyFileSync(wasmSource, wasmDest);
-                  }
                 },
               },
             ]),

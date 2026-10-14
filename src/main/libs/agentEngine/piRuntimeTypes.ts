@@ -214,7 +214,7 @@ export interface PiRuntime {
   ): Promise<{ submissionId: number; conversationId: number }>;
   continueSession(sessionId: string, prompt: string, options?: PiContinueOptions): Promise<void>;
   patchSession?(sessionId: string, patch: PiSessionPatch): Promise<void>;
-  stopSession(sessionId: string): void;
+  stopSession(sessionId: string): void | Promise<void>;
   stopAllSessions(): void;
   respondToPermission(requestId: string, result: PiPermissionResult): void;
   isSessionActive(sessionId: string): boolean;

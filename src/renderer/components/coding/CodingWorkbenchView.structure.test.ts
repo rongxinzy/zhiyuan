@@ -31,3 +31,17 @@ test('floats the approval card over the composer slot like work mode', () => {
   expect(overlayIndex).toBeGreaterThan(composerIndex);
   expect(source).toContain('permission={activePermission}');
 });
+
+test('prioritizes project and task context while keeping composer and management separate', () => {
+  expect(source).toMatch(/title=\{\s*snapshot\.room\.name\s*\|\|/);
+  expect(source.indexOf('<CodingTaskOverview')).toBeLessThan(source.indexOf('<CodingEventStream'));
+  expect(source.indexOf('<CodingEventStream')).toBeLessThan(source.indexOf('<CodingComposer'));
+  expect(source).toContain('projectedTurns={activeTurns}');
+  expect(source).toContain(
+    'hasOutput={activeEvents.some(event => event.kind === CodingEventKind.Terminal)}',
+  );
+  expect(source).not.toContain('headerActions={');
+  expect(source).not.toContain('magpie.start(');
+  expect(source).not.toContain('magpie.agents(');
+  expect(source).toContain('saveDraft(activeLane.id, next)');
+});

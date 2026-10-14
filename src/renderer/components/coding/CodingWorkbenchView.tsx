@@ -65,6 +65,8 @@ import { CodingAuthTerminalDialog } from './CodingAuthTerminalDialog';
 import { CodingComposer } from './CodingComposer';
 import { CodingPermissionOverlay } from './CodingPermissionOverlay';
 import { CodingEventStream } from './CodingEventStream';
+import { CodingTaskOverview } from './CodingTaskOverview';
+import { projectCodingEvents } from './codingEventProjection';
 import { useCodingRoomSnapshot } from './useCodingRoomSnapshot';
 import { CodingGitPanel } from './CodingGitPanel';
 import { CodingGitQuickActions } from './CodingGitQuickActions';
@@ -354,6 +356,7 @@ export const CodingWorkbenchView = ({
       activeLane ? (snapshot?.events.filter(event => event.laneId === activeLane.id) ?? []) : [],
     [activeLane, snapshot],
   );
+  const activeTurns = useMemo(() => projectCodingEvents(activeEvents), [activeEvents]);
   const loadOlderEvents = useCallback(async () => {
     if (!activeLaneId || loadingOlderEventsRef.current) return;
     const windowInfo = snapshot?.eventWindows?.find(window => window.laneId === activeLaneId);
@@ -979,20 +982,8 @@ export const CodingWorkbenchView = ({
       <PageHeader
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={onToggleSidebar}
-        leftContent={
-          <>
-            <CodingParticipants
-              activeLaneId={activeLane?.id ?? null}
-              lanes={activeMissionLanes}
-              profiles={snapshot.profiles}
-              onSelect={laneId => void selectLane(laneId)}
-            />
-            {activeProfile && (
-              <Badge variant="secondary" className="shrink-0">
-                {profileStatusText(activeProfile.status)}
-              </Badge>
-            )}
-          </>
+        title={
+          snapshot.room.name || workspaceRoot.split(/[/\\]/).filter(Boolean).at(-1) || workspaceRoot
         }
         actions={
           <>
@@ -1102,41 +1093,79 @@ export const CodingWorkbenchView = ({
               </DialogContent>
             </Dialog>
           )}
+          <CodingTaskOverview
+            key={activeLane?.id ?? draftSession?.id ?? workspaceRoot}
+            sourceRoot={gitSourceRoot}
+            taskTitle={
+              snapshot.missions.find(mission => mission.id === activeLane?.missionId)?.title
+            }
+            status={activeLane?.status ?? null}
+            turns={activeTurns}
+            hasOutput={activeEvents.some(event => event.kind === CodingEventKind.Terminal)}
+            onReview={() => {
+              openSidePanelTab(CodingSidePanelView.Review);
+              if (isNarrowViewport) setSidePanelSheetOpen(true);
+            }}
+            onFiles={() => {
+              openSidePanelTab(CodingSidePanelView.Files);
+              if (isNarrowViewport) setSidePanelSheetOpen(true);
+            }}
+            onOutput={() => {
+              openSidePanelTab(CodingSidePanelView.Inspector);
+              if (isNarrowViewport) setSidePanelSheetOpen(true);
+            }}
+            agents={
+              <>
+                <CodingParticipants
+                  activeLaneId={activeLane?.id ?? null}
+                  lanes={activeMissionLanes}
+                  profiles={snapshot.profiles}
+                  onSelect={laneId => void selectLane(laneId)}
+                />
+                {activeProfile && (
+                  <Badge variant="secondary" className="shrink-0">
+                    {profileStatusText(activeProfile.status)}
+                  </Badge>
+                )}
+              </>
+            }
+            tools={
+              <>
+                <CodingGitQuickActions
+                  target={{
+                    workspaceRoot,
+                    laneId: activeLane?.id ?? undefined,
+                    sourceRoot: gitSourceRoot,
+                  }}
+                  refreshKey={gitRefreshKey}
+                  onOpenReview={() => {
+                    openSidePanelTab(CodingSidePanelView.Review);
+                    if (window.innerWidth < 1024) setSidePanelSheetOpen(true);
+                  }}
+                />
+                {!desktopSidePanelOpen && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={i18nService.t('codingAgentSidePanel')}
+                    aria-pressed={false}
+                    onClick={() => {
+                      restoreSidePanel();
+                      if (window.innerWidth < 1024) setSidePanelSheetOpen(true);
+                    }}
+                  >
+                    <PanelRight />
+                  </Button>
+                )}
+              </>
+            }
+          />
           <div ref={artifactRowRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <CodingEventStream
               events={activeEvents}
+              projectedTurns={activeTurns}
               isStreaming={activeLane?.status === CodingLaneStatus.Running}
-              headerActions={
-                <>
-                  <CodingGitQuickActions
-                    target={{
-                      workspaceRoot,
-                      laneId: activeLane?.id ?? undefined,
-                      sourceRoot: gitSourceRoot,
-                    }}
-                    refreshKey={gitRefreshKey}
-                    onOpenReview={() => {
-                      openSidePanelTab(CodingSidePanelView.Review);
-                      if (window.innerWidth < 1024) setSidePanelSheetOpen(true);
-                    }}
-                  />
-                  {!desktopSidePanelOpen && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={i18nService.t('codingAgentSidePanel')}
-                      aria-pressed={false}
-                      onClick={() => {
-                        restoreSidePanel();
-                        if (window.innerWidth < 1024) setSidePanelSheetOpen(true);
-                      }}
-                    >
-                      <PanelRight />
-                    </Button>
-                  )}
-                </>
-              }
               emptyDescription={
                 draftSession ? i18nService.t('codingSessionDraftDescription') : undefined
               }

@@ -100,14 +100,9 @@ export class DurableConversationRunner {
       throw new Error(
         'This historical work has no native document. Start a new work to use its archive.',
       );
-    const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
-    const session = await this.owner.open(sessionId);
-    await this.attach(session);
-    return (await session.harness.snapshot(
-      WorkDocumentDoc,
-      session.conversation.id,
-      BACKGROUND_CONTEXT,
-    ))!;
+    const document = await this.owner.readWorkDocument(sessionId);
+    if (!document) throw new Error('This work has no native document.');
+    return document;
   }
 
   async updateWorkDocument(sessionId: string, patch: WorkDocumentPatch): Promise<WorkDocument> {
@@ -133,10 +128,12 @@ export class DurableConversationRunner {
   }
 
   async resume(sessionId: string): Promise<void> {
+    if (!(await this.owner.exists(sessionId))) throw new Error('No native work exists.');
+    // Only this explicit continuation may prepare the configured model/runtime.
+    const session = await this.owner.open(sessionId);
     const snapshot = await this.inspect(sessionId);
     if (!snapshot?.canResume) throw new Error(snapshot?.blockedReason ?? 'No native work exists.');
     const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');
-    const session = await this.owner.open(sessionId);
     await this.attach(session);
     session.harness.resume();
     const pending = await session.harness.inspect(BACKGROUND_CONTEXT);

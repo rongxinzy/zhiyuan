@@ -1,3 +1,4 @@
+import { useSessionStop } from './status/useSessionStop';
 import { refreshMagpieModels } from '../../services/availableModels';
 import { cn } from '@shared/lib/utils';
 import React, { useEffect, useRef, useState } from 'react';
@@ -449,13 +450,15 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     }
   };
 
+  const stopState = useSessionStop(currentSession?.id);
+
   const handleStopSession = async () => {
     if (!currentSession) return;
     if (currentSession.id.startsWith('temp-') && pendingStartRef.current) {
       pendingStartRef.current.cancelled = true;
       pendingStartRef.current.cancellationAction = 'stop';
     }
-    await coworkService.stopSession(currentSession.id);
+    await stopState.stop(currentSession.id);
   };
 
   useEffect(() => {
@@ -534,6 +537,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
           }}
           onContinue={handleContinueSession}
           onStop={handleStopSession}
+          stopping={stopState.stopping}
+          stopFailed={stopState.stopFailed}
           isSidebarCollapsed={isSidebarCollapsed}
           onToggleSidebar={onToggleSidebar}
           onNewChat={onNewChat}

@@ -49,7 +49,7 @@ jobs:
       - name: Test history indexing, managed attachments and maintenance recovery
         run: bun x --no-install vitest run src/main/history --maxWorkers=2
       - name: Test local CLI manager lifecycle and packaging contracts
-        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts --maxWorkers=2
+        run: bun x --no-install vitest run src/main/magpie src/main/appPreferences.test.ts src/main/ipcHandlers/ollama.test.ts src/main/enterpriseExtension/managedProviderBridge.test.ts scripts/magpie-runtime.test.ts tests/electron-builder-hooks.test.ts tests/nativePhotonPackaging.test.ts --maxWorkers=2
       - name: Build renderer without Electron packaging
         run: bun run build:vite
         env:
