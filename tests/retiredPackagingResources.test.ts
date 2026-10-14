@@ -49,3 +49,10 @@ test('document and spreadsheet artifact previews keep their existing renderer de
     assert.ok(renderer.includes(`import('${dependency}')`));
   }
 });
+
+test('test transforms do not retain a removed agent runtime', () => {
+  assert.doesNotMatch(
+    readFileSync(path.join(root, 'vitest.config.ts'), 'utf8'),
+    /@earendil-works\/pi-coding-agent/,
+  );
+});

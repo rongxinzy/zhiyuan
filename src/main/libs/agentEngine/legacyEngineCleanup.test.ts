@@ -3,6 +3,23 @@ import path from 'path';
 import { describe, expect, test } from 'vitest';
 
 describe('legacy engine cleanup', () => {
+  test('does not retain the disconnected activity tracker or retired execution options', () => {
+    expect(fs.existsSync(path.join(__dirname, 'toolActivity.ts'))).toBe(false);
+    const options = fs.readFileSync(path.join(__dirname, 'piRuntimeTypes.ts'), 'utf8');
+    for (const retired of [
+      'attachedSkillIds',
+      'codemode',
+      'conversationHistory',
+      'PiConversationHistoryMessage',
+      '_piPromptOverride',
+      '_workbenchRunId',
+      '_streamStallResume',
+      '_queueDelivery',
+    ]) {
+      expect(options).not.toContain(retired);
+    }
+  });
+
   test('does not ship a second renderer-owned chat execution path', () => {
     const rendererRoot = path.resolve(__dirname, '../../../renderer');
     for (const relativePath of [

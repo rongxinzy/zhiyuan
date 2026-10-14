@@ -24,11 +24,11 @@ export default defineConfig({
     hookTimeout: 30_000,
     server: {
       deps: {
-        inline: ['@earendil-works/pi-coding-agent', '@earendil-works/pi-ai'],
+        inline: ['@earendil-works/pi-ai'],
       },
     },
   },
   ssr: {
-    noExternal: ['@earendil-works/pi-coding-agent', '@earendil-works/pi-ai'],
+    noExternal: ['@earendil-works/pi-ai'],
   },
 });

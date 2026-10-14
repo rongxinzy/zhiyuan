@@ -3,7 +3,6 @@ import type { RuntimeRetryNotice } from '../../../common/runtimeNotice';
 import type { CoworkToolActivityEvent } from '../../../shared/cowork/toolActivity';
 import type { CoworkMessage } from '../../coworkStore';
 import type { CoworkPendingMessage } from '../../../shared/cowork/pendingMessageQueue';
-import type { CoworkQueueDelivery } from '../../../shared/cowork/pendingMessageQueue';
 import type { CoworkSessionInterruption } from '../../../shared/cowork/interruption';
 import type { ToolApprovalMode } from '../../../shared/cowork/approval';
 
@@ -83,11 +82,6 @@ export type PiImageAttachment = {
   path?: string;
 };
 
-export type PiConversationHistoryMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
 export type PiStartOptions = {
   requestId?: string;
   skipInitialUserMessage?: boolean;
@@ -95,13 +89,6 @@ export type PiStartOptions = {
   _userMessageId?: string;
   /** Execution skill set for this session (user selection plus expert preset). */
   skillIds?: string[];
-  /**
-   * Skills the user attached to this one input, persisted on the user message so
-   * the transcript shows the chips the user actually chose. Omitting it means the
-   * turn carries no attachment and shows no chips: the session's `skillIds` never
-   * appears as user-attached.
-   */
-  attachedSkillIds?: string[];
   systemPrompt?: string;
   approvalMode?: ToolApprovalMode;
   /** No foreground user is available to answer questions during this run. */
@@ -111,9 +98,6 @@ export type PiStartOptions = {
   /** UI session mode, used to apply Work-only execution controls. */
   sessionMode?: 'work' | 'chat';
   goalMode?: boolean;
-  /** pi 1.0 codemode sandbox tool orchestration (work sessions, default off). */
-  codemode?: boolean;
-  /** pi 1.0 builtin MCP extension replaces the gateway tool (default off). */
   imageAttachments?: PiImageAttachment[];
   fileAttachments?: Array<{ name: string; path: string; extension: string; isImage?: boolean }>;
   agentId?: string;
@@ -121,14 +105,6 @@ export type PiStartOptions = {
   modelOverride?: string;
   /** Pi thinking level applied when the session is (re)created. */
   thinkingLevel?: PiThinkingLevel;
-  /** Previous conversation to restore (user/assistant pairs), injected into PI session state */
-  conversationHistory?: PiConversationHistoryMessage[];
-  /** Internal: override prompt text sent to PI, while UI shows original prompt */
-  _piPromptOverride?: string;
-  /** Internal: run already created by an explicit Resume/Retry action. */
-  _workbenchRunId?: string;
-  /** Internal: automatic resume after a stream stall; keeps the stall budget. */
-  _streamStallResume?: boolean;
 };
 
 export type PiContinueOptions = {
@@ -136,19 +112,9 @@ export type PiContinueOptions = {
   systemPrompt?: string;
   /** Execution skill set for this turn (user selection plus expert preset). */
   skillIds?: string[];
-  /**
-   * Skills the user attached to this one input, persisted on the user message so
-   * the transcript shows the chips the user actually chose. Omitting it means the
-   * turn carries no attachment and shows no chips: the session's `skillIds` never
-   * appears as user-attached.
-   */
-  attachedSkillIds?: string[];
   /** UI session mode, preserved when a skill change recreates the Pi session. */
   sessionMode?: 'work' | 'chat';
   goalMode?: boolean;
-  /** pi 1.0 codemode sandbox orchestration, forwarded when the runtime recreates the session. */
-  codemode?: boolean;
-  /** pi 1.0 native MCP bridge, forwarded when the runtime recreates the session. */
   imageAttachments?: PiImageAttachment[];
   fileAttachments?: Array<{ name: string; path: string; extension: string; isImage?: boolean }>;
   /** Session snapshot used when the in-process runtime needs to recreate Pi state. */
@@ -162,16 +128,10 @@ export type PiContinueOptions = {
   approvalMode?: ToolApprovalMode;
   /** No foreground user is available to answer questions during this run. */
   unattended?: boolean;
-  /** Internal: run already created by an explicit Resume/Retry action. */
-  _workbenchRunId?: string;
   /** Internal: do not persist a synthetic Resume/Retry prompt as a user message. */
   _skipUserMessage?: boolean;
-  /** Internal: marks a queued follow-up in the persisted transcript. */
-  _queueDelivery?: CoworkQueueDelivery;
   /** Internal: tells Pi how to queue a prompt while the agent is settling. */
   _streamingBehavior?: 'steer' | 'followUp';
-  /** Internal: automatic resume after a stream stall; keeps the stall budget. */
-  _streamStallResume?: boolean;
 };
 
 /** Workbench session patch; Pi supports switching the model and thinking level. */
