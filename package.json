@@ -105,7 +105,9 @@
     "check:electron-runtime-dependencies": "node scripts/ci/check-electron-runtime-dependencies.mjs",
     "theme:generate": "bun src/renderer/theme/scripts/generate-css.ts",
     "theme:check": "bun src/renderer/theme/scripts/generate-css.ts --check",
-    "theme:audit": "bun src/renderer/theme/scripts/audit-styles.ts"
+    "theme:audit": "bun src/renderer/theme/scripts/audit-styles.ts",
+    "magpie:build": "node scripts/build-magpie-runtime.cjs",
+    "magpie:verify": "node scripts/verify-magpie-runtime.cjs"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.70.0",

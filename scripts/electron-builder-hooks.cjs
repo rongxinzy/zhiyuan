@@ -14,6 +14,7 @@ const {
 } = require('fs');
 const { spawnSync } = require('child_process');
 const { ensurePortableGit } = require('./setup-mingit.js');
+const { configureMagpieResources, verifyPackagedMagpie } = require('./magpie-runtime.cjs');
 const {
   buildWindowsResourceBundleManifest,
   buildWindowsResourceComponentManifest,
@@ -207,6 +208,7 @@ function applyMacIconFix(appPath) {
 }
 
 async function beforePack(context) {
+  configureMagpieResources(context);
   configureMacAutoUpdateMetadata(context);
 
   if (isWindowsTarget(context)) {
@@ -299,6 +301,7 @@ async function beforePack(context) {
 }
 
 async function afterPack(context) {
+  verifyPackagedMagpie(context);
   if (isMacTarget(context)) {
     const appName = context.packager.appInfo.productFilename;
     const appPath = path.join(context.appOutDir, `${appName}.app`);

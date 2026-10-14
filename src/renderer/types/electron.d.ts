@@ -453,6 +453,7 @@ interface IElectronAPI {
     openDevTools: () => Promise<boolean>;
     onStateChanged: (callback: (state: WindowState) => void) => () => void;
   };
+  magpie: import('../../shared/magpie/types').MagpieApi;
   cowork: {
     getWorkDocument: (
       sessionId: string,

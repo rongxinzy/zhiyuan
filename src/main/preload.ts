@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { MagpieIpc, type MagpieModelSelection } from '../shared/magpie/types';
 
 import type { ContextMenuAction, ContextMenuOpenEvent } from '../shared/contextMenu';
 import type { ApiRequestPurpose } from '../shared/ipc/apiRequest';
@@ -367,6 +368,16 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  magpie: {
+    status: () => ipcRenderer.invoke(MagpieIpc.status),
+    start: () => ipcRenderer.invoke(MagpieIpc.start),
+    stop: () => ipcRenderer.invoke(MagpieIpc.stop),
+    agents: () => ipcRenderer.invoke(MagpieIpc.agents),
+    setModel: (selection: MagpieModelSelection) =>
+      ipcRenderer.invoke(MagpieIpc.setModel, selection),
+    models: () => ipcRenderer.invoke(MagpieIpc.models),
+    openManagement: () => ipcRenderer.invoke(MagpieIpc.openManagement),
+  },
   cowork: {
     getWorkDocument: (sessionId: string) =>
       ipcRenderer.invoke('cowork:workDocument:get', sessionId),

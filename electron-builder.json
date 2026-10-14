@@ -83,6 +83,10 @@
     {
       "from": "resources/acp/registry.json",
       "to": "acp/registry.json"
+    },
+    {
+      "from": "resources/magpie/upstream.json",
+      "to": "magpie/upstream.json"
     }
   ],
   "protocols": [
@@ -102,6 +106,8 @@
     "icon": "build/icons/mac/icon.icns",
     "category": "public.app-category.productivity",
     "hardenedRuntime": true,
+    "sign": "scripts/sign-magpie-macos.cjs",
+    "x64ArchFiles": "**/magpie/darwin-*/magpie",
     "gatekeeperAssess": false,
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
@@ -115,6 +121,7 @@
     "sign": false
   },
   "win": {
+    "signExts": ["!magpie.exe"],
     "target": ["nsis"],
     "publish": [
       {

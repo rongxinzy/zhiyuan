@@ -176,6 +176,8 @@ import { TodoReminderScheduler } from './todo/reminderScheduler';
 import { type PermissionResult, PiRuntimeAdapter } from './libs/agentEngine';
 import { registerDurableIpc } from './libs/agentEngine/durable/ipc';
 import { registerWorkDocumentIpc } from './libs/agentEngine/durable/workDocumentIpc';
+import { MagpieManager } from './magpie/manager';
+import { registerMagpieIpc } from './magpie/registerIpc';
 import type { PiThinkingLevel } from './libs/agentEngine/piRuntimeTypes';
 import { PiModelCatalogRefreshCoordinator } from './libs/agentEngine/piModelCatalogRefresh';
 import { AppUpdateCoordinator } from './libs/appUpdateCoordinator';
@@ -1891,6 +1893,7 @@ const ensureWindowsTaskbarBrand = (): void => {
 
 // 保存对主窗口的引用
 let mainWindow: BrowserWindow | null = null;
+let disposeMagpie: (() => Promise<void>) | undefined;
 
 let isQuitting = false;
 
@@ -2929,6 +2932,21 @@ if (!gotTheLock) {
   );
   registerWorkDocumentIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
+  );
+  disposeMagpie = registerMagpieIpc(
+    new MagpieManager({
+      resourcesRoot: app.isPackaged
+        ? path.join(process.resourcesPath, 'magpie')
+        : path.join(app.getAppPath(), 'resources/magpie'),
+      privateHome: path.join(app.getPath('userData'), 'magpie'),
+    }),
+    event =>
+      Boolean(
+        mainWindow &&
+        !mainWindow.isDestroyed() &&
+        event.sender === mainWindow.webContents &&
+        event.senderFrame === mainWindow.webContents.mainFrame,
+      ),
   );
   // Cowork IPC handlers
   ipcMain.handle(CoworkSessionIpc.Start, async (_event, rawOptions: unknown) => {
@@ -5054,6 +5072,8 @@ if (!gotTheLock) {
 
   const runAppCleanup = async (): Promise<void> => {
     console.log('[AppLifecycle] App cleanup started.');
+    await disposeMagpie?.();
+    disposeMagpie = undefined;
     destroyTray();
 
     await disposeZhiyuanEnterpriseExtension().catch(error => {

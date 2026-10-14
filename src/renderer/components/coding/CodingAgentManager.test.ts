@@ -24,6 +24,30 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+test('does not contact the model gateway until its management tab is opened', async () => {
+  const status = vi.fn().mockResolvedValue({ state: 'stopped', version: 'test' });
+  const start = vi.fn();
+  const agents = vi.fn();
+  Object.assign(window, { electron: { magpie: { status, start, agents } } });
+  render(
+    createElement(CodingAgentManager, {
+      open: true,
+      onOpenChange: vi.fn(),
+      profiles: [],
+      onDiscover: vi.fn(async () => true),
+      onAddProfile: vi.fn(async () => true),
+      onProbe: vi.fn(async () => true),
+      onTrust: vi.fn(async () => true),
+    }),
+  );
+  expect(status).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('tab', { name: i18nService.t('magpieTitle') }));
+  await waitFor(() => expect(status).toHaveBeenCalledOnce());
+  expect(screen.queryByRole('button', { name: i18nService.t('codingAgentRescan') })).toBeNull();
+  expect(start).not.toHaveBeenCalled();
+  expect(agents).not.toHaveBeenCalled();
+});
+
 function openForm(onAddProfile: (input: unknown) => Promise<boolean>) {
   render(
     createElement(CodingAgentManager, {

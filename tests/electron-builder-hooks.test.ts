@@ -21,14 +21,18 @@ afterEach(() => {
 
 describe('electron-builder packaging hooks', () => {
   test.each(['darwin', 'linux'])(
-    'prepares %s packaging without an external messaging runtime',
+    'refuses %s packaging when the pinned gateway resource is missing',
     async electronPlatformName => {
       const context = {
         electronPlatformName,
-        packager: { config: {} },
+        arch: 1,
+        packager: {
+          config: {},
+          projectDir: fs.mkdtempSync(path.join(os.tmpdir(), 'zhiyuan-hook-test-')),
+        },
       };
-
-      await expect(beforePack(context)).resolves.toBeUndefined();
+      temporaryDirectories.push(context.packager.projectDir);
+      await expect(beforePack(context)).rejects.toThrow('Magpie');
     },
   );
 
