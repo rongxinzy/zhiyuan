@@ -106,12 +106,15 @@
 - Vite 的旧 Photon WASM 复制路径已改为当前官方依赖，构建实际产物与源字节一致，缺件将阻断构建。额外本地 historyArchive 测试出现 Node 原生断言退出，在未修改 e8199fb 基线同样复现；远端 CI 的完整 22 项历史维护测试通过，不将本地异常计为通过。
 - 额外执行的旧 `runtimePackagingConfig` 在未修改基线 e8199fb 上同样有 8 项失败，涉及已停用的签名 / 发行 workflow 与此前 Python 资源策略；本轮保留断言，不复活旧发行链，不声称这些旧测试已通过。新 Photon 回归独立纳入现行轻量 CI。云浏览器已有 socket 策略阻断未绕过，Electron 视觉验收仍未完成。
 
-## 12. 模型 / 历史入口与统一交互验收 — 已实现，验证中
+## 12. 模型 / 历史入口与统一交互验收 — 已发布，CI 通过，视觉验收受限
 
 - 用户选择 UI 第五、六项。模型目录搜索与真实能力摘要、已保存默认 / 待保存选择分开；历史来源 / 时间只读筛选和原会话定位，备份恢复收入设置。
 - 时间筛选在 SQL 分页之前应用，游标绑定全部查询条件；列表按会话更新时间，搜索按消息时间。读取不启动任务或隐式续跑。
 - 核心页面巡检包括首页、工作现场、Coding；已确认并修复 Coding 展开结果无法键盘聚焦滚动的问题。设置窄窗口导航避免固定侧栏挤压；保留单浅深主题及 reduced-motion。
-- 本地 renderer/shared 261 套 / 1436 项通过；后续本地日历边界在 UTC / 纽约夏令时场景验证，历史 SQL 筛选 10 项通过。双类型、lint / 主题审计、格式、完整 renderer + Electron 构建与包预算通过。最终集成验证进行中，尚未发布。本轮官方云浏览器可用，但 0.0.0.0 devserver 接口枚举 EPERM，127.0.0.1 服务页面 ERR_CONNECTION_REFUSED；未绕过限制，实际页面截图 / 视觉验收仍未完成。第 11 项列明的 8 项旧打包基线失败仍保留。
+- 验收清单：共享控件 / 单浅深 token 归属、无新增动画、键盘操作、查询竞态、空 / 加载 / 错误状态的组件回归通过；未改 token / recipe，重新生成主题不适用。真实 light / dark 尺寸、窄窗像素溢出、portal 和滚动视觉仍未验收，不以结构检查代替。
+- 本地 renderer/shared 261 套 / 1436 项通过；后续本地日历边界在 UTC / 纽约夏令时场景验证，历史 SQL 筛选 10 项通过。双类型、lint / 主题审计、格式、build:vite 的 renderer + Electron 产物构建与包预算通过。[代码已发布](https://github.com/rongxinzy/zhiyuan/commit/000275d514837bfc513dacd94713f00ea1d3efae)，[现行 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38546535752)：最终 renderer/shared 262 套 / 1438 项、原生 55 项、历史 25 项、侧车与打包契约 78 项通过，5 项平台 / opt-in 跳过。本轮官方云浏览器可用，但 0.0.0.0 devserver 接口枚举 EPERM，127.0.0.1 服务页面 ERR_CONNECTION_REFUSED；未绕过限制，实际页面截图 / 视觉验收仍未完成。第 11 项列明的 8 项旧打包基线失败仍保留。
+
+- 额外架构审查已复现总 build 的后置门禁失败：check:electron-runtime-dependencies 的生产依赖 allowlist 未纳入已实际使用的 @earendil-works/chord / pi-durable。本轮仅 build:vite 产物与轻量 CI 构建通过，不代表总 build、安装包或发行通过；该问题另行记录，不以删除真实依赖绕过。
 
 ## 六阶段基线验证与剩余验收
 
