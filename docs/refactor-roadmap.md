@@ -96,13 +96,14 @@
 - 单项工作固定成果 / 对话 / 工作档案入口；保存回复、产物与真实 Document 目标进度前置，空工作直接输入；恢复和审批动作明确可达，标签保持草稿与运行订阅。最近输出不宣称工作已完成。
 - [本轮代码已发布](https://github.com/rongxinzy/zhiyuan/commit/c0e9dc59c6227b7dcfc9c5853a582aa97cee5ec8)，[CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38535425566)。最终本地 renderer/shared 255 套 / 1411 项与聚焦 41 项通过，双类型、格式、lint / 主题检查及 renderer + Electron 构建通过；云 Chromium 启动被系统 socket 权限阻止，未完成截图或 Electron 实机视觉验收。
 
-## 11. 执行状态与 Coding 工作台 — 已实现，验证中
+## 11. 执行状态与 Coding 工作台 — 已发布并通过 CI
 
 - 用户选择 UI 第三、第四项：真实执行状态与明确动作，项目 / 当前任务 / 差异 / 运行结果优先的 Coding 工作台。
 - 状态由原生任务与输入回执投影，区分运行、待回复、待执行、暂停、停止、失败、本轮完成和未知；只对当前可见未完成工作有界刷新。闭库状态 / 档案读取不创建模型配置，恢复需用户明确检查后继续。
 - Stop 等待原生取消，重复点击共享请求；早期输入 admission 取消、迟到失败与切会话有回归。失败后的再试仅打开输入供修改，不自动重放外部操作；取消不撤销已经发生的外部效果。
 - Coding 固定项目与任务上下文，差异 / 文件 / 运行输出常显，最近结果有界展示并区分上一轮 / 失败 / 取消；管理工具保持辅助位置，保留 ACP、终端及草稿。
-- 当前尚未发布；renderer/shared 259 套 / 1424 项、Coding 181 项及原生状态 / 取消相关回归通过，最终集成验证继续。Vite 的旧 Photon WASM 复制路径已改为当前官方依赖，构建实际产物与源字节一致，缺件将阻断构建。
+- [本轮代码已发布](https://github.com/rongxinzy/zhiyuan/commit/2e2c17f18e9c02d6316f1c01559b28c01a811745)，[现行轻量 CI 全部通过](https://github.com/rongxinzy/zhiyuan/actions/runs/38543782985)：renderer/shared 259 套 / 1424 项、原生执行与档案 55 项、历史维护 22 项、侧车与打包契约 78 项通过；5 项平台 / 显式启用测试跳过。Coding 181 项包含在 renderer 测试内，不重复计数。双类型、lint / 格式及完整 renderer + Electron 本地构建通过。
+- Vite 的旧 Photon WASM 复制路径已改为当前官方依赖，构建实际产物与源字节一致，缺件将阻断构建。额外本地 historyArchive 测试出现 Node 原生断言退出，在未修改 e8199fb 基线同样复现；远端 CI 的完整 22 项历史维护测试通过，不将本地异常计为通过。
 - 额外执行的旧 `runtimePackagingConfig` 在未修改基线 e8199fb 上同样有 8 项失败，涉及已停用的签名 / 发行 workflow 与此前 Python 资源策略；本轮保留断言，不复活旧发行链，不声称这些旧测试已通过。新 Photon 回归独立纳入现行轻量 CI。云浏览器已有 socket 策略阻断未绕过，Electron 视觉验收仍未完成。
 
 ## 六阶段基线验证与剩余验收
