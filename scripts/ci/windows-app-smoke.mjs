@@ -258,7 +258,10 @@ export async function runSmoke({ executablePath, outputDirectory }) {
         path: path.join(outputDirectory, 'installed-initial-settings.png'),
         fullPage: true,
       });
-      await page.getByRole('button', { name: /^(Close|关闭)$/ }).click();
+      await page
+        .locator('form')
+        .getByRole('button', { name: /^(Close|关闭)$/ })
+        .click();
     }
     await page
       .locator('[data-active-view="cowork"]')

@@ -194,7 +194,9 @@ test('installed smoke has no disabled sandbox, security exclusions or success ar
   expect(source).toContain("getByTestId('sidebar-new-conversation')");
   expect(source).toContain("'installed-ui.png'");
   expect(source).toContain("'installed-initial-settings.png'");
-  expect(source).toContain("getByRole('button', { name: /^(Close|关闭)$/ }).click()");
+  expect(source.replace(/\n\s*/g, '')).toContain(
+    "locator('form').getByRole('button', { name: /^(Close|关闭)$/ }).click()",
+  );
   expect(source).toContain("'app.asar', 'dist-electron', 'python-runtime-runner.js'");
   expect(source.indexOf('report.passed = true')).toBeGreaterThan(
     source.indexOf('assertPythonResult(response, manifest)'),
