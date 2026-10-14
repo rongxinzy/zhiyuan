@@ -36,6 +36,7 @@ export class LocalSchedulerRuntime implements SchedulerRuntime {
     private readonly activityService?: ActivityService,
     private readonly events?: SchedulerEventSink,
     private readonly cancel?: (run: ScheduledTaskRun) => Promise<void>,
+    private readonly mayAutomaticallyResume: (run: ScheduledTaskRun) => boolean = () => true,
   ) {}
 
   start(): void {
@@ -44,6 +45,7 @@ export class LocalSchedulerRuntime implements SchedulerRuntime {
     // Reattach UI projections to the original native request. Never declare
     // native work failed merely because the desktop process was interrupted.
     for (const run of this.store.listPendingRuns()) {
+      if (!this.mayAutomaticallyResume(run)) continue;
       const task = this.store.get(run.taskId);
       if (task) this.observeInBackground(task, run);
     }

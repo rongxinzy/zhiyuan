@@ -9,6 +9,7 @@ import type {
 } from '../../shared/history';
 import { decodeCursor, encodeCursor, locatorKey, pageLimit } from './cursor';
 import { HistoryReader } from './historyReader';
+import { installHistoryRevisions, historyRevision } from './historyRevisions';
 
 /** Disposable text index. No model context, task checkpoint, permissions or live state are stored here. */
 export class HistoryIndex {
@@ -16,6 +17,7 @@ export class HistoryIndex {
   private indexedAt = 0;
   private dirty = true;
   private sourceVersion = '';
+  private indexRevision = randomUUID();
   private version(): string {
     const row = this.reader.db.prepare('SELECT total_changes() AS changes').get() as {
       changes: number;
@@ -26,24 +28,30 @@ export class HistoryIndex {
     private readonly db: Database.Database,
     private readonly reader: HistoryReader,
   ) {
+    installHistoryRevisions(reader.db);
     db.exec(`CREATE TABLE IF NOT EXISTS history_index_catalog (
       conversation_key TEXT PRIMARY KEY, source TEXT NOT NULL, source_id TEXT NOT NULL,
       title TEXT NOT NULL, generation TEXT NOT NULL, updated_at INTEGER NOT NULL,
-      room_id TEXT, lane_id TEXT
+      room_id TEXT, lane_id TEXT, revision INTEGER NOT NULL DEFAULT -1, native_marker TEXT
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS history_search USING fts5(
       content, conversation_key UNINDEXED, message_id UNINDEXED, entry_id UNINDEXED,
       timestamp UNINDEXED, generation UNINDEXED, tokenize='trigram'
     );`);
+    const fields = db.pragma('table_info(history_index_catalog)') as { name: string }[];
+    if (!fields.some(f => f.name === 'revision'))
+      db.exec('ALTER TABLE history_index_catalog ADD COLUMN revision INTEGER NOT NULL DEFAULT -1');
+    if (!fields.some(f => f.name === 'native_marker'))
+      db.exec('ALTER TABLE history_index_catalog ADD COLUMN native_marker TEXT');
   }
   invalidate(): void {
     this.dirty = true;
   }
   /** Restart/rebuild reconstructs all text from the existing authorities, not from the previous index. */
-  rebuild(): Promise<{ indexedAt: number; conversations: number }> {
+  rebuild(force = true): Promise<{ indexedAt: number; conversations: number }> {
     if (this.refreshing) return this.refreshing;
     this.dirty = false;
-    const pending = this.build();
+    const pending = this.build(force);
     this.refreshing = pending;
     void pending.then(
       () => {
@@ -56,10 +64,18 @@ export class HistoryIndex {
     );
     return pending;
   }
-  private async build(): Promise<{ indexedAt: number; conversations: number }> {
+  private async build(force: boolean): Promise<{ indexedAt: number; conversations: number }> {
     const generation = randomUUID();
     const sourceVersion = this.version();
-    const catalog: HistoryConversation[] = [];
+    const catalog: Array<{
+      conversation: HistoryConversation;
+      generation: string;
+      revision: number;
+      marker: string | null;
+    }> = [];
+    const lookup = this.db.prepare(
+      'SELECT generation,revision,native_marker FROM history_index_catalog WHERE conversation_key=?',
+    );
     let listCursor: string | undefined;
     const insert = this.db.prepare(
       'INSERT INTO history_search(content,conversation_key,message_id,entry_id,timestamp,generation) VALUES (?,?,?,?,?,?)',
@@ -83,16 +99,62 @@ export class HistoryIndex {
       do {
         const page = await this.reader.list({ limit: 100, cursor: listCursor });
         for (const conversation of page.items) {
-          catalog.push(conversation);
+          const key = locatorKey(conversation.locator);
+          const revision = historyRevision(this.reader.db, conversation.locator);
+          const previous = lookup.get(key) as
+            | { generation: string; revision: number; native_marker: string | null }
+            | undefined;
+          let marker = previous?.native_marker ?? null;
+          const native = conversation.backend === 'pi';
+          // On the first search after restart, reconcile native heads even if the app-side invalidation was lost.
+          if (native && (force || !this.indexedAt || !previous || previous.revision !== revision)) {
+            const head = await this.reader.native.readHistory(conversation.locator.id, 1);
+            marker = String(head.items[0]?.id ?? 0);
+          }
+          const unchanged =
+            !force &&
+            previous &&
+            (native ? marker === previous.native_marker : revision === previous.revision);
+          catalog.push({
+            conversation,
+            generation: unchanged ? previous.generation : generation,
+            revision,
+            marker,
+          });
+          if (unchanged) continue;
+          const appendFrom =
+            native &&
+            !force &&
+            previous?.native_marker &&
+            Number(marker) > Number(previous.native_marker)
+              ? Number(previous.native_marker)
+              : undefined;
+          if (appendFrom !== undefined) {
+            this.db
+              .prepare(
+                'INSERT INTO history_search(content,conversation_key,message_id,entry_id,timestamp,generation) SELECT content,conversation_key,message_id,entry_id,timestamp,? FROM history_search WHERE conversation_key=? AND generation=?',
+              )
+              .run(generation, key, previous!.generation);
+          }
           let cursor: string | undefined;
           do {
-            const entries = await this.reader.readPage({
+            const entries = await this.reader.readIndexPage({
               locator: conversation.locator,
               limit: 100,
               cursor,
+              ...(native && !cursor && Number(marker) > 0 ? { anchor: marker! } : {}),
             });
-            writePage(conversation, entries.items);
-            cursor = entries.nextCursor;
+            writePage(
+              conversation,
+              appendFrom === undefined
+                ? entries.items
+                : entries.items.filter(item => Number(item.entryId) > appendFrom),
+            );
+            cursor =
+              appendFrom !== undefined &&
+              entries.items.some(item => Number(item.entryId) <= appendFrom)
+                ? undefined
+                : entries.nextCursor;
             await yieldTurn();
           } while (cursor);
         }
@@ -100,22 +162,33 @@ export class HistoryIndex {
       } while (listCursor);
       const publish = this.db.transaction(() => {
         this.db.prepare('DELETE FROM history_index_catalog').run();
-        const add = this.db.prepare('INSERT INTO history_index_catalog VALUES (?,?,?,?,?,?,?,?)');
-        for (const item of catalog)
+        const add = this.db.prepare(
+          'INSERT INTO history_index_catalog VALUES (?,?,?,?,?,?,?,?,?,?)',
+        );
+        for (const record of catalog) {
+          const item = record.conversation;
           add.run(
             locatorKey(item.locator),
             item.locator.source,
             item.locator.id,
             item.title,
-            generation,
+            record.generation,
             item.updatedAt,
             item.openTarget?.roomId ?? null,
             item.openTarget?.laneId ?? null,
+            record.revision,
+            record.marker,
           );
-        this.db.prepare('DELETE FROM history_search WHERE generation <> ?').run(generation);
+        }
+        this.db
+          .prepare(
+            'DELETE FROM history_search WHERE NOT EXISTS (SELECT 1 FROM history_index_catalog c WHERE c.conversation_key=history_search.conversation_key AND c.generation=history_search.generation)',
+          )
+          .run();
       });
       publish();
       this.indexedAt = Date.now();
+      this.indexRevision = randomUUID();
       this.sourceVersion = sourceVersion;
       return { indexedAt: this.indexedAt, conversations: catalog.length };
     } catch (error) {
@@ -133,16 +206,14 @@ export class HistoryIndex {
       throw new Error('Search requires 2–256 characters');
     const query = request.query.trim();
     if (!request.cursor && (this.dirty || !this.indexedAt || this.sourceVersion !== this.version()))
-      await this.rebuild();
+      await this.rebuild(false);
     else if (this.refreshing) await this.refreshing;
     const scope = `search:${query}`;
     const cursor = decodeCursor<{ timestamp: number; rowid: number; generation: string }>(
       scope,
       request.cursor,
     );
-    const current = this.db
-      .prepare('SELECT generation FROM history_index_catalog LIMIT 1')
-      .get() as { generation: string } | undefined;
+    const current = { generation: this.indexRevision };
     if (
       cursor &&
       (!Number.isFinite(cursor.timestamp) ||

@@ -86,7 +86,7 @@ test('real FTS5 finds two and three Chinese characters and literal punctuation; 
 test('failed rebuild retains the last complete index and discards partial generation', async () => {
   const { index, reader, indexDb } = fixture();
   await index.rebuild();
-  const spy = vi.spyOn(reader, 'readPage').mockRejectedValueOnce(new Error('read failure'));
+  const spy = vi.spyOn(reader, 'readIndexPage').mockRejectedValueOnce(new Error('read failure'));
   await expect(index.rebuild()).rejects.toThrow('read failure');
   spy.mockRestore();
   expect(
@@ -123,4 +123,89 @@ test('IPC enforces trusted sender before every operation and reports malformed i
   expect((await handlers.get(HistoryIpc.ReadPage)!({}, null)).success).toBe(false);
   await service.dispose();
   expect(handlers.size).toBe(0);
+});
+
+test('large legacy previews are bounded, inline bytes are stripped, and search still indexes the full source', async () => {
+  const { db, reader, index } = fixture();
+  const huge = 'x'.repeat(2 * 1024 * 1024) + '末尾查找词';
+  db.prepare('UPDATE cowork_messages SET content=?,metadata=? WHERE id=?').run(
+    huge,
+    JSON.stringify({ imageAttachments: [{ name: 'inline', base64Data: 's'.repeat(200000) }] }),
+    'm1',
+  );
+  const page = await reader.readPage({ locator: { source: 'cowork', id: 'old' } });
+  const message = page.items.find(x => x.id === 'm1')!;
+  expect(message.content.length).toBeLessThanOrEqual(32768);
+  expect(message.metadata?.historyContentTruncated).toBe(true);
+  expect(JSON.stringify(page)).not.toContain('base64Data');
+  expect((await index.search({ query: '末尾查找' })).items[0].messageId).toBe('m1');
+});
+
+test('normal search reads only changed source pages; catalog renames and unchanged searches do not reread transcripts', async () => {
+  const { reader, index, db } = fixture();
+  const read = vi.spyOn(reader, 'readIndexPage');
+  await index.search({ query: '中文' });
+  expect(read).toHaveBeenCalledTimes(2);
+  read.mockClear();
+  await index.search({ query: '搜索' });
+  expect(read).not.toHaveBeenCalled();
+  db.prepare('UPDATE coding_events SET payload_json=? WHERE id=?').run(
+    '{"content":"完全更新后的中文"}',
+    'e2',
+  );
+  await index.search({ query: '中文' });
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(read.mock.calls[0][0].locator).toEqual({ source: 'coding', id: 'lane' });
+  read.mockClear();
+  db.prepare('UPDATE coding_missions SET title=? WHERE id=?').run('Renamed', 'mission');
+  expect((await index.search({ query: '中文' })).items.some(item => item.title === 'Renamed')).toBe(
+    true,
+  );
+  expect(read).not.toHaveBeenCalled();
+});
+test('native index reconciles a missed app invalidation after restart and appends only new native pages', async () => {
+  const entries = Array.from({ length: 205 }, (_, i) => ({
+    id: i + 1,
+    kind: 'pi.user',
+    model: [{ role: 'user', content: `历史中文${i}`, timestamp: i + 1 }],
+    data: {},
+  }));
+  const readHistory = vi.fn(
+    async (_id: string, limit: number, cursor?: Record<string, unknown>) => {
+      const before = Number(cursor?.before ?? Infinity);
+      const found = entries.filter(e => e.id < before).reverse();
+      const items = found.slice(0, limit);
+      return {
+        items,
+        next: found.length > limit ? { before: items.at(-1)!.id } : undefined,
+      } as never;
+    },
+  );
+  const { reader, index, db, indexDb } = fixture({ historyExists: async () => true, readHistory });
+  const read = vi.spyOn(reader, 'readIndexPage');
+  await index.search({ query: '中文' });
+  expect(read.mock.calls.filter(([request]) => request.locator.source === 'cowork')).toHaveLength(
+    3,
+  );
+  read.mockClear();
+  readHistory.mockClear();
+  await index.search({ query: '中文' });
+  expect(readHistory).not.toHaveBeenCalled();
+  // Native commit succeeded, app-side dirty revision did not. Restart must compare native head markers.
+  entries.push({
+    id: 206,
+    kind: 'pi.user',
+    model: [{ role: 'user', content: '刚刚新增中文', timestamp: 206 }],
+    data: {},
+  });
+  const restarted = new HistoryIndex(indexDb, reader);
+  await restarted.search({ query: '新增中文' });
+  const nativePages = read.mock.calls.filter(([request]) => request.locator.source === 'cowork');
+  expect(nativePages).toHaveLength(1);
+  expect((await restarted.search({ query: '新增中文' })).items).toHaveLength(1);
+  expect((await restarted.search({ query: '历史中文0' })).items).toHaveLength(1);
+  expect(db.prepare('SELECT count(*) AS n FROM history_index_revisions').get()).toBeDefined();
+  entries.pop();
+  const rolledBack = new HistoryIndex(indexDb, reader);
+  expect((await rolledBack.search({ query: '新增中文' })).items).toHaveLength(0);
 });

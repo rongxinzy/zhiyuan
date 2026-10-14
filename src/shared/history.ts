@@ -55,6 +55,11 @@ export interface HistorySearchPage extends HistoryPage<HistorySearchHit> {
 }
 export type HistoryResult<T> = { success: true; data: T } | { success: false; error: string };
 export interface HistoryApi {
+  selectMaintenance(request: {
+    kind: HistoryMaintenanceKind;
+  }): Promise<HistoryResult<HistoryMaintenanceSelection | null>>;
+  confirmMaintenance(request: { selectionId: string }): Promise<HistoryResult<{ scheduled: true }>>;
+  maintenanceStatus(): Promise<HistoryResult<HistoryMaintenanceStatus | null>>;
   list(request?: HistoryListRequest): Promise<HistoryResult<HistoryPage<HistoryConversation>>>;
   /** Entries are chronological within each page; nextCursor requests an older page. */
   readPage(request: HistoryReadRequest): Promise<HistoryResult<HistoryPage<HistoryMessage>>>;
@@ -62,8 +67,28 @@ export interface HistoryApi {
   rebuildIndex(): Promise<HistoryResult<{ indexedAt: number; conversations: number }>>;
 }
 export const HistoryIpc = {
+  SelectMaintenance: 'history:selectMaintenance',
+  ConfirmMaintenance: 'history:confirmMaintenance',
+  MaintenanceStatus: 'history:maintenanceStatus',
   List: 'history:list',
   ReadPage: 'history:readPage',
   Search: 'history:search',
   RebuildIndex: 'history:rebuildIndex',
 } as const;
+
+export type HistoryMaintenanceKind = 'backup' | 'restore';
+export interface HistoryMaintenanceSelection {
+  selectionId: string;
+  displayPath: string;
+  kind: HistoryMaintenanceKind;
+  attachmentScope: 'managed-attachments-only';
+  externalReferencesIncluded: false;
+  requiresRestart: true;
+}
+export interface HistoryMaintenanceStatus {
+  kind: HistoryMaintenanceKind;
+  status: 'completed' | 'failed' | 'recovered';
+  path?: string;
+  rollbackPath?: string;
+  error?: string;
+}

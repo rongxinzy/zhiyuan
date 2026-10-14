@@ -1,5 +1,35 @@
 export const historyTranslations = {
   zh: {
+    historyMaintenanceTitle: '历史备份与恢复',
+    historyBackup: '备份历史',
+    historyRestore: '恢复历史',
+    historyBackupConfirmTitle: '重启并备份历史？',
+    historyRestoreConfirmTitle: '重启并恢复历史？',
+    historyMaintenanceRestartWarning:
+      '应用将重启以完成操作。运行中工作的已提交检查点会保留；尚未提交的进度不保证保留。',
+    historyRestoreReplacementWarning:
+      '恢复会替换当前历史。操作前会自动保留回退快照。请确认选择的是要恢复的备份。',
+    historyBackupScope: '备份包含会话、原生检查点和受管附件。',
+    historyBackupExclusions:
+      '旧外部文件引用所指向的文件不会随包带走。应用登录、API 密钥配置及模型配置不包含在备份中。',
+    historyBackupPrivacy: '备份保留原始对话和附件内容，包括你在其中提供的信息，请妥善保存。',
+    historyBackupConfirm: '重启并备份',
+    historyRestoreConfirm: '替换历史并重启',
+    historyMaintenanceSelecting: '请在系统窗口选择目录；恢复前会检查备份完整性。',
+    historyMaintenanceScheduling: '正在安排维护重启…',
+    historyMaintenanceRestarting: '已安排重启。操作结果将在重启后显示。',
+    historyMaintenanceSelectFailed: '无法选择或验证目录。请确认备份完整、目录可访问后重试。',
+    historyMaintenanceScheduleFailed: '未能安排维护重启。请重试。',
+    historyMaintenanceUncertain:
+      '无法确认是否已安排重启，请勿重复提交。请等待应用重启后检查结果；若未重启，请先关闭并重新打开应用。',
+    historyBackupCompleted: '历史备份已完成。',
+    historyRestoreCompleted: '历史恢复已完成。',
+    historyLastMaintenanceResult: '上次维护结果：',
+    historyRestoreRecovered: '恢复中断，已回到操作前的历史。',
+    historyMaintenanceFailed: '上次历史维护未完成。请检查备份和目录访问权限后重试。',
+    historyMaintenanceStatusFailed: '无法读取上次维护结果。',
+    historyRollbackLocation: '回退快照：',
+
     historyTitle: '历史记录',
     historyOpenConversation: '打开原会话',
     historyRetry: '重试',
@@ -29,6 +59,41 @@ export const historyTranslations = {
     historyIndexTime: '搜索索引更新于',
   },
   en: {
+    historyMaintenanceTitle: 'History backup and restore',
+    historyBackup: 'Back up history',
+    historyRestore: 'Restore history',
+    historyBackupConfirmTitle: 'Restart and back up history?',
+    historyRestoreConfirmTitle: 'Restart and restore history?',
+    historyMaintenanceRestartWarning:
+      'The app will restart to complete this operation. Committed checkpoints of running work are preserved; uncommitted progress is not guaranteed.',
+    historyRestoreReplacementWarning:
+      'Restoring replaces your current history. A rollback snapshot will be saved first. Check that you selected the intended backup.',
+    historyBackupScope:
+      'The backup includes conversations, native checkpoints, and managed attachments.',
+    historyBackupExclusions:
+      'Files referenced by old external file links are not copied. App sign-in, API key settings, and model settings are excluded.',
+    historyBackupPrivacy:
+      'Backups preserve original conversation and attachment content, including information you entered. Store them safely.',
+    historyBackupConfirm: 'Restart and back up',
+    historyRestoreConfirm: 'Replace history and restart',
+    historyMaintenanceSelecting:
+      'Choose a folder in the system window. Restore backups are checked for integrity first.',
+    historyMaintenanceScheduling: 'Scheduling maintenance restart…',
+    historyMaintenanceRestarting: 'Restart scheduled. The result will appear after restart.',
+    historyMaintenanceSelectFailed:
+      'Could not select or validate the folder. Check the backup and folder access, then try again.',
+    historyMaintenanceScheduleFailed: 'Could not schedule the maintenance restart. Try again.',
+    historyMaintenanceUncertain:
+      'Could not confirm whether restart was scheduled. Do not submit again. Wait for restart and check the result; if the app does not restart, close and reopen it first.',
+    historyBackupCompleted: 'History backup completed.',
+    historyRestoreCompleted: 'History restore completed.',
+    historyLastMaintenanceResult: 'Last maintenance result:',
+    historyRestoreRecovered: 'Restore was interrupted. The previous history was recovered.',
+    historyMaintenanceFailed:
+      'The last history maintenance operation did not complete. Check the backup and folder access before trying again.',
+    historyMaintenanceStatusFailed: 'Could not read the last maintenance result.',
+    historyRollbackLocation: 'Rollback snapshot:',
+
     historyTitle: 'History',
     historyOpenConversation: 'Open conversation',
     historyRetry: 'Retry',

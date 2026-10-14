@@ -165,12 +165,14 @@ export class PiRuntimeAdapter extends EventEmitter {
     await this.runtime().runner.abort(sessionId);
   }
   stopSession(sessionId: string): void {
+    this.host?.cancelPreparing(sessionId);
     void this.runtime()
       .runner.abort(sessionId)
       .catch(error => console.error('[DurableRuntime] Failed to stop work:', error));
   }
   async close(): Promise<void> {
     this.closing = true;
+    this.host?.cancelPreparing();
     await this.host?.runner.close();
   }
   stopAllSessions(): void {

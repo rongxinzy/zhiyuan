@@ -15,6 +15,7 @@ import { historyLocatorKey } from './historyBrowserModel';
 import { HISTORY_PAGE_SIZE, HistorySource } from './constants';
 import { useHistoryPage } from './useHistoryPage';
 import { HistoryMessageView } from './HistoryMessages';
+import { HistoryMaintenanceControls } from './HistoryMaintenanceControls';
 
 type HistoryRow = HistoryConversation | HistorySearchHit;
 interface Selection {
@@ -112,6 +113,7 @@ export function HistoryBrowser({
       />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         <p className="text-sm text-muted-foreground">{t('historyReadOnly')}</p>
+        <HistoryMaintenanceControls api={api} />
         <form
           className="flex flex-wrap items-center gap-2"
           role="search"

@@ -570,6 +570,9 @@ contextBridge.exposeInMainWorld('electron', {
     readPage: request => ipcRenderer.invoke(HistoryIpc.ReadPage, request),
     search: request => ipcRenderer.invoke(HistoryIpc.Search, request),
     rebuildIndex: () => ipcRenderer.invoke(HistoryIpc.RebuildIndex),
+    selectMaintenance: request => ipcRenderer.invoke(HistoryIpc.SelectMaintenance, request),
+    confirmMaintenance: request => ipcRenderer.invoke(HistoryIpc.ConfirmMaintenance, request),
+    maintenanceStatus: () => ipcRenderer.invoke(HistoryIpc.MaintenanceStatus),
   } satisfies HistoryApi,
 
   codingAgent: {

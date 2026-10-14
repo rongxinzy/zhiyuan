@@ -28,6 +28,18 @@ function fixture() {
   const locator = { source: 'coding' as const, id: 'lane-a' };
   const openTarget = { roomId: 'room-a', laneId: 'lane-a' };
   const api: HistoryApi = {
+    selectMaintenance: vi.fn<HistoryApi['selectMaintenance']>(async () => ({
+      success: true,
+      data: null,
+    })),
+    confirmMaintenance: vi.fn<HistoryApi['confirmMaintenance']>(async () => ({
+      success: true,
+      data: { scheduled: true },
+    })),
+    maintenanceStatus: vi.fn<HistoryApi['maintenanceStatus']>(async () => ({
+      success: true,
+      data: null,
+    })),
     list: vi.fn<HistoryApi['list']>(async () => ({
       success: true,
       data: {

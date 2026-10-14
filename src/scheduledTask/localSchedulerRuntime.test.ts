@@ -187,3 +187,34 @@ test('desktop detachment leaves the native execution projection pending for reat
   expect(store.listRuns(task.id)[0].status).toBe(TaskStatus.Running);
   expect(events.runUpdated).toHaveBeenCalledOnce();
 });
+
+test('restored checkpoints never auto-resume across restarts while new scheduled runs still execute', async () => {
+  const { store, task, execute } = setup();
+  const pending = store.claimTrigger({
+    taskId: task.id,
+    scheduleVersion: task.scheduleVersion!,
+    scheduledAt: new Date().toISOString(),
+  })!;
+  const restoredSession = `scheduled-run:${pending.id}`;
+  store.setRunSession(pending.id, restoredSession);
+  const runtime = new LocalSchedulerRuntime(
+    store,
+    execute,
+    undefined,
+    undefined,
+    undefined,
+    run => run.sessionId !== restoredSession && `scheduled-run:${run.id}` !== restoredSession,
+  );
+  runtimes.push(runtime);
+  await start(runtime);
+  expect(execute).not.toHaveBeenCalled();
+  expect(store.listRuns(task.id)[0].status).toBe(TaskStatus.Running);
+  runtime.stop();
+  await start(runtime);
+  expect(execute).not.toHaveBeenCalled();
+  await runtime.runNow(task.id);
+  expect(execute).toHaveBeenCalledOnce();
+  expect(execute.mock.calls[0]).not.toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: pending.id })]),
+  );
+});

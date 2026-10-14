@@ -2,6 +2,8 @@ import { projectPendingQueue } from './pendingQueue';
 import { classifyCoworkError } from '../../../../common/coworkError';
 import { readCoworkImageBase64 } from '../../../coworkImageAttachments';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
+import { persistHistoryFileAttachments } from '../../../history/managedAttachments';
 import type { AgentChange, HarnessOptions, ConversationView } from '@earendil-works/pi-durable';
 import type { CoworkStore, CoworkMessage } from '../../../coworkStore';
 import type { PiStartOptions, PiContinueOptions, PiRuntimeEvents } from '../piRuntimeTypes';
@@ -18,12 +20,13 @@ export class DurableRuntimeHost {
   readonly runner: DurableConversationRunner;
   private readonly views = new Map<string, ConversationView>();
   private readonly running = new Set<string>();
+  private readonly preparing = new Map<string, Set<AbortController>>();
   private readonly projected = new Map<string, Set<number>>();
   private readonly knownMessages = new Set<string>();
   private readonly configurations = new Map<string, Promise<DurableConfiguration>>();
 
   constructor(
-    directory: string,
+    private readonly directory: string,
     private readonly store: CoworkStore,
     private readonly prepare: (
       sessionId: string,
@@ -79,58 +82,73 @@ export class DurableRuntimeHost {
     prompt: string,
     options: PiStartOptions | PiContinueOptions,
   ): Promise<import('@earendil-works/pi-durable').Submission> {
-    const config = await this.configuration(sessionId, options);
-    const images = options.imageAttachments ?? [];
-    const modelPrompt = options.fileAttachments?.length
-      ? `${prompt}\n\nAttached files:\n${options.fileAttachments.map(file => `${file.name}: ${file.path}`).join('\n')}`
-      : prompt;
-    const content = images.length
-      ? [
-          { type: 'text' as const, text: modelPrompt },
-          ...images.map(image => ({
-            type: 'image' as const,
-            mimeType: image.mimeType,
-            data: readCoworkImageBase64(image),
-          })),
-        ]
-      : modelPrompt;
+    const controller = new AbortController();
+    const controllers = this.preparing.get(sessionId) ?? new Set<AbortController>();
+    controllers.add(controller);
+    this.preparing.set(sessionId, controllers);
+    try {
+      const config = await this.configuration(sessionId, options);
+      const images = options.imageAttachments ?? [];
+      const managedFiles = await persistHistoryFileAttachments(
+        dirname(this.directory),
+        options.fileAttachments ?? [],
+        { signal: controller.signal },
+      );
+      const modelPrompt = options.fileAttachments?.length
+        ? `${prompt}\n\nAttached files:\n${options.fileAttachments.map(file => `${file.name}: ${file.path}`).join('\n')}`
+        : prompt;
+      const content = images.length
+        ? [
+            { type: 'text' as const, text: modelPrompt },
+            ...images.map(image => ({
+              type: 'image' as const,
+              mimeType: image.mimeType,
+              data: readCoworkImageBase64(image),
+            })),
+          ]
+        : modelPrompt;
 
-    return await this.runner.submit(
-      sessionId,
-      {
-        type: 'input',
-        entry: {
-          kind: 'zhiyuan.input',
-          data: {
-            createdAt: Date.now(),
-            displayText: prompt,
-            ...('_userMessageId' in options && options._userMessageId
-              ? { userMessageId: options._userMessageId }
-              : {}),
-            ...(images.length
-              ? {
-                  imageAttachments: images.map(({ name, mimeType, path }) => ({
-                    name,
-                    mimeType,
-                    ...(path ? { path } : {}),
-                  })),
-                }
-              : {}),
-            ...(options.fileAttachments?.length
-              ? { fileAttachments: options.fileAttachments }
-              : {}),
+      controller.signal.throwIfAborted();
+      return await this.runner.submit(
+        sessionId,
+        {
+          type: 'input',
+          entry: {
+            kind: 'zhiyuan.input',
+            data: {
+              createdAt: Date.now(),
+              displayText: prompt,
+              ...('_userMessageId' in options && options._userMessageId
+                ? { userMessageId: options._userMessageId }
+                : {}),
+              ...(images.length
+                ? {
+                    imageAttachments: images.map(({ name, mimeType, path }) => ({
+                      name,
+                      mimeType,
+                      ...(path ? { path } : {}),
+                    })),
+                  }
+                : {}),
+              ...(options.fileAttachments?.length ? { fileAttachments: managedFiles } : {}),
+            },
           },
+          content,
+          requestId:
+            options.requestId ??
+            ('_userMessageId' in options ? options._userMessageId : undefined) ??
+            randomUUID(),
+          whenBusy:
+            '_streamingBehavior' in options
+              ? (options._streamingBehavior ?? 'followUp')
+              : 'followUp',
         },
-        content,
-        requestId:
-          options.requestId ??
-          ('_userMessageId' in options ? options._userMessageId : undefined) ??
-          randomUUID(),
-        whenBusy:
-          '_streamingBehavior' in options ? (options._streamingBehavior ?? 'followUp') : 'followUp',
-      },
-      config.agent,
-    );
+        config.agent,
+      );
+    } finally {
+      controllers.delete(controller);
+      if (!controllers.size) this.preparing.delete(sessionId);
+    }
   }
 
   async reconfigure(sessionId: string): Promise<DurableConfiguration> {
@@ -147,14 +165,20 @@ export class DurableRuntimeHost {
     return projectPendingQueue(this.views.get(sessionId));
   }
 
+  cancelPreparing(sessionId?: string): void {
+    for (const [id, controllers] of this.preparing)
+      if (sessionId === undefined || id === sessionId)
+        for (const controller of controllers)
+          controller.abort(new Error('Attachment preparation cancelled'));
+  }
   isRunning(sessionId: string): boolean {
-    return this.running.has(sessionId);
+    return this.running.has(sessionId) || this.preparing.has(sessionId);
   }
   hasSession(sessionId: string): boolean {
     return this.configurations.has(sessionId);
   }
   hasRunning(): boolean {
-    return this.running.size > 0;
+    return this.running.size > 0 || this.preparing.size > 0;
   }
 
   private async settle(sessionId: string, success: boolean, reason?: string): Promise<void> {

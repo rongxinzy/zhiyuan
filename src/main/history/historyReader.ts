@@ -8,6 +8,13 @@ import type {
   HistoryPage,
   HistoryReadRequest,
 } from '../../shared/history';
+import {
+  historyMetadata,
+  boundHistoryPreview,
+  HISTORY_METADATA_CHARS,
+  HISTORY_PREVIEW_CHARS,
+} from './historyPreview';
+import { relocateHistoryAttachments } from './managedAttachments';
 import { projectDurableEntry } from '../libs/agentEngine/durable/messageProjection';
 import { decodeCursor, encodeCursor, locatorKey, pageLimit } from './cursor';
 
@@ -31,15 +38,6 @@ interface DirectoryRow {
 const DIRECTORY = `SELECT 'cowork' AS source, id, title, cwd AS workspace, updated_at, NULL AS room_id FROM cowork_sessions
  UNION ALL SELECT 'coding', l.id, m.title, r.workspace_root, MAX(l.updated_at,m.updated_at), r.id
  FROM coding_agent_lanes l JOIN coding_missions m ON m.id=l.mission_id JOIN coding_rooms r ON r.id=m.room_id`;
-function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
 function messageType(value: unknown): HistoryMessage['type'] {
   return ['user', 'assistant', 'tool_use', 'tool_result', 'system'].includes(String(value))
     ? (value as HistoryMessage['type'])
@@ -50,6 +48,7 @@ export class HistoryReader {
   constructor(
     readonly db: Database.Database,
     readonly native: NativeHistoryReader,
+    private readonly dataRoot?: string,
   ) {}
   private async describe(row: DirectoryRow): Promise<HistoryConversation> {
     const backend =
@@ -127,7 +126,23 @@ export class HistoryReader {
         : {}),
     };
   }
-  async readPage(request: HistoryReadRequest): Promise<HistoryPage<HistoryMessage>> {
+  private async attachments(items: HistoryMessage[], forIndex = false): Promise<HistoryMessage[]> {
+    if (!forIndex) items = boundHistoryPreview(items);
+    if (!this.dataRoot) return items;
+    return Promise.all(
+      items.map(async item => ({
+        ...item,
+        metadata: await relocateHistoryAttachments(this.dataRoot!, item.metadata),
+      })),
+    );
+  }
+  readIndexPage(request: HistoryReadRequest): Promise<HistoryPage<HistoryMessage>> {
+    return this.readPage(request, true);
+  }
+  async readPage(
+    request: HistoryReadRequest,
+    forIndex = false,
+  ): Promise<HistoryPage<HistoryMessage>> {
     const key = locatorKey(request.locator);
     const limit = pageLimit(request.limit);
     if (
@@ -182,14 +197,19 @@ export class HistoryReader {
     }
     const rows = this.db
       .prepare(
-        `SELECT *, ${seq} AS sort_sequence FROM ${table} WHERE ${owner}=?${bound} ORDER BY ${seq} DESC,id DESC LIMIT ?`,
+        `SELECT id,created_at,${seq} AS sort_sequence, ${
+          coding
+            ? `kind, substr(payload_json,1,${HISTORY_METADATA_CHARS + 1}) AS payload_json, json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.role') AS history_role, ${forIndex ? "COALESCE(json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.content'),json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.text'),json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.error'),'')" : `substr(COALESCE(json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.content'),json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.text'),json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,'$.error'),''),1,${HISTORY_PREVIEW_CHARS + 1})`} AS history_content`
+            : `type,${forIndex ? 'content' : `substr(content,1,${HISTORY_PREVIEW_CHARS + 1}) AS content`},substr(metadata,1,${HISTORY_METADATA_CHARS + 1}) AS metadata`
+        }
+        FROM ${table} WHERE ${owner}=?${bound} ORDER BY ${seq} DESC,id DESC LIMIT ?`,
       )
       .all(...values, limit + 1) as Record<string, unknown>[];
     const selected = rows.slice(0, limit);
     const last = selected.at(-1);
     const items = selected.reverse().map(row => {
-      const payload = object(row.payload_json);
-      const metadata = coding ? payload : object(row.metadata);
+      const payload = historyMetadata(row.payload_json);
+      const metadata = coding ? payload : historyMetadata(row.metadata);
       // External ACP stores its own committed event payloads; no attempt to reinterpret them as Pi checkpoints.
       const kind = String(row.kind ?? '');
       const type = coding
@@ -198,19 +218,11 @@ export class HistoryReader {
           : kind === 'reasoning'
             ? 'assistant'
             : messageType(
-                payload.role ??
+                row.history_role ??
                   (['message_delta', 'message'].includes(kind) ? 'assistant' : 'system'),
               )
         : messageType(row.type);
-      const content = coding
-        ? typeof payload.content === 'string'
-          ? payload.content
-          : typeof payload.text === 'string'
-            ? payload.text
-            : typeof payload.error === 'string'
-              ? payload.error
-              : ''
-        : String(row.content ?? '');
+      const content = coding ? String(row.history_content ?? '') : String(row.content ?? '');
       return {
         id: String(row.id),
         entryId: String(row.id),
@@ -225,7 +237,7 @@ export class HistoryReader {
       };
     });
     return {
-      items,
+      items: await this.attachments(items, forIndex),
       ...(rows.length > limit && last
         ? { nextCursor: encodeCursor(scope, { sequence: last.sort_sequence, id: last.id }) }
         : {}),

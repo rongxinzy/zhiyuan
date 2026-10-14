@@ -154,6 +154,19 @@ export default defineConfig(async ({ command }) => {
                 onstart() {},
               },
               {
+                // Hash managed history attachments outside Electron's main process.
+                entry: 'src/main/history/archiveWorker.ts',
+                vite: {
+                  build: {
+                    watch: command === 'serve' ? {} : null,
+                    sourcemap: electronSourceMap,
+                    outDir: 'dist-electron',
+                    minify: false,
+                  },
+                },
+                onstart() {},
+              },
+              {
                 // Verify the bundled CLI service without blocking the main process.
                 entry: 'src/main/magpie/hashWorker.ts',
                 vite: {

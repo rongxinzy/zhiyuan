@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { registerHistoryIpc } from './history/registerHistoryIpc';
+import { runPendingHistoryMaintenance } from './history/historyMaintenance';
+import { loadRestoredNativeGuard } from './history/restoredNativeGuard';
 import crypto from 'crypto';
 import type { WebContents } from 'electron';
 import {
@@ -1386,6 +1388,9 @@ const getCanonicalScheduledTaskService = (): CanonicalScheduledTaskService => {
           broadcastScheduledTaskEvent(ScheduledTaskIpc.StatusUpdate, { taskId, state }),
       },
       run => executor.cancel(run),
+      run =>
+        !restoredNativeGuard?.has(run.sessionId ?? '') &&
+        !restoredNativeGuard?.has(`scheduled-run:${run.id}`),
     );
     canonicalScheduledTaskService = new CanonicalScheduledTaskService(
       taskStore,
@@ -1845,6 +1850,7 @@ const ensureWindowsTaskbarBrand = (): void => {
 let mainWindow: BrowserWindow | null = null;
 let historyService: ReturnType<typeof registerHistoryIpc> | undefined;
 let historyIndexDb: Database.Database | undefined;
+let restoredNativeGuard: Awaited<ReturnType<typeof loadRestoredNativeGuard>> | undefined;
 let disposeMagpie: (() => Promise<void>) | undefined;
 
 let isQuitting = false;
@@ -2882,23 +2888,43 @@ if (!gotTheLock) {
   registerDurableIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
   );
-  historyIndexDb = new Database(path.join(app.getPath('userData'), 'history-index.sqlite'));
-  historyIndexDb.pragma('journal_mode = WAL');
-  historyService = registerHistoryIpc({
-    ipcMain,
-    db: getStore().getDatabase(),
-    indexDb: historyIndexDb,
-    native: getPiRuntimeAdapter(),
-    assertTrustedSender(event) {
-      if (
-        !mainWindow ||
-        mainWindow.isDestroyed() ||
-        event.sender !== mainWindow.webContents ||
-        event.senderFrame !== mainWindow.webContents.mainFrame
-      )
-        throw new Error('Untrusted history request');
-    },
-  });
+  const initializeHistoryService = () => {
+    historyIndexDb = new Database(path.join(app.getPath('userData'), 'history-index.sqlite'));
+    historyIndexDb.pragma('journal_mode = WAL');
+    historyService = registerHistoryIpc({
+      ipcMain,
+      db: getStore().getDatabase(),
+      indexDb: historyIndexDb,
+      native: getPiRuntimeAdapter(),
+      maintenance: {
+        dataRoot: app.getPath('userData'),
+        async chooseDirectory(kind) {
+          const options: Electron.OpenDialogOptions = {
+            properties:
+              kind === 'backup' ? ['openDirectory', 'createDirectory'] : ['openDirectory'],
+          };
+          const result = mainWindow
+            ? await dialog.showOpenDialog(mainWindow, options)
+            : await dialog.showOpenDialog(options);
+          return result.canceled ? null : (result.filePaths[0] ?? null);
+        },
+        restart() {
+          recordAppQuitOrigin(AppQuitOrigin.RendererRelaunch);
+          app.relaunch();
+          app.quit();
+        },
+      },
+      assertTrustedSender(event) {
+        if (
+          !mainWindow ||
+          mainWindow.isDestroyed() ||
+          event.sender !== mainWindow.webContents ||
+          event.senderFrame !== mainWindow.webContents.mainFrame
+        )
+          throw new Error('Untrusted history request');
+      },
+    });
+  };
   registerWorkDocumentIpc(ipcMain, getPiRuntimeAdapter, sessionId =>
     Boolean(getCoworkStore().getSession(sessionId, 0)),
   );
@@ -5174,6 +5200,9 @@ if (!gotTheLock) {
     await app.whenReady();
     profiler.measure('app.whenReady');
     console.log('[Main] initApp: app is ready');
+    // The single-instance lock is held; no database, native owner or timer may open before this.
+    await runPendingHistoryMaintenance(app.getPath('userData'));
+    restoredNativeGuard = await loadRestoredNativeGuard(app.getPath('userData'));
     // 开发态写入带知远 .ico 的开始菜单快捷方式，任务栏按 AUMID 取图标。
     ensureWindowsTaskbarBrand();
 
@@ -5237,6 +5266,7 @@ if (!gotTheLock) {
     zhiyuanManagedProviderBridge.attachStore(store);
     profiler.measure('initStore');
     console.log('[Main] initApp: store initialized');
+    initializeHistoryService();
     refreshEndpointsTestMode(store);
     sqliteBackupManager = new SqliteBackupManager(app.getPath('userData'));
     const startSqliteBackupLoop = async (): Promise<void> => {
