@@ -134,11 +134,14 @@ describe('hosted installer UI contract (not Windows acceptance)', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(ui.close).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect((ui.document.querySelector('#btnLaunch') as HTMLButtonElement).disabled).toBe(false),
+    );
     ui.launch.mockResolvedValue(true);
     ui.click('#btnLaunch');
     await Promise.resolve();
     await Promise.resolve();
-    expect(ui.close).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(ui.close).toHaveBeenCalledOnce());
     ui.close.mockClear();
     ui.click('#btnDone');
     expect(ui.close).toHaveBeenCalledExactlyOnceWith();
@@ -341,4 +344,133 @@ describe('hosted installer UI contract (not Windows acceptance)', () => {
     expect(ui.document.querySelector('.page.active')?.id).toBe('page-hero');
     expect(ui.close).not.toHaveBeenCalled();
   });
+});
+
+describe('installer brand and license review', () => {
+  it('opens the real local license without granting consent', async () => {
+    const ui = mount('?lang=zh');
+    const dialog = ui.document.getElementById('licenseDialog') as HTMLDialogElement;
+    const show = vi.fn();
+    dialog.showModal = show;
+    const license = vi.fn(() => Promise.resolve('LOCAL LICENSE TEXT'));
+    const window = ui.document.defaultView!;
+    (
+      window as unknown as {
+        chrome: { webview: { hostObjects: { shell: Record<string, unknown> } } };
+      }
+    ).chrome.webview.hostObjects.shell.GetLicenseText = license;
+    ui.click('#btnLicense');
+    await vi.waitFor(() => expect(show).toHaveBeenCalledOnce());
+    expect(license).toHaveBeenCalledOnce();
+    expect(ui.document.querySelector('#licenseText')?.textContent).toBe('LOCAL LICENSE TEXT');
+    expect(ui.document.querySelector('#licenseCheck')?.getAttribute('aria-checked')).toBe('false');
+    expect((ui.document.querySelector('#btnInstall') as HTMLButtonElement).disabled).toBe(true);
+    expect(ui.start).not.toHaveBeenCalled();
+  });
+
+  it('keeps license read errors visible without granting consent', async () => {
+    const ui = mount('?lang=en');
+    const dialog = ui.document.getElementById('licenseDialog') as HTMLDialogElement;
+    const show = vi.fn();
+    dialog.showModal = show;
+    const window = ui.document.defaultView!;
+    (
+      window as unknown as {
+        chrome: { webview: { hostObjects: { shell: Record<string, unknown> } } };
+      }
+    ).chrome.webview.hostObjects.shell.GetLicenseText = () =>
+      Promise.reject(new Error('Unavailable'));
+    ui.click('#btnLicense');
+    await vi.waitFor(() => expect(show).toHaveBeenCalledOnce());
+    expect(ui.document.querySelector('#licenseText')?.textContent).toContain(
+      'The license could not be read',
+    );
+    expect((ui.document.querySelector('#btnInstall') as HTMLButtonElement).disabled).toBe(true);
+    expect(ui.start).not.toHaveBeenCalled();
+  });
+
+  it('ships the website-inspired palette without remote assets or runtime dependencies', () => {
+    expect(html).toContain('--brand: #090d16');
+    expect(html).toContain('--serif:');
+    expect(html).toContain('prefers-reduced-motion');
+    expect(html).toContain('forced-colors');
+    expect(html).not.toMatch(/(?:src|href)=["']https?:|@import|@font-face/);
+    expect(html).toContain('id="completeTitle"');
+  });
+});
+
+it('retains the full install path for copying, tooltips and assistive technology', async () => {
+  const ui = mount('?lang=zh');
+  await Promise.resolve();
+  await Promise.resolve();
+  const path = ui.document.getElementById('installPath')!;
+  expect(path.title).toBe(path.textContent);
+  expect(path.getAttribute('aria-label')).toBe(path.textContent);
+  expect(path.textContent).toContain('知远');
+});
+
+it('renders the existing uninstall completion selector without discarding data wording', async () => {
+  const ui = mount('?page=uninstall&lang=en');
+  ui.event({ type: 'done' });
+  await vi.waitFor(() =>
+    expect(ui.document.querySelector('.page.active')?.id).toBe('page-complete'),
+  );
+  expect(ui.document.querySelector('#completeTitle')?.textContent).toBe(
+    'ZhiYuan Agent uninstalled',
+  );
+  expect(ui.document.querySelector('#completeSub')?.textContent).toContain(
+    'personal files are kept',
+  );
+  expect((ui.document.querySelector('#btnLaunch') as HTMLElement).style.display).toBe('none');
+});
+
+it('keeps one brand mark and a task heading instead of repeating the product name', () => {
+  const ui = mount('?lang=zh');
+  expect(ui.document.querySelectorAll('#wordmarkImg')).toHaveLength(1);
+  expect(ui.document.querySelector('.titlebar #wordmarkImg')).not.toBeNull();
+  expect(ui.document.querySelector('#page-hero h1')?.textContent).toBe('开始你的 AI 工作台');
+  expect(ui.document.querySelector('#page-hero')?.textContent).not.toContain('(ZhiYuan Agent)');
+});
+
+it('does not add a second admission on repeated clicks', () => {
+  const ui = mount('?lang=en');
+  ui.click('#licenseCheck');
+  ui.click('#btnInstall');
+  ui.click('#btnInstall');
+  ui.click('#btnInstall');
+  expect(ui.start).toHaveBeenCalledTimes(1);
+});
+
+describe('launch button pending admission', () => {
+  it.each([false, true])(
+    'admits once while pending and restores retry after failure (%s)',
+    async rejects => {
+      const ui = mount();
+      let resolve!: (value: boolean) => void;
+      let reject!: (error: Error) => void;
+      ui.launch.mockReturnValue(
+        new Promise<boolean>((yes, no) => {
+          resolve = yes;
+          reject = no;
+        }),
+      );
+      ui.click('#btnLaunch');
+      ui.click('#btnLaunch');
+      ui.click('#btnLaunch');
+      await vi.waitFor(() => expect(ui.launch).toHaveBeenCalledOnce());
+      expect((ui.document.querySelector('#btnLaunch') as HTMLButtonElement).disabled).toBe(true);
+      if (rejects) reject(new Error('Launch rejected'));
+      else resolve(false);
+      await vi.waitFor(() =>
+        expect((ui.document.querySelector('#btnLaunch') as HTMLButtonElement).disabled).toBe(false),
+      );
+      expect(ui.close).not.toHaveBeenCalled();
+      if (rejects)
+        expect(ui.document.querySelector('#launchError')?.textContent).toContain('Launch rejected');
+      ui.launch.mockResolvedValue(true);
+      ui.click('#btnLaunch');
+      await vi.waitFor(() => expect(ui.close).toHaveBeenCalledOnce());
+      expect(ui.launch).toHaveBeenCalledTimes(2);
+    },
+  );
 });
