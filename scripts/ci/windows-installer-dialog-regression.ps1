@@ -98,6 +98,53 @@ try {
   if (-not $target.WaitForExit(5000)) { throw 'Activated real button click did not close the target dialog' }
   if ($distraction.WaitForExit(0)) { throw 'Activated click closed the unrelated foreground dialog' }
   Write-Output 'PASS: one activated real button click closes only the bound background dialog'
+
+  # These handles belonged to real windows above. Closing and joining their
+  # owning thread gives a deterministic disappearance without a production hook.
+  $privateStatic = [System.Reflection.BindingFlags]'NonPublic, Static'
+  $inspect = [ZhiYuan.Acceptance.InstallerUi].GetMethod('Inspect', $privateStatic)
+  $snapshot = [ZhiYuan.Acceptance.InstallerUi].GetMethod('TryInspectSnapshot', $privateStatic)
+  if ($null -eq $inspect -or $null -eq $snapshot) { throw 'Snapshot inspection methods were not found' }
+  foreach ($destroyed in @($targetWindow.Handle, $targetButton.Handle)) {
+    if ([ZhiYuan.Acceptance.DialogFixture]::Exists($destroyed)) { throw 'The real fixture HWND was not destroyed' }
+    $failure = $null
+    try {
+      $null = [ZhiYuan.Acceptance.DialogFixture]::InvokeWithStaleLastError($inspect, @([IntPtr]$destroyed))
+    } catch { $failure = $_.Exception.GetBaseException() }
+    if ($failure -isnot [System.ComponentModel.Win32Exception] -or $failure.NativeErrorCode -ne 1400) {
+      throw "Strict inspection did not report ERROR_INVALID_WINDOW_HANDLE instead of stale error 1008: $failure"
+    }
+    $arguments = [object[]]@([IntPtr]$destroyed, $null)
+    $found = [ZhiYuan.Acceptance.DialogFixture]::InvokeWithStaleLastError($snapshot, $arguments)
+    if ($found -or $null -ne $arguments[1]) { throw 'Snapshot inspection retained a destroyed real HWND' }
+  }
+  $arguments = [object[]]@([IntPtr]$otherWindow.Handle, $null)
+  if (-not $snapshot.Invoke($null, $arguments) -or $arguments[1].Handle -ne $otherWindow.Handle) {
+    throw 'Snapshot inspection lost the surviving real dialog'
+  }
+  $windows = @([ZhiYuan.Acceptance.InstallerUi]::Windows())
+  $controls = @([ZhiYuan.Acceptance.InstallerUi]::Controls($otherWindow.Handle))
+  if (-not ($windows | Where-Object { $_.Handle -eq $otherWindow.Handle }) -or
+      -not ($controls | Where-Object { $_.Handle -eq $otherButton.Handle })) {
+    throw 'Window or control enumeration lost the surviving real dialog and button'
+  }
+  $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) ('destroyed-installer-' + [guid]::NewGuid().ToString() + '.png')
+  try {
+    foreach ($action in @('Click', 'Capture')) {
+      $failure = $null
+      try {
+        if ($action -eq 'Click') { [ZhiYuan.Acceptance.InstallerUi]::Click($targetButton.Handle) }
+        else { [ZhiYuan.Acceptance.InstallerUi]::Capture($targetWindow.Handle, $capturePath) }
+      } catch { $failure = $_.Exception.GetBaseException() }
+      if ($failure -isnot [System.ComponentModel.Win32Exception] -or $failure.NativeErrorCode -ne 1400) {
+        throw "$action did not reject the destroyed real target with ERROR_INVALID_WINDOW_HANDLE: $failure"
+      }
+    }
+    if (Test-Path -LiteralPath $capturePath) { throw 'Capture wrote an image for a destroyed real target' }
+  } finally {
+    if (Test-Path -LiteralPath $capturePath) { Remove-Item -LiteralPath $capturePath -Force }
+  }
+  Write-Output 'PASS: disappearing HWND snapshots preserve strict target failures'
 } finally {
   if ($null -ne $distraction) { $distraction.Dispose() }
   $target.Dispose()

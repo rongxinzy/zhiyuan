@@ -54,6 +54,22 @@ describe('real interactive NSIS acceptance safeguards', () => {
     expect(workflow).not.toContain('continue-on-error');
   });
 
+  it('skips only disappearing enumeration snapshots and keeps target inspection strict', () => {
+    expect(helper).toContain(
+      '[DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect',
+    );
+    expect(helper).toContain('var error = Marshal.GetLastWin32Error();');
+    expect(helper).toContain(
+      'if (error.NativeErrorCode == 1400 || !IsWindow(window)) return false;',
+    );
+    expect(helper).toContain('IsWindowVisible(window) && TryInspectSnapshot(window, out info)');
+    expect(helper).toContain('if (TryInspectSnapshot(window, out info)) controls.Add(info);');
+    expect(helper).not.toContain('error.NativeErrorCode == 1008');
+    const click = helper.slice(helper.indexOf('public static void Click(long handle)'));
+    expect(click).toContain('var control = Inspect(window);');
+    expect(click).not.toContain('TryInspectSnapshot');
+  });
+
   it('checks existing-install cancellation against live process, bytes and registration', () => {
     for (const assertion of [
       'Opening/cancelling setup terminated the existing application',
@@ -198,6 +214,9 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(result.stdout).toContain('PASS: real modal OK dialogs with control IDs 1 and 2');
       expect(result.stdout).toContain(
         'PASS: one activated real button click closes only the bound background dialog',
+      );
+      expect(result.stdout).toContain(
+        'PASS: disappearing HWND snapshots preserve strict target failures',
       );
     },
     35_000,

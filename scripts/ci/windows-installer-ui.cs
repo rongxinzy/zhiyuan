@@ -66,7 +66,7 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int capacity);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder text, int capacity);
-    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern int MapWindowPoints(IntPtr from, IntPtr to, ref Rect rect, uint points);
     [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr window);
@@ -78,6 +78,7 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll", SetLastError = true)] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
     [DllImport("user32.dll")] private static extern bool PeekMessage(out NativeMessage message, IntPtr window, uint minimum, uint maximum, uint remove);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
@@ -126,7 +127,12 @@ namespace ZhiYuan.Acceptance {
       GetWindowText(window, text, text.Capacity);
       GetClassName(window, className, className.Capacity);
       Rect bounds;
-      if (!GetWindowRect(window, out bounds)) throw new Win32Exception();
+      if (!GetWindowRect(window, out bounds)) {
+        // Capture this call's error, not an unrelated cached P/Invoke error
+        // (for example ERROR_NO_TOKEN left by another Windows API).
+        var error = Marshal.GetLastWin32Error();
+        throw new Win32Exception(error, "GetWindowRect failed for HWND " + window.ToInt64() + ": win32=" + error);
+      }
       return new WindowInfo {
         Handle = window.ToInt64(), OwnerHandle = GetWindow(window, 4).ToInt64(), ProcessId = (int)processId,
         ControlId = GetDlgCtrlID(window), ClassName = className.ToString(),
@@ -137,10 +143,30 @@ namespace ZhiYuan.Acceptance {
       };
     }
 
+    private static bool TryInspectSnapshot(IntPtr window, out WindowInfo info) {
+      info = null;
+      try {
+        var observed = Inspect(window);
+        // Enumeration does not keep HWNDs alive. Exiting helper windows and
+        // removed child controls can disappear between the individual reads.
+        uint currentProcessId;
+        if (GetWindowThreadProcessId(window, out currentProcessId) == 0 ||
+            currentProcessId != observed.ProcessId) return false;
+        info = observed;
+        return true;
+      } catch (Win32Exception error) {
+        // Only snapshot enumeration tolerates a disappeared HWND. Real target
+        // clicks, modal checks and captures still use strict Inspect directly.
+        if (error.NativeErrorCode == 1400 || !IsWindow(window)) return false;
+        throw;
+      }
+    }
+
     public static WindowInfo[] Windows() {
       var windows = new List<WindowInfo>();
       EnumWindows((window, state) => {
-        if (IsWindowVisible(window)) windows.Add(Inspect(window));
+        WindowInfo info;
+        if (IsWindowVisible(window) && TryInspectSnapshot(window, out info)) windows.Add(info);
         return true;
       }, IntPtr.Zero);
       return windows.ToArray();
@@ -149,7 +175,8 @@ namespace ZhiYuan.Acceptance {
     public static WindowInfo[] Controls(long parent) {
       var controls = new List<WindowInfo>();
       EnumChildWindows(new IntPtr(parent), (window, state) => {
-        controls.Add(Inspect(window));
+        WindowInfo info;
+        if (TryInspectSnapshot(window, out info)) controls.Add(info);
         return true;
       }, IntPtr.Zero);
       return controls.ToArray();

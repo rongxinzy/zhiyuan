@@ -1,6 +1,7 @@
 // Disposable real Win32 message boxes for the acceptance driver's HWND tests.
 using System;
 using System.ComponentModel;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -13,6 +14,7 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(IntPtr owner, string text, string caption, uint type);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool EnumThreadWindows(uint thread, EnumProc callback, IntPtr state);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
     [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
@@ -23,6 +25,7 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool SetWindowText(IntPtr window, string text);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern void SetLastError(uint error);
     private readonly Thread thread;
     private readonly ManualResetEvent ready = new ManualResetEvent(false);
     private uint threadId;
@@ -58,6 +61,14 @@ namespace ZhiYuan.Acceptance {
     public static void SetVisible(long window, bool visible) { ShowWindow(new IntPtr(window), visible ? 5 : 0); }
     public static void SetText(long window, string text) { SetWindowText(new IntPtr(window), text); }
     public static void Foreground(long window) { SetForegroundWindow(new IntPtr(window)); }
+    public static bool Exists(long window) { return IsWindow(new IntPtr(window)); }
+    public static object InvokeWithStaleLastError(MethodInfo method, object[] arguments) {
+      // Seed the CLR's cached error on the same thread as inspection. The real
+      // GetWindowRect failure must replace this unrelated ERROR_NO_TOKEN value.
+      SetLastError(1008);
+      if (Marshal.GetLastWin32Error() != 1008) throw new InvalidOperationException("Could not establish a stale last-error value");
+      return method.Invoke(null, arguments);
+    }
     public static long AddButton(long dialog) {
       var button = CreateWindowEx(0, "BUTTON", "OK", 0x50000000, 10, 10, 60, 24,
         new IntPtr(dialog), new IntPtr(77), IntPtr.Zero, IntPtr.Zero);
