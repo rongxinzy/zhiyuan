@@ -183,6 +183,18 @@ async function native(action, options = {}) {
   return JSON.parse(stdout.replace(/^\uFEFF/, '').trim());
 }
 
+export async function captureFailurePages(sessions, save, report) {
+  for (const session of sessions) {
+    if (!session.cdp || session.child.exitCode !== null) continue;
+    try {
+      await save(session, `${session.name}-failure`);
+    } catch (error) {
+      report.failureCaptureErrors ??= [];
+      report.failureCaptureErrors.push({ session: session.name, error: String(error) });
+    }
+  }
+}
+
 export async function runShellAcceptance() {
   assert.equal(process.platform, 'win32', 'WebView2 acceptance requires Windows');
   assert(
@@ -748,6 +760,7 @@ export async function runShellAcceptance() {
     report.passed = true;
   } catch (error) {
     report.error = error.stack || String(error);
+    await captureFailurePages(sessions, save, report);
     throw error;
   } finally {
     if (await exists(heldApp)) await rename(heldApp, app);

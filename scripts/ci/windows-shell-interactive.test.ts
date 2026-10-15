@@ -11,7 +11,7 @@ import {
   shellChecks,
   shellScreenshots,
 } from './windows-shell-evidence.mjs';
-import { assertVisibleActions } from './windows-shell-interactive.mjs';
+import { assertVisibleActions, captureFailurePages } from './windows-shell-interactive.mjs';
 
 const script = readFileSync('scripts/ci/windows-shell-interactive.mjs', 'utf8');
 const native = readFileSync('scripts/ci/windows-shell-native.ps1', 'utf8');
@@ -175,6 +175,43 @@ describe('final WebView2 shell evidence identity', () => {
 });
 
 describe('real final shell acceptance driver safeguards', () => {
+  it('captures live failed sessions before cleanup without replacing the original failure', async () => {
+    const sessions = [
+      { name: 'unconnected', child: { exitCode: null } },
+      { name: 'exited', cdp: {}, child: { exitCode: 1 } },
+      { name: 'disconnected', cdp: {}, child: { exitCode: null } },
+      { name: 'fresh', cdp: {}, child: { exitCode: null } },
+    ];
+    const captures: string[] = [];
+    const report = {
+      passed: false,
+      error: 'Original installation error',
+      failureCaptureErrors: [],
+    };
+    await expect(
+      captureFailurePages(
+        sessions,
+        async (session: { name: string }, name: string) => {
+          captures.push(name);
+          if (session.name === 'disconnected') throw new Error('WebView2 disconnected');
+        },
+        report,
+      ),
+    ).resolves.toBeUndefined();
+    expect(captures).toEqual(['disconnected-failure', 'fresh-failure']);
+    expect(report.passed).toBe(false);
+    expect(report.error).toBe('Original installation error');
+    expect(report.failureCaptureErrors).toEqual([
+      { session: 'disconnected', error: 'Error: WebView2 disconnected' },
+    ]);
+    expect(script).toContain(
+      'report.error = error.stack || String(error);\n    await captureFailurePages(sessions, save, report);\n    throw error;',
+    );
+    expect(script.indexOf('await captureFailurePages(sessions, save, report)')).toBeLessThan(
+      script.indexOf('for (const session of sessions) session.cdp?.close()'),
+    );
+  });
+
   it('collects independent shell evidence after NSIS failure while keeping delivery success-gated', () => {
     const config = loadYaml(workflow) as {
       jobs: {

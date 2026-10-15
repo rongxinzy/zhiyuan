@@ -55,6 +55,23 @@ test('mandatory registration finishes before commit and destructive cleanup', ()
   );
 });
 
+test('native registration failures retain method diagnostics without source or payload values', () => {
+  expect(installer).toContain('ReportPhase("正在创建开始菜单快捷方式")');
+  expect(installer).toContain('ReportPhase("正在创建桌面快捷方式")');
+  expect(installer).toContain('Detail: DescribeFailure(ex)');
+  expect(installer).toContain('exception.HResult:X8');
+  expect(installer).toContain('new StackTrace(exception, fNeedFileInfo: false)');
+  for (const operation of [
+    'WScript.Shell.CreateShortcut',
+    'WScript.Shortcut.TargetPath',
+    'WScript.Shortcut.WorkingDirectory',
+    'WScript.Shortcut.IconLocation',
+    'WScript.Shortcut.Save',
+  ]) {
+    expect(installer).toContain(`operation = "${operation}"`);
+  }
+});
+
 test('install and uninstall reject foreign directories before stopping any process', () => {
   expect(installer.indexOf('transaction.ValidateOwnership();')).toBeLessThan(
     installer.indexOf('await StepStopAppProcesses('),
@@ -375,6 +392,30 @@ try {
     Check(File.ReadAllText(Path.Combine(foreignBackup, "uninstall.exe")) == "not-owned", "foreign backup was modified");
     Console.WriteLine("PASS: physical ownership, link rejection, interrupted empty/partial installs and component-junction rollback");
     if (OperatingSystem.IsWindows()) {
+        // Match SetupForm's Task.Run apartment and the real Unicode install
+        // path, without modifying the user's registry, Desktop or Start Menu.
+        var shortcutInstall = Path.Combine(root, "安装 路径");
+        WriteOwnedApp(shortcutInstall, "shortcut-target");
+        var shortcutEngine = new InstallerEngine(null, shortcutInstall, runtime, data, false, new Progress<EngineEvent>());
+        foreach (var folderName in new[] { "开始菜单", "桌面" }) {
+            var shortcutFolder = Path.Combine(root, folderName);
+            Directory.CreateDirectory(shortcutFolder);
+            Task.Run(() => {
+                Check(Thread.CurrentThread.GetApartmentState() == ApartmentState.MTA, "shortcut test must match the engine's MTA worker");
+                try { shortcutEngine.CreateShortcut(shortcutFolder); }
+                catch (EngineException ex) { Console.Error.WriteLine(ex.Detail); throw; }
+                dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
+                dynamic link = shell.CreateShortcut(Path.Combine(shortcutFolder, InstallerEngine.DisplayName + ".lnk"));
+                try {
+                    Check((string)link.TargetPath == shortcutEngine.LaunchPath, "shortcut lost its Unicode executable path");
+                    Check((string)link.WorkingDirectory == shortcutInstall, "shortcut lost its Unicode working directory");
+                } finally {
+                    System.Runtime.InteropServices.Marshal.FinalReleaseComObject(link);
+                    System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);
+                }
+            }).GetAwaiter().GetResult();
+        }
+        Console.WriteLine("PASS: actual Unicode shortcut creation and target readback on MTA worker");
         foreach (var folder in new[] { Environment.SpecialFolder.Windows, Environment.SpecialFolder.System, Environment.SpecialFolder.SystemX86 }) {
             var systemRoot = Environment.GetFolderPath(folder);
             Check(!string.IsNullOrEmpty(systemRoot), "Windows system folder could not be resolved: " + folder);

@@ -176,7 +176,9 @@ public sealed class InstallerEngine
             {
                 registrationSnapshot = new InstallRegistrationSnapshot();
                 StepRegisterUninstall();
+                ReportPhase("正在创建开始菜单快捷方式");
                 CreateShortcut(Environment.GetFolderPath(Environment.SpecialFolder.Programs));
+                ReportPhase("正在创建桌面快捷方式");
                 CreateShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -207,7 +209,7 @@ public sealed class InstallerEngine
         {
             await RollbackAsync(ex.Message);
             progress.Report(new EngineEvent(
-                Type: "error", Message: ex.Message, Detail: (ex as EngineException)?.Detail ?? ex.GetType().Name));
+                Type: "error", Message: ex.Message, Detail: (ex as EngineException)?.Detail ?? DescribeFailure(ex)));
             throw;
         }
         catch (Exception ex)
@@ -217,7 +219,7 @@ public sealed class InstallerEngine
             // the progress page stuck on "installing".
             await RollbackAsync(ex.Message);
             progress.Report(new EngineEvent(
-                Type: "error", Message: ex.Message, Detail: ex.GetType().Name));
+                Type: "error", Message: ex.Message, Detail: DescribeFailure(ex)));
             throw;
         }
         finally
@@ -723,23 +725,43 @@ public sealed class InstallerEngine
         return total;
     }
 
-    private void CreateShortcut(string folder)
+    // Keep method names and HRESULTs for failures in native Windows APIs, but
+    // omit source paths, exception messages and payload/argument values.
+    internal static string DescribeFailure(Exception exception) =>
+        $"{exception.GetType().FullName} (0x{exception.HResult:X8})\n{new StackTrace(exception, fNeedFileInfo: false)}";
+
+    internal void CreateShortcut(string folder)
     {
         var linkPath = Path.Combine(folder, DisplayName + ".lnk");
-        var shellType = Type.GetTypeFromProgID("WScript.Shell")
-            ?? throw new EngineException("无法创建快捷方式");
-        dynamic shell = Activator.CreateInstance(shellType)!;
+        object? shell = null;
+        object? shortcut = null;
+        var operation = "WScript.Shell.Activate";
         try
         {
-            dynamic shortcut = shell.CreateShortcut(linkPath);
-            shortcut.TargetPath = LaunchPath;
-            shortcut.WorkingDirectory = installDir;
-            shortcut.IconLocation = LaunchPath + ",0";
-            shortcut.Save();
+            var shellType = Type.GetTypeFromProgID("WScript.Shell")
+                ?? throw new EngineException("无法创建快捷方式");
+            shell = Activator.CreateInstance(shellType)!;
+            operation = "WScript.Shell.CreateShortcut";
+            shortcut = ((dynamic)shell).CreateShortcut(linkPath);
+            operation = "WScript.Shortcut.TargetPath";
+            ((dynamic)shortcut).TargetPath = LaunchPath;
+            operation = "WScript.Shortcut.WorkingDirectory";
+            ((dynamic)shortcut).WorkingDirectory = installDir;
+            operation = "WScript.Shortcut.IconLocation";
+            ((dynamic)shortcut).IconLocation = LaunchPath + ",0";
+            operation = "WScript.Shortcut.Save";
+            ((dynamic)shortcut).Save();
+        }
+        catch (Exception ex)
+        {
+            throw new EngineException("无法创建快捷方式", $"{operation}\n{DescribeFailure(ex)}");
         }
         finally
         {
-            try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); } catch { }
+            if (shortcut is not null)
+                try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut); } catch { }
+            if (shell is not null)
+                try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); } catch { }
         }
     }
 

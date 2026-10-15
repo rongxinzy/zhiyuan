@@ -199,7 +199,8 @@
 - 1807cdfc 的新编译前置在 Windows 发现探针将绝对路径统一转为正斜杠，NSIS include 未找到文件；其余 277 项通过。探针改用平台原生 path.join，并补 Windows / POSIX 渲染单测及 Linux 实际 26 语言双 pass -WX；生产安全逻辑未变。
 - [6921d9bc Windows run 38692363285](https://github.com/rongxinzy/zhiyuan/actions/runs/38692363285) 前置安全回归、26 语言安装 / 卸载编译、包体检查及最终 WebView2 单文件壳组装通过；真实 NSIS 首次安装、取消保护、锁冲突提示与重试至完成已通过。剩余点击驱动将原生单一 OK 固定为 ID 1，而真实弹窗为 ID 2，导致启动失败恢复与缺 WebView2 提示确认停住；现按同一 PID / HWND、标题、正文和唯一可见启用的语义确认按钮匹配，NSIS 额外验证模态 owner，并增加真实 Win32 双 ID / 错误窗口拒绝回归，不放宽退出与恢复要求。
 - 2249ad4e 的 Windows 前置回归 280 项通过；新真实对话框 fixture 已识别并点击关闭两种控件 ID，但错误要求 MessageBox 返回值等于改写后的控件 ID。改为验证 MB_OK 的语义返回 IDOK，保留真实控件 ID 1 / 2、模态归属及拒绝错误窗口全部断言。
-- 当前状态：最终壳已实际编译组装，缺 WebView2 明确提示已截图；正常安装至完成及启动仍待修复后完整 Windows 交互验收，尚无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
+- [ccbf22ca Windows run 38696398617](https://github.com/rongxinzy/zhiyuan/actions/runs/38696398617) 所有前置检查、NSIS 完整交互和静默回归通过。最终 WebView2 壳真实首屏 / 进度已截图，缺运行时提示与失败退出通过；首次安装完成应用解包、组件展开 / 激活 / 连接与运行时检查后，在注册 / 快捷方式收尾出现 ArgumentException。尚无堆栈，不能归因中文路径；补无源路径方法栈 / HRESULT 和分步 COM 诊断，以及实际 MTA 临时中文目录快捷方式创建 / 回读前置测试，失败页另行截图且不覆盖原异常。
+- 当前状态：最终壳收尾异常待真实 Windows 定位修复，尚无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
 
