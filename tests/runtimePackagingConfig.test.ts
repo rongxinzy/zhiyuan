@@ -263,7 +263,12 @@ test('active workflows keep read-only permissions and isolate explicitly request
   const files = readdirSync(path.join(root, '.github/workflows'))
     .filter(file => /\.ya?ml$/.test(file))
     .sort();
-  assert.deepEqual(files, ['lightweight-ci.yml', 'python-runtime.yml', 'windows-acceptance.yml']);
+  assert.deepEqual(files, [
+    'installer-style-preview.yml',
+    'lightweight-ci.yml',
+    'python-runtime.yml',
+    'windows-acceptance.yml',
+  ]);
   const policy = readJson<{
     workflows: Array<{ path: string }>;
     optionalWorkflows?: Array<{ path: string }>;
@@ -277,13 +282,27 @@ test('active workflows keep read-only permissions and isolate explicitly request
   for (const file of files) {
     const config = workflow(file);
     assert.deepEqual(config.permissions, { contents: 'read' });
-    assert.deepEqual(config.on.push?.branches, ['main']);
+    assert.deepEqual(
+      config.on.push?.branches,
+      file === 'installer-style-preview.yml'
+        ? ['main', 'style/installer-website-alignment']
+        : ['main'],
+    );
     assert.equal(config.on.push?.tags, undefined);
     if (file === 'windows-acceptance.yml') {
       assert.ok(!Object.hasOwn(config.on, 'pull_request'));
       assert.match(read(`.github/workflows/${file}`), /paths:/);
     } else assert.ok(Object.hasOwn(config.on, 'pull_request'));
-    assert.ok(Object.hasOwn(config.on, 'workflow_dispatch'));
+    if (file === 'installer-style-preview.yml') {
+      assert.ok(!Object.hasOwn(config.on, 'workflow_dispatch'));
+      assert.deepEqual(config.on.push?.paths, [
+        'scripts/installer-shell/preview/**',
+        'scripts/installer-shell/preview-ui.test.ts',
+        'scripts/ci/installer-style-preview.py',
+        '.github/workflows/installer-style-preview.yml',
+      ]);
+      assert.deepEqual(config.on.pull_request?.paths, config.on.push?.paths);
+    } else assert.ok(Object.hasOwn(config.on, 'workflow_dispatch'));
     assert.ok(!Object.hasOwn(config.on, 'schedule'));
     assert.doesNotMatch(
       read(`.github/workflows/${file}`),

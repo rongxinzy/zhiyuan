@@ -10,8 +10,21 @@
     {
       "name": "Python runtime process containment",
       "path": ".github/workflows/python-runtime.yml",
-      "branches": [
-        "main"
+      "paths": [
+        "src/main/pythonRuntime/**",
+        "src/main/libs/agentEngine/durable/pythonTools*",
+        "scripts/python-runtime/**",
+        ".github/workflows/python-runtime.yml"
+      ]
+    },
+    {
+      "name": "Installer visual review only",
+      "path": ".github/workflows/installer-style-preview.yml",
+      "paths": [
+        "scripts/installer-shell/preview/**",
+        "scripts/installer-shell/preview-ui.test.ts",
+        "scripts/ci/installer-style-preview.py",
+        ".github/workflows/installer-style-preview.yml"
       ]
     }
   ],
