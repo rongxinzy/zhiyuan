@@ -167,7 +167,7 @@
 - 新包实际 NSIS 安装 exit 0（约 49.1 秒）；安装后 UI、Magpie、Python 执行 42、PowerShell 7.6 / 5.1 的全部专项检查均通过，报告 passed 为 true、errors 为空；SQLite / Durable / PTY / Photon 包内运行检查通过。与第 15 项相同，仍为无签名测试包，首次 Python 使用需要联网；未扩大为所有平台 / 视觉 / 真实账号验收。
 - [缩减后的验收 artifact](https://github.com/rongxinzy/zhiyuan/actions/runs/38598564154/artifacts/11913438818) 为 ZIP，包含同名 exe、构建 manifest、SHA 清单和 evidence；保留至 2026-10-28 16:47:48 UTC。exe SHA-256 实测为 `7a998e6445df97cfd063a94ec408397a40559e73d3eba78ef223b99c2d6a7a33`，与 manifest 一致。包固定对应 87debca8，后续文档提交不改变包来源；旧合格 artifact 保留。
 
-## 17. Windows 安装向导终点与交互验收 — 底层修复已推送，正式安装壳接入中
+## 17. Windows 安装向导终点与交互验收 — 底层与正式壳已完成验收
 
 - 用户实机截图暴露第 15 / 16 项只覆盖静默安装，没有覆盖交互向导：首屏隐藏原生 Next 后未恢复，自定义完成页漏掉 MUI 标准 `SetAutoClose true`，安装节结束仍停在无可用动作的进度页。旧进度位图直接附在向导顶层，离页只清句柄，实际不会随内部页面销毁，可能遮挡完成页。
 - 底层 NSIS 改为系统原生向导：单一标题、可选择并换行的安装位置、必要许可、原生进度与详情、明确“关闭”与“启动”。移除拼贴位图 / 重复字标 / 假进度动画和旧本地推理安装选项；首批仅修复底层 NSIS，未作为最终界面交付。字体与布局按 DESIGN.md 原生安装规范，使用系统微软雅黑及随 DPI 缩放的 dialog units。
@@ -176,7 +176,7 @@
 - 本地已通过：30 项 NSIS 回归、NSIS 3.0.4.1 Unicode 安装 / 卸载预览严格编译、lint、格式、清洁总 build 与生产依赖解析。首轮 Windows run 38674560505 已实测中文首屏 → 进度 → 完成（约 44 秒，96 DPI）及关闭不启动；后续升级取消检查因驱动把 electron-builder 的 InstallLocation 查错注册表位置而失败，并被重复 taskkill 清理遮盖。驱动修复后需重跑全链，不能以局部通过交付。未实际覆盖的高 DPI 不宣称验收。
 - 原样 Magpie、Pi Durable、Python 架构、现有用户数据与包体防回归门禁不变；仍只生成无签名验收包，不发行签名版或覆盖旧合格包。
 
-## 18. 既有 WebView2 单文件安装壳接入 — 实现与验收进行中
+## 18. 既有 WebView2 单文件安装壳接入 — 已完成真实 Windows 验收
 
 - 用户指出主仓库已有新版界面，核实 [RongxinAI PR #943](https://github.com/rongxinzy/RongxinAI/pull/943) 已合入 860×560 WebView2 壳，zhiyuan 也已继承同份实现；缺口在实际打包流水线仍只生成 NSIS，不能称为壳未迁入。按既有版式接入 build-shell → pack-setup → 真实 win-unpacked / windows-components，NSIS保留底层及更新用途。
 - 普通 `dist:win` / `dist:win:offline` / `dist:win:lite` 统一走 `dist:win:setup`，先生成更新用途的 `dist:win:nsis`，再 build-shell / pack-setup，避免下次普通构建漏壳。`dist:win:signed` 与 enterprise 原流程未扩展，仍为原 NSIS 路径，不能声称所有签名 / 企业发行入口已支持新壳。
@@ -212,7 +212,10 @@
 - 同步主仓实际发现的共用驱动缺陷：页面尚在加载、document.body 尚未生成时读取快照抛异常。快照改空文档返回未就绪，仍等待真实宿主 / 首屏 / 安装位置就绪；增加空文档 → 实际 DOM 生成回归，不模拟安装事件或点击。
 - [462dc1ba Windows run 38730293432](https://github.com/rongxinzy/zhiyuan/actions/runs/38730293432) 317 项真实前置全部通过；最终 WebView2 壳交互报告 passed=true、14 项检查全过，首次安装 / 关闭、已有运行安装取消、早取消、真正 detach 后取消回滚、锁失败重试、启动失败恢复及正确应用窗口出现均已实际验证，保留数据及手工备份。独立壳安装后完整应用报告亦 passed=true、errors=[]，原有 Magpie / Python / 原生专项通过。实际截图与报告位于该 run 的 diagnostics artifact 11971233157。
 - 同轮 NSIS 首次安装 / 完成 / 关闭和已有安装取消通过，锁恢复步骤的驱动枚举窗口抛异常；GetWindowRect P/Invoke 未声明 SetLastError，日志中的 1008 不是可靠的本次错误证据。修复枚举快照对已消失窗口的处理，并保留真实目标点击 / 截图严格校验。总门禁继续阻止最终 artifact，不能用已通过的 WebView2 / 应用专项替代剩余 NSIS 交互和静默检查。
-- 当前状态：最终新版壳及其安装后应用已通过真实 Windows 验收；底层 NSIS 全链重跑完成前仍无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
+- 最终包代码 [f3b5ec88](https://github.com/rongxinzy/zhiyuan/commit/f3b5ec88724361bf6f87c026670b84184076bbcf) 的[源码 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38734161157)及[Windows 全链 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38734161124)均成功：318 项前置、NSIS 真实交互 / 静默、WebView2 正式单文件壳完整交互、壳安装后的完整应用专项和最终交付校验全部通过。真实截图包含首屏、进度、完成、启动后的应用窗口及失败恢复；实际 96 DPI、中英文布局通过，高 DPI 矩阵未宣称通过。
+- [合格新版壳 artifact](https://github.com/rongxinzy/zhiyuan/actions/runs/38734161124/artifacts/11973363235) 保留至 2026-10-29 12:46:50 UTC。实际下载并校验 ZIP SHA-256 为 `1111cbaf19eb10a180a8e236588b5ede0e200831c071686cf881371a6268f56d`；唯一最终安装器 `ZhiYuanAgent-Setup-2026.7.16-win-x64.exe` 为 382,784,231 字节，SHA-256 为 `3d60bf563128a486845e657923e687d008ce8616a65fdbc84b129f4a668b1062`，与构建和 SFX manifest 一致。底层 NSIS 仅记录回归哈希，不作为首装入口交付；旧合格包保留。
+- 新包比第 16 项 211,794,861 字节的底层 NSIS 增加 170,989,370 字节，不能宣称继续缩包。实际组成是自包含 .NET / WebView2 宿主 163,028,479 字节、ZIP 载荷 219,755,740 字节及 12 字节 footer；原 ASAR / unpacked / NSIS 防回归与最终壳 450 MiB 预算均通过。下载载荷不重复嵌入第二份 .NET 卸载宿主，但安装时仍复制宿主前缀为卸载器，未迁入主仓轻量 NSIS 卸载方案。
+- 当前状态：新版单文件壳可交付，仍为无签名验收包，缺少 WebView2 时明确提示自行安装微软运行时；正式签名 / 发行不在本次范围内。此后文档提交不改变已验证包的源码 f3b5ec88、哈希或验收 run。
 
 ## 六阶段基线验证与剩余验收
 
