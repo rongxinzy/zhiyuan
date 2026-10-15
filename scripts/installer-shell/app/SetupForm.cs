@@ -577,6 +577,15 @@ public sealed class SetupForm : Form
         if (closeRequested) Close();
     }
 
+    // Host-object calls use the same proven transport as StartInstall. Queue
+    // shutdown outside the COM callback; FormClosing still cancels an active
+    // operation and waits for FinishOperation/rollback before closing.
+    internal void RequestClose() => BeginInvoke(() =>
+    {
+        RecordLifecycle("bridge-close-dispatched");
+        Close();
+    });
+
     // Local diagnostic metadata only: no web-message payload, paths or user
     // content, and no extra messages sent back into the WebView.
     private void RecordLifecycle(string stage) => AppendEvent(eventsLogPath, new EngineEvent(
@@ -713,7 +722,7 @@ public sealed class ShellBridge
 
     public ShellBridge(SetupForm form) => this.form = form;
 
-    public void CloseWindow() => form.BeginInvoke(form.Close);
+    public void RequestClose() => form.RequestClose();
 
     public void MinimizeWindow() => form.BeginInvoke(() =>
     {

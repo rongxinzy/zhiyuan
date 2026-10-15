@@ -234,6 +234,25 @@ test('window commands subscribe directly to the initialized native WebView befor
   );
 });
 
+test('host-object close queues the normal form lifecycle instead of bypassing active rollback', () => {
+  expect(form).toContain('public void RequestClose() => form.RequestClose();');
+  const requestClose = form.slice(
+    form.indexOf('internal void RequestClose()'),
+    form.indexOf('private void RecordLifecycle('),
+  );
+  expect(requestClose).toContain('BeginInvoke(() =>');
+  expect(requestClose).toContain('RecordLifecycle("bridge-close-dispatched")');
+  expect(requestClose).toContain('Close();');
+  expect(requestClose).not.toMatch(
+    /Environment\.Exit|Application\.Exit|Dispose\(|operationActive\s*=/,
+  );
+  const formClosing = form.slice(form.indexOf('FormClosing +='), form.indexOf('FormClosed +='));
+  expect(formClosing).toContain('if (!operationActive) return;');
+  expect(formClosing).toContain('e.Cancel = true;');
+  expect(formClosing).toContain('closeRequested = true;');
+  expect(formClosing).toContain('installCts.Cancel();');
+});
+
 test('license is embedded and acceptance debugging is opt-in, loopback-only and isolated', () => {
   expect(read('ZhiYuan.Setup.Shell.csproj')).toContain('LogicalName="ui.license"');
   expect(form).toContain('GetManifestResourceStream("ui.license")');

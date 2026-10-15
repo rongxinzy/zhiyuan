@@ -203,7 +203,8 @@
 - [3265d413 Windows run 38699564913](https://github.com/rongxinzy/zhiyuan/actions/runs/38699564913) 前置真实 MTA 调用已精确复现 WScript.Shortcut.TargetPath 赋值抛出 ArgumentException / 0x80070057，取得 COM 方法栈。改用显式 Unicode IShellLinkW 和 IPersistFile 保存，保留中文目录 / 中文应用名；前置仍实际创建快捷方式，并用独立 COM 对象重新加载、核验目标 / 工作目录 / 图标，错误继续回滚，不跳过快捷方式。
 - [c988f17c Windows run 38700864300](https://github.com/rongxinzy/zhiyuan/actions/runs/38700864300) Unicode 快捷方式真实创建 / 回读、安全前置、NSIS 交互与静默全部通过；最终壳首次安装已实际完成并截图清晰的关闭 / 启动按钮。实际点击关闭后未退出，现有证据只证明指针命中和输入响应，不足判断 DOM / 宿主回调；补每会话被动点击 / JS 异常与宿主关闭生命周期元数据，未更改退出标准或猜测修复。
 - [673416c4 Windows run 38704698602](https://github.com/rongxinzy/zhiyuan/actions/runs/38704698602) 被动日志确认完成页真实 trusted click、引擎 operation-finished，但宿主没有收到 web-message；改为初始化成功后直接订阅 CoreWebView2 原生消息源并显式启用消息，保留原 JSON / 生命周期逻辑。另实际浏览器发现 HostObjectAsyncProxy 不支持直接 catch 的异常，改原生 Promise 接管并用仅 then 的代理回归。NSIS 本轮完成页偶发未退出，同一正确按钮仍启用可见；补可验证的对话框激活前置后只投递一次 BM_CLICK，不放宽 60 秒退出要求。
-- 当前状态：上述消息 / 输入修复待 Windows 实际闭环，最终壳启动及恢复尚未全部执行，无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
+- [1934ca4f Windows run 38708753872](https://github.com/rongxinzy/zhiyuan/actions/runs/38708753872) 前置、NSIS 交互与静默通过，HostObject Promise 异常消失；最终壳完成页真实 trusted click 后仍没有宿主消息，原生 Core 事件订阅未解决关闭，不能宣称内部平台根因已证实。关闭控制改走已实际驱动安装的 HostObject 桥 RequestClose，异步投递到原 Close / FormClosing，保留安装中取消并等待回滚；启动仍仅成功后请求关闭，预览不变，退出继续以真实进程为准。
+- 当前状态：HostObject 关闭传输待 Windows 实际闭环，最终壳启动及恢复尚未全部执行，无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
 
