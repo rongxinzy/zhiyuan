@@ -20,6 +20,7 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr window);
     [DllImport("user32.dll")] private static extern bool EnableWindow(IntPtr window, bool enabled);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool SetWindowText(IntPtr window, string text);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     private readonly Thread thread;
@@ -56,6 +57,7 @@ namespace ZhiYuan.Acceptance {
     public static void SetEnabled(long window, bool enabled) { EnableWindow(new IntPtr(window), enabled); }
     public static void SetVisible(long window, bool visible) { ShowWindow(new IntPtr(window), visible ? 5 : 0); }
     public static void SetText(long window, string text) { SetWindowText(new IntPtr(window), text); }
+    public static void Foreground(long window) { SetForegroundWindow(new IntPtr(window)); }
     public static long AddButton(long dialog) {
       var button = CreateWindowEx(0, "BUTTON", "OK", 0x50000000, 10, 10, 60, 24,
         new IntPtr(dialog), new IntPtr(77), IntPtr.Zero, IntPtr.Zero);

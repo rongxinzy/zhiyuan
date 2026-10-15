@@ -219,6 +219,21 @@ test('close diagnostics distinguish message delivery and deferred shutdown witho
   expect(diagnostic).not.toMatch(/WebMessageAsJson|PostWebMessage|OnEngineEvent|Close\(/);
 });
 
+test('window commands subscribe directly to the initialized native WebView before navigation', () => {
+  const ready = form.slice(
+    form.indexOf('private void OnWebViewReady('),
+    form.indexOf('private void OnWebMessage('),
+  );
+  expect(form).not.toContain('webView.WebMessageReceived += OnWebMessage');
+  expect(ready).toContain('webView.CoreWebView2.Settings.IsWebMessageEnabled = true');
+  expect(ready.indexOf('webView.CoreWebView2.WebMessageReceived += OnWebMessage')).toBeGreaterThan(
+    ready.indexOf('if (!e.IsSuccess) return;'),
+  );
+  expect(form.indexOf('await webView.EnsureCoreWebView2Async(environment)')).toBeLessThan(
+    form.indexOf('webView.Source = uiUri'),
+  );
+});
+
 test('license is embedded and acceptance debugging is opt-in, loopback-only and isolated', () => {
   expect(read('ZhiYuan.Setup.Shell.csproj')).toContain('LogicalName="ui.license"');
   expect(form).toContain('GetManifestResourceStream("ui.license")');

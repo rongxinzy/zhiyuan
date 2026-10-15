@@ -32,7 +32,7 @@ $report = [ordered]@{
   kind = 'nsis-interactive-acceptance'; passed = $false
   commit = $env:GITHUB_SHA; runId = $env:GITHUB_RUN_ID
   installerSha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-  installedExecutable = $app; checks = [ordered]@{}; pages = @(); errors = @()
+  installedExecutable = $app; checks = [ordered]@{}; pages = @(); actions = @(); errors = @()
   dpiCoverage = 'Actual window DPI only; no simulated high-DPI claim'
 }
 
@@ -296,7 +296,10 @@ try {
   Begin-Installation 'fresh'
   Wait-ForProgressAndFinish 'fresh'
   if (-not (Test-Path -LiteralPath $app)) { throw 'Interactive installation did not produce the application executable' }
-  [ZhiYuan.Acceptance.InstallerUi]::Click((Get-Button -Id 1).Handle)
+  $close = Get-Button -Id 1 -Label '^(关闭|關閉|Close|完成|Finish)$'
+  # One real click, after verifying the documented active-dialog precondition.
+  # The receipt records delivery conditions, not successful application exit.
+  $report.actions += [ZhiYuan.Acceptance.InstallerUi]::ClickActiveDialogButton($script:wizard.Handle, $close.Handle)
   Wait-InstallerExit $process
   if (@(Get-AppProcesses).Count) { throw 'Close unexpectedly launched the application' }
   $report.checks.freshInstall = $true

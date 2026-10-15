@@ -502,8 +502,8 @@ btnInstall.addEventListener('click', () => {
   showPage('progress');
   if (inShell) {
     resetProgressView();
-    window.chrome.webview.hostObjects.shell.StartInstall(
-      document.getElementById('installPath').textContent).catch(error => handleEngineEvent({ type: 'error', message: String(error) }));
+    Promise.resolve(window.chrome.webview.hostObjects.shell.StartInstall(
+      document.getElementById('installPath').textContent)).catch(error => handleEngineEvent({ type: 'error', message: String(error) }));
   } else {
     runInstall();
   }

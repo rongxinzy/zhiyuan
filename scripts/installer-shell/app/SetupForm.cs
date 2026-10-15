@@ -165,7 +165,6 @@ public sealed class SetupForm : Form
         webView.Dock = DockStyle.Fill;
         webView.DefaultBackgroundColor = Color.White;
         webView.CoreWebView2InitializationCompleted += OnWebViewReady;
-        webView.WebMessageReceived += OnWebMessage;
         webView.NavigationCompleted += async (_, e) =>
         {
             DebugLog($"navigation completed: IsSuccess={e.IsSuccess} WebErrorStatus={e.WebErrorStatus} Uri={webView.Source}");
@@ -481,6 +480,11 @@ public sealed class SetupForm : Form
     {
         DebugLog($"initialization completed: IsSuccess={e.IsSuccess} Error={(e.IsSuccess ? null : e.InitializationException)}");
         if (!e.IsSuccess) return;
+        // Bind the native message source after it exists and before navigation.
+        // The control-wrapper subscription did not receive the page's close
+        // messages on the packaged Windows acceptance runtime.
+        webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
+        webView.CoreWebView2.WebMessageReceived += OnWebMessage;
         webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
         bridge = new ShellBridge(this);

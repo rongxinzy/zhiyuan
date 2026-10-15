@@ -27,9 +27,29 @@ namespace ZhiYuan.Acceptance {
     public uint Dpi;
   }
 
+  public sealed class ButtonClickReceipt {
+    public long DialogHandle, ButtonHandle, ActiveBefore, ActiveAtClick, ForegroundBefore, ForegroundAtClick;
+    public int ProcessId, ControlId;
+    public string Text;
+  }
+
   public static class InstallerUi {
     [StructLayout(LayoutKind.Sequential)] private struct Rect {
       public int Left, Top, Right, Bottom;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct GuiThreadInfo {
+      public uint Size, Flags;
+      public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+      public Rect CaretRect;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeMessage {
+      public IntPtr Window;
+      public uint Message;
+      public UIntPtr WParam;
+      public IntPtr LParam;
+      public uint Time;
+      public int PointX, PointY;
+      public uint Private;
     }
     [StructLayout(LayoutKind.Sequential)] private struct FileInformation {
       public uint Attributes;
@@ -51,6 +71,13 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll")] private static extern int MapWindowPoints(IntPtr from, IntPtr to, ref Rect rect, uint points);
     [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern IntPtr SetActiveWindow(IntPtr window);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo information);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+    [DllImport("user32.dll")] private static extern bool PeekMessage(out NativeMessage message, IntPtr window, uint minimum, uint maximum, uint remove);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
@@ -177,6 +204,67 @@ namespace ZhiYuan.Acceptance {
       // BM_CLICK reaches the same NSIS control callback as a user click.
       // Posting keeps the driver responsive during real synchronous install work.
       if (!PostMessage(window, 0x00F5, IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception();
+    }
+
+    public static long ForegroundWindowHandle() { return GetForegroundWindow().ToInt64(); }
+
+    private static long ActiveWindowForThread(uint thread) {
+      var information = new GuiThreadInfo { Size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+      if (!GetGUIThreadInfo(thread, ref information)) throw new Win32Exception();
+      return information.Active.ToInt64();
+    }
+
+    public static ButtonClickReceipt ClickActiveDialogButton(long dialog, long handle) {
+      var window = new IntPtr(handle);
+      var parent = new IntPtr(dialog);
+      var control = Inspect(window);
+      var owner = Inspect(parent);
+      if (!owner.Visible || !owner.Enabled || owner.ClassName != "#32770" ||
+          !control.Visible || !control.Enabled || control.ClassName != "Button" ||
+          control.ProcessId != owner.ProcessId || GetAncestor(window, 2) != parent)
+        throw new InvalidOperationException("Button does not belong to the visible, enabled dialog");
+      uint processId;
+      var targetThread = GetWindowThreadProcessId(parent, out processId);
+      var currentThread = GetCurrentThreadId();
+      var receipt = new ButtonClickReceipt {
+        DialogHandle = dialog, ButtonHandle = handle, ProcessId = control.ProcessId,
+        ControlId = control.ControlId, Text = control.Text,
+        ActiveBefore = ActiveWindowForThread(targetThread), ForegroundBefore = ForegroundWindowHandle()
+      };
+      var attached = false;
+      try {
+        // BM_CLICK can be ignored by an inactive dialog (Microsoft's documented
+        // precondition). Attach only for this cross-thread activation and always
+        // detach; never replace the real button action with wizard WM_COMMAND.
+        if (currentThread != targetThread) {
+          // AttachThreadInput fails if either thread has no input queue. The
+          // target owns a dialog; explicitly create this PowerShell thread's
+          // queue without consuming any messages (PM_NOREMOVE).
+          NativeMessage pending;
+          PeekMessage(out pending, IntPtr.Zero, 0, 0, 0);
+          if (!AttachThreadInput(currentThread, targetThread, true)) throw new Win32Exception();
+          attached = true;
+        }
+        SetForegroundWindow(parent);
+        SetActiveWindow(parent);
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        do {
+          receipt.ActiveAtClick = ActiveWindowForThread(targetThread);
+          receipt.ForegroundAtClick = ForegroundWindowHandle();
+          if (receipt.ActiveAtClick == dialog && receipt.ForegroundAtClick == dialog) break;
+          System.Threading.Thread.Sleep(20);
+        } while (elapsed.ElapsedMilliseconds < 2000);
+        if (receipt.ActiveAtClick != dialog || receipt.ForegroundAtClick != dialog)
+          throw new InvalidOperationException("Dialog activation failed before click: dialog=" + dialog +
+            " active=" + receipt.ActiveAtClick + " foreground=" + receipt.ForegroundAtClick);
+        var current = Inspect(parent);
+        if (!current.Visible || !current.Enabled || current.ProcessId != control.ProcessId)
+          throw new InvalidOperationException("Dialog changed before click");
+        Click(handle);
+        return receipt;
+      } finally {
+        if (attached) AttachThreadInput(currentThread, targetThread, false);
+      }
     }
 
     public static void Close(long handle) {

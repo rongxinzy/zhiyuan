@@ -193,9 +193,30 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(result.error, result.stderr).toBeUndefined();
       expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
       expect(result.stdout).toContain('PASS: real modal OK dialogs with control IDs 1 and 2');
+      expect(result.stdout).toContain(
+        'PASS: one activated real button click closes only the bound background dialog',
+      );
     },
     35_000,
   );
+
+  it('activates and records the exact fresh Close button without bypassing real exit', () => {
+    const freshClose = script.slice(
+      script.indexOf("Wait-ForProgressAndFinish 'fresh'"),
+      script.indexOf('$report.checks.freshInstall'),
+    );
+    expect(freshClose).toContain('Get-Button -Id 1 -Label');
+    expect(freshClose).toContain(
+      '$report.actions += [ZhiYuan.Acceptance.InstallerUi]::ClickActiveDialogButton($script:wizard.Handle, $close.Handle)',
+    );
+    expect(freshClose).toContain('Wait-InstallerExit $process');
+    expect(script).toContain('$Process.WaitForExit(60000)');
+    expect(helper).toContain(
+      'receipt.ActiveAtClick != dialog || receipt.ForegroundAtClick != dialog',
+    );
+    expect(helper).toContain('GetAncestor(window, 2) != parent');
+    expect(helper).toContain('if (attached) AttachThreadInput(currentThread, targetThread, false)');
+  });
 
   it('reads the actual separate NSIS registration keys and preserves original failures during cleanup', () => {
     expect(script).toContain("$value.PSObject.Properties['UninstallString']");

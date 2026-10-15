@@ -57,3 +57,48 @@ foreach ($id in @(1, 2)) {
   } finally { $fixture.Dispose() }
 }
 Write-Output 'PASS: real modal OK dialogs with control IDs 1 and 2 preserve process, owner, body and unique-action checks'
+
+function Wait-FixtureDialog {
+  param($Fixture, [string]$Title)
+  $deadline = (Get-Date).AddSeconds(5)
+  do {
+    $window = [ZhiYuan.Acceptance.InstallerUi]::Windows() | Where-Object {
+      $_.ProcessId -eq $PID -and $_.ClassName -eq '#32770' -and $_.Text -eq $Title -and $_.OwnerHandle -eq $Fixture.Owner
+    } | Select-Object -First 1
+    if ($window) { return $window }
+    Start-Sleep -Milliseconds 30
+  } while ((Get-Date) -lt $deadline)
+  throw "Real fixture dialog did not appear: $Title"
+}
+
+$target = [ZhiYuan.Acceptance.DialogFixture]::new($title, $body)
+$distraction = $null
+try {
+  $targetWindow = Wait-FixtureDialog $target $title
+  $targetButton = [ZhiYuan.Acceptance.InstallerUi]::FindDialogAcknowledgement($targetWindow.Handle, $PID, $title, $pattern, $target.Owner)
+  $otherTitle = "$title other foreground window"
+  $distraction = [ZhiYuan.Acceptance.DialogFixture]::new($otherTitle, $body)
+  $otherWindow = Wait-FixtureDialog $distraction $otherTitle
+  $otherButton = [ZhiYuan.Acceptance.InstallerUi]::FindDialogAcknowledgement($otherWindow.Handle, $PID, $otherTitle, $pattern, $distraction.Owner)
+  $rejected = $false
+  try { $null = [ZhiYuan.Acceptance.InstallerUi]::ClickActiveDialogButton($targetWindow.Handle, $otherButton.Handle) } catch { $rejected = $true }
+  if (-not $rejected) { throw 'A button belonging to another dialog was accepted' }
+  $deadline = (Get-Date).AddSeconds(5)
+  do {
+    [ZhiYuan.Acceptance.DialogFixture]::Foreground($otherWindow.Handle)
+    if ([ZhiYuan.Acceptance.InstallerUi]::ForegroundWindowHandle() -eq $otherWindow.Handle) { break }
+    Start-Sleep -Milliseconds 30
+  } while ((Get-Date) -lt $deadline)
+  if ([ZhiYuan.Acceptance.InstallerUi]::ForegroundWindowHandle() -ne $otherWindow.Handle) { throw 'Could not establish the real background-dialog precondition' }
+  $receipt = [ZhiYuan.Acceptance.InstallerUi]::ClickActiveDialogButton($targetWindow.Handle, $targetButton.Handle)
+  if ($receipt.ForegroundBefore -ne $otherWindow.Handle -or $receipt.ActiveAtClick -ne $targetWindow.Handle -or
+      $receipt.ForegroundAtClick -ne $targetWindow.Handle -or $receipt.ButtonHandle -ne $targetButton.Handle) {
+    throw "Target dialog was not activated before the one real click: $($receipt | ConvertTo-Json -Compress)"
+  }
+  if (-not $target.WaitForExit(5000)) { throw 'Activated real button click did not close the target dialog' }
+  if ($distraction.WaitForExit(0)) { throw 'Activated click closed the unrelated foreground dialog' }
+  Write-Output 'PASS: one activated real button click closes only the bound background dialog'
+} finally {
+  if ($null -ne $distraction) { $distraction.Dispose() }
+  $target.Dispose()
+}
