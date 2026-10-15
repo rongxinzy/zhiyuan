@@ -11,7 +11,13 @@ internal sealed class SetupOperation : IDisposable
 
     public CancellationToken Begin()
     {
-        if (IsActive) throw new InvalidOperationException("A setup operation is already active");
+        if (IsActive)
+        {
+            var chinese = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
+            throw new InvalidOperationException(chinese
+                ? "上一项操作仍在安全结束，请稍候重试。"
+                : "The previous setup operation is still finishing safely. Please try again shortly.");
+        }
         IsActive = true;
         return cancellation.Token;
     }

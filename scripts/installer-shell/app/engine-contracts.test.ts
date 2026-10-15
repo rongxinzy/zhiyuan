@@ -232,6 +232,7 @@ test('start acknowledges UI admission before cancel and never waits for an engin
   expect(startInstall).toContain('Invoke(new Action(() => StartInstall(engineInstallDir)))');
   expect(startUninstall).toContain('Invoke(new Action(StartUninstall))');
   for (const start of [startInstall, startUninstall]) {
+    expect(start).not.toContain('if (operationActive');
     expect(start.indexOf('var cancellationToken = operation.Begin();')).toBeLessThan(
       start.indexOf('_ = Task.Run('),
     );
@@ -379,6 +380,18 @@ try {
         operation.Cancel();
         var admittedToken = operation.Begin();
         Check(operation.IsActive && !admittedToken.IsCancellationRequested, "idle cancel poisoned admission");
+        var originalCulture = System.Globalization.CultureInfo.CurrentUICulture;
+        try {
+            foreach (var culture in new[] { "zh-CN", "en-US" }) {
+                System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
+                var busyRejected = false;
+                try { operation.Begin(); } catch (InvalidOperationException ex) {
+                    busyRejected = true;
+                    Check(ex.Message.Contains(culture == "zh-CN" ? "请稍候重试" : "Please try again shortly"), "busy admission message did not follow the UI culture");
+                }
+                Check(busyRejected && operation.IsActive, "busy admission silently succeeded or ended the original operation");
+            }
+        } finally { System.Globalization.CultureInfo.CurrentUICulture = originalCulture; }
         using var startWorker = new ManualResetEventSlim();
         var queuedWorker = Task.Run(() => {
             startWorker.Wait();

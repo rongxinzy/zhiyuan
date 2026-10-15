@@ -524,7 +524,9 @@ public sealed class SetupForm : Form
         // Never return while the UI admission is still queued: Cancel awaits this
         // acknowledgement and must see the exact token captured below.
         if (InvokeRequired) { Invoke(new Action(() => StartInstall(engineInstallDir))); return; }
-        if (operationActive || uninstallMode || installState == "done") return;
+        if (uninstallMode || installState == "done") return;
+        // A retry during the previous worker's final cleanup must reject its
+        // admission Promise, rather than report success without starting work.
         var cancellationToken = operation.Begin();
         installState = "installing";
         RecordLifecycle("operation-admitted");
@@ -610,7 +612,7 @@ public sealed class SetupForm : Form
     internal void StartUninstall()
     {
         if (InvokeRequired) { Invoke(new Action(StartUninstall)); return; }
-        if (operationActive || !uninstallMode || installState == "done") return;
+        if (!uninstallMode || installState == "done") return;
         var cancellationToken = operation.Begin();
         installState = "uninstalling";
         RecordLifecycle("operation-admitted");
