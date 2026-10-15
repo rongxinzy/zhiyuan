@@ -331,9 +331,24 @@ test('Windows packaging retains the clean-path host runtime smoke tool', () => {
 
 test('manual Windows signing remains explicit and preserves unchanged Magpie executables', () => {
   const { scripts } = readJson<{ scripts: Record<string, string> }>('package.json');
+  for (const name of ['dist:win', 'dist:win:offline', 'dist:win:lite'])
+    assert.equal(scripts[name], 'bun run dist:win:setup');
+  assert.deepEqual(
+    scripts['dist:win:setup'].split('&&').map(command => command.trim()),
+    ['bun run dist:win:nsis', 'bun run build:installer-shell', 'bun run pack:installer-shell'],
+  );
+  assert.equal(scripts['build:installer-shell'], 'node scripts/installer-shell/build-shell.cjs');
+  assert.equal(
+    scripts['pack:installer-shell'],
+    'node scripts/installer-shell/pack-setup.cjs --app-dir release/win-unpacked --components-dir build-tar/windows-components',
+  );
+  assert.match(
+    scripts['dist:win:nsis'],
+    /electron-builder --win nsis --x64 --config electron-builder\.json --publish never/,
+  );
   assert.match(scripts['dist:win:signed'], /electron-builder\.windows-signed\.cjs/);
-  assert.match(scripts['dist:win:offline'], /electron-builder\.json/);
-  for (const name of ['dist:win:signed', 'dist:win:offline'])
+  assert.match(scripts['dist:win:enterprise'], /electron-builder\.enterprise\.cjs/);
+  for (const name of ['dist:win:nsis', 'dist:win:signed', 'dist:win:enterprise'])
     assert.match(scripts[name], /--publish never/);
   const args = [
     '-e',

@@ -185,6 +185,7 @@
 - 清除壳中的 localInference 旧契约及 CPU / CUDA 选项，保留实际许可确认；加入明确的失败 / 重试与启动失败保留页面，长路径换行。引擎同步检查真实解压退出码、当前组件哨兵、事务回滚、取消及数据保留，避免错误宣称成功；WebView2 缺失提供明确支持提示，不暗中下载。
 - 新增最终壳真实 Windows 可见点击、安装 / 完成 / 启动 / 关闭 / 取消 / 锁冲突恢复与截图门禁，并将后续完整应用专项验收绑定同一壳安装结果。设计预览与模拟事件只用于本地 UI 回归，不能冒充 Windows 验收；DPI 只报告实际测得或明确标出的测试范围。
 - 本地验证：安装壳 / SFX / 交互交付 / 共享脚本相关 73 项通过，44 项 Windows / .NET 依赖项在常规云端环境跳过；完整 lint、格式、清洁 build 与生产依赖解析通过。官方 .NET 8 的常规 CLI 受云沙箱 NuGet 命名互斥锁限制；改用该 SDK 已有 Roslyn 直接编译实际引擎与行为 harness，编译 / 运行 exit 0，验证中断升级恢复、首次失败清理、已提交事务保护、用户数据保留、非法路径拒绝和 SFX host 拷贝。完整 WinForms / WebView2 仍必须由 Windows CI 编译验证。
+- 壳接入已推送 [28113494](https://github.com/rongxinzy/zhiyuan/commit/28113494cd63aece05ba350940ea3e36abbd21f7)。[Windows 验收 run 38680167144](https://github.com/rongxinzy/zhiyuan/actions/runs/38680167144) 正在运行；同批 source CI 的双类型、renderer / 历史 / 原生测试已通过，包装契约测试仍假定 dist:win:offline 是内联 NSIS 命令而失败。现将断言改为验证完整首装组装链及 NSIS / signed / enterprise 实际叶子命令的 --publish never，签名 / Magpie 防护不删减，继续重跑。
 - 当前状态：等待最终壳 Windows 编译与真实交互验收，尚无成功截图 / artifact；保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
