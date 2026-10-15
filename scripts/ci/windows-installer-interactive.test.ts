@@ -232,6 +232,9 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(result.error, result.stderr).toBeUndefined();
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(
+        'PASS: real bounded helper preserves exit codes 0, 3, 200 and both output streams',
+      );
+      expect(result.stdout).toContain(
         'PASS: production NSIS commands parse and stop only real owned processes',
       );
     },

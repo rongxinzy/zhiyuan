@@ -150,10 +150,14 @@ describe.skipIf(process.platform !== 'win32')('uninstall cleanup on Windows', ()
 
   test('unlinks a resources-root junction without entering its target', async () => {
     const data = createFixture();
-    const outside = `${data.resources}-outside`;
+    // The target must be outside the owned application tree. A sibling of
+    // resources is still inside that tree and is correctly scanned for links.
+    const outside = path.join(data.root, 'external-resources [user]');
+    expect(path.relative(data.installDir, outside).startsWith('..' + path.sep)).toBe(true);
     fs.renameSync(data.resources, outside);
     const preserved = sentinel(outside);
     fs.symlinkSync(outside, data.resources, 'junction');
+    expect(fs.lstatSync(path.join(outside, 'mingit')).isSymbolicLink()).toBe(true);
     const result = runCleanup(data);
 
     expect(result.status, result.stderr || result.stdout).toBe(0);
