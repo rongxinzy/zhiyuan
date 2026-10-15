@@ -204,7 +204,13 @@ test('launch failure remains recoverable and successful launch has an explicit r
 });
 
 test('retry gets a fresh cancellation token and closing waits for the engine to stop', () => {
-  expect(form.match(/installCts = new CancellationTokenSource\(\);/g)).toHaveLength(2);
+  expect(form).toContain('private readonly SetupOperation operation = new();');
+  expect(form).toContain('private bool operationActive => operation.IsActive;');
+  expect(form.match(/var cancellationToken = operation.Begin\(\);/g)).toHaveLength(2);
+  expect(form).toContain('await runEngine.RunAsync(cancellationToken);');
+  expect(form).toContain('await uninstaller.UninstallAsync(cancellationToken);');
+  expect(form).toContain('operation.Complete();');
+  expect(form).not.toContain('installCts');
   expect(form).toContain('if (!operationActive) return;');
   expect(form).toContain('e.Cancel = true;');
   expect(form).toContain('closeRequested = true;');
@@ -212,6 +218,34 @@ test('retry gets a fresh cancellation token and closing waits for the engine to 
   expect(form).not.toContain(
     'Directory.EnumerateDirectories(Path.GetTempPath(), "zhiyuan-setup-*")',
   );
+});
+
+test('start acknowledges UI admission before cancel and never waits for an engine or browser callback', () => {
+  const startInstall = form.slice(
+    form.indexOf('internal void StartInstall('),
+    form.indexOf('private void FinishOperation()'),
+  );
+  const startUninstall = form.slice(
+    form.indexOf('internal void StartUninstall()'),
+    form.indexOf('internal bool LaunchApp()'),
+  );
+  expect(startInstall).toContain('Invoke(new Action(() => StartInstall(engineInstallDir)))');
+  expect(startUninstall).toContain('Invoke(new Action(StartUninstall))');
+  for (const start of [startInstall, startUninstall]) {
+    expect(start.indexOf('var cancellationToken = operation.Begin();')).toBeLessThan(
+      start.indexOf('_ = Task.Run('),
+    );
+    expect(start).not.toMatch(/\.Wait\(|\.Result|GetAwaiter|ExecuteScriptAsync/);
+  }
+  const cancel = form.slice(
+    form.indexOf('internal void CancelInstall()'),
+    form.indexOf('internal string? BrowseInstallDir('),
+  );
+  expect(cancel).toContain('Invoke(new Action(CancelInstall))');
+  expect(cancel).toContain('if (!operationActive || installState == "done") return;');
+  expect(cancel).toContain('operation.Cancel();');
+  expect(form).toContain('RecordLifecycle("operation-admitted")');
+  expect(form).toContain('RecordLifecycle("cancel-received")');
 });
 
 test('close diagnostics distinguish message delivery and deferred shutdown without payload logging', () => {
@@ -270,7 +304,7 @@ test('host-object close queues the normal form lifecycle instead of bypassing ac
   expect(formClosing).toContain('if (!operationActive) return;');
   expect(formClosing).toContain('e.Cancel = true;');
   expect(formClosing).toContain('closeRequested = true;');
-  expect(formClosing).toContain('installCts.Cancel();');
+  expect(formClosing).toContain('operation.Cancel();');
 });
 
 test('license is embedded and acceptance debugging is opt-in, loopback-only and isolated', () => {
@@ -303,6 +337,7 @@ test.skipIf(!dotnetAvailable)(
         'ShellProcessRunner.cs',
         'UninstallerEngine.cs',
         'WindowsShellLink.cs',
+        'SetupOperation.cs',
       ];
       fs.writeFileSync(
         path.join(root, 'Contracts.csproj'),
@@ -340,6 +375,38 @@ static void UnlinkDirectory(string link) {
 var root = Path.Combine(Path.GetTempPath(), "zy-engine-behavior-" + Guid.NewGuid().ToString("n"));
 Directory.CreateDirectory(root);
 try {
+    using (var operation = new SetupOperation()) {
+        operation.Cancel();
+        var admittedToken = operation.Begin();
+        Check(operation.IsActive && !admittedToken.IsCancellationRequested, "idle cancel poisoned admission");
+        using var startWorker = new ManualResetEventSlim();
+        var queuedWorker = Task.Run(() => {
+            startWorker.Wait();
+            return admittedToken.IsCancellationRequested;
+        });
+        operation.Cancel();
+        startWorker.Set();
+        Check(queuedWorker.GetAwaiter().GetResult(), "cancel between admission and worker start was lost");
+        Check(operation.IsActive, "cancel incorrectly completed the operation before rollback");
+        operation.Complete();
+        Check(!operation.IsActive, "worker completion did not release operation");
+        operation.Cancel();
+        var retryToken = operation.Begin();
+        Check(!retryToken.IsCancellationRequested && retryToken != admittedToken, "retry reused a cancelled token");
+        Check(admittedToken.IsCancellationRequested, "retry changed the previous worker token");
+        operation.Cancel();
+        Check(retryToken.IsCancellationRequested, "active retry cancellation was lost");
+        operation.Complete();
+        var successToken = operation.Begin();
+        operation.Complete();
+        operation.Cancel();
+        Check(!successToken.IsCancellationRequested, "late cancellation changed a completed operation");
+        var nextToken = operation.Begin();
+        Check(!nextToken.IsCancellationRequested, "late cancellation poisoned the next operation");
+        operation.Complete();
+    }
+    Console.WriteLine("PASS: admission cancellation reaches the queued worker; rollback stays active; retries and completed operations are isolated");
+
     var payloadEvents = new List<EngineEvent>();
     var payloadProgress = new ContractProgress(payloadEvents.Add);
     var lastPercent = -1;

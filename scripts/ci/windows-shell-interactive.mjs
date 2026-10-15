@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { shellScreenshots } from './windows-shell-evidence.mjs';
 import { Cdp } from './windows-shell-browser-evidence.mjs';
-import { cancelAfterDetach } from './windows-shell-detached-cancel.mjs';
+import { cancelAfterDetach, cancelledRollback } from './windows-shell-detached-cancel.mjs';
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -513,10 +513,7 @@ export async function runShellAcceptance() {
     const cancelled = await start('cancelled-upgrade');
     await begin(cancelled, 'cancelled-upgrade', true);
     await waitFor(
-      async () =>
-        (await events(cancelled)).some(
-          item => item.type === 'error' && /cancel/i.test(item.detail || ''),
-        ),
+      async () => cancelledRollback(await events(cancelled)),
       'cancelled upgrade rollback',
       900_000,
     );
@@ -556,10 +553,7 @@ export async function runShellAcceptance() {
       cancelInstall: () => click(detached, '#btnCancelProgress'),
     });
     await waitFor(
-      async () =>
-        (await events(detached)).some(
-          item => item.type === 'error' && /cancel/i.test(item.detail || ''),
-        ),
+      async () => cancelledRollback(await events(detached)),
       'rollback after application detach',
       900_000,
     );

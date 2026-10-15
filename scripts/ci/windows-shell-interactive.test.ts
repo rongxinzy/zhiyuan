@@ -18,7 +18,11 @@ import {
   Cdp,
   clickObserverExpression,
 } from './windows-shell-browser-evidence.mjs';
-import { cancelAfterDetach, readTerminalEvent } from './windows-shell-detached-cancel.mjs';
+import {
+  cancelAfterDetach,
+  cancelledRollback,
+  readTerminalEvent,
+} from './windows-shell-detached-cancel.mjs';
 
 const script = readFileSync('scripts/ci/windows-shell-interactive.mjs', 'utf8');
 const native = readFileSync('scripts/ci/windows-shell-native.ps1', 'utf8');
@@ -206,6 +210,20 @@ describe('final WebView2 shell evidence identity', () => {
         },
       }),
     ).rejects.toBe(original);
+  });
+
+  it('fails immediately on unexpected completion or failure after a real Cancel click', () => {
+    const cancelled = { type: 'error', detail: 'cancelled by user' };
+    expect(cancelledRollback([{ type: 'phase', label: 'Rolling back' }])).toBe(false);
+    expect(cancelledRollback([cancelled, { type: 'lifecycle' }])).toBe(true);
+    for (const events of [[{ type: 'done' }], [cancelled, { type: 'done' }]]) {
+      expect(() => cancelledRollback(events)).toThrow('Unexpected done after real Cancel click');
+    }
+    expect(() => cancelledRollback([{ type: 'error', detail: 'IOException' }])).toThrow(
+      'Unexpected failure after real Cancel click',
+    );
+    expect(script).toContain('cancelledRollback(await events(cancelled))');
+    expect(script).toContain('cancelledRollback(await events(detached))');
   });
 
   it('reads only bounded terminal tail records, never treating a progress phase as detach evidence', async () => {

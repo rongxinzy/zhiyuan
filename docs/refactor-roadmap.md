@@ -205,7 +205,9 @@
 - [673416c4 Windows run 38704698602](https://github.com/rongxinzy/zhiyuan/actions/runs/38704698602) 被动日志确认完成页真实 trusted click、引擎 operation-finished，但宿主没有收到 web-message；改为初始化成功后直接订阅 CoreWebView2 原生消息源并显式启用消息，保留原 JSON / 生命周期逻辑。另实际浏览器发现 HostObjectAsyncProxy 不支持直接 catch 的异常，改原生 Promise 接管并用仅 then 的代理回归。NSIS 本轮完成页偶发未退出，同一正确按钮仍启用可见；补可验证的对话框激活前置后只投递一次 BM_CLICK，不放宽 60 秒退出要求。
 - [1934ca4f Windows run 38708753872](https://github.com/rongxinzy/zhiyuan/actions/runs/38708753872) 前置、NSIS 交互与静默通过，HostObject Promise 异常消失；最终壳完成页真实 trusted click 后仍没有宿主消息，原生 Core 事件订阅未解决关闭，不能宣称内部平台根因已证实。关闭控制改走已实际驱动安装的 HostObject 桥 RequestClose，异步投递到原 Close / FormClosing，保留安装中取消并等待回滚；启动仍仅成功后请求关闭，预览不变，退出继续以真实进程为准。
 - [e244a75d Windows run 38712483618](https://github.com/rongxinzy/zhiyuan/actions/runs/38712483618) 最终壳首次安装 / 完成 / 关闭退出 0 且不误启动已通过；已有运行安装取消、升级早期取消保数据也通过。后续 post-detach 取消取证等到迟到阶段日志时升级已正常完成：26,840 条载荷进度经过 UI 双重排队，证据显示引擎 done 时页面仍准备安装包 74%。直接以真实 journal / GUID 旧备份 / 新解包输出触发取消，并对实际进度洪泛做源头限频与 UI 投递顺序修复，保留真实回滚断言。
-- 当前状态：最终壳关闭已闭环，post-detach 回滚和最终启动待余下 Windows 验收，无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
+- [614eb339 Windows run 38716875077](https://github.com/rongxinzy/zhiyuan/actions/runs/38716875077) 前置、NSIS 交互 / 静默及最终壳首次安装 → 完成 → 关闭通过；源头限频后首次安装事件降至 140 条，已有运行安装取消保护仍通过。升级开始后 10ms 的真实取消点击未取消操作，引擎正常完成，早取消门禁正确失败；继续修复安装启动与取消的顺序，后续 post-detach / 最终启动尚未执行，不能沿用上一轮早取消成功作为本轮结果。对应源码 CI 已全部通过。
+- 早取消已定位为跨线程 Start 先排队、随后更换 CTS，而 Cancel 直接取消旧 CTS。改为宿主短同步接纳后返回，页面立即保留取消意图、接纳后发送取消；接纳不等待安装完成。每次操作捕获独立 token，完成后准备下一 token，取消在 UI 串行且仅作用活动操作；旧页面接纳请求不跨重试。增加延迟 then-only 接纳 / 拒绝 / 重试回归，真实取消后出现 DONE 或非取消错误立即使驱动失败，不再等满超时。
+- 当前状态：最终壳关闭与进度积压已闭环，早取消、post-detach 回滚和最终启动待余下 Windows 验收，无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
 

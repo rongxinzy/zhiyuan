@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import { open } from 'node:fs/promises';
 import { observeDetachedUpgrade } from './windows-shell-evidence.mjs';
 
+export function cancelledRollback(events) {
+  assert(!events.some(event => event.type === 'done'), 'Unexpected done after real Cancel click');
+  const errors = events.filter(event => event.type === 'error');
+  const unexpected = errors.find(event => !/cancel/i.test(event.detail || ''));
+  assert(!unexpected, `Unexpected failure after real Cancel click: ${JSON.stringify(unexpected)}`);
+  return errors.length > 0;
+}
+
 // Terminal events only fail the attempt; delayed UI-thread phase events must
 // never decide when the real filesystem transaction can be observed.
 export async function readTerminalEvent(filename) {

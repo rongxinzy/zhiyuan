@@ -5,9 +5,10 @@ const html = readFileSync('scripts/installer-shell/preview/index.html', 'utf8');
 const windows: JSDOM[] = [];
 function mount(query = '', hosted = true) {
   const start = vi.fn<() => PromiseLike<void>>(() => Promise.resolve());
+  const uninstall = vi.fn<() => PromiseLike<void>>(() => Promise.resolve());
   const launch = vi.fn(() => Promise.resolve(false));
   const close = vi.fn<() => PromiseLike<void>>(() => Promise.resolve());
-  const cancel = vi.fn(() => Promise.resolve());
+  const cancel = vi.fn<() => PromiseLike<void>>(() => Promise.resolve());
   const post = vi.fn();
   let engine: (event: { data: unknown }) => void = () => {};
   const dom = new JSDOM(html, {
@@ -22,6 +23,7 @@ function mount(query = '', hosted = true) {
             hostObjects: {
               shell: {
                 StartInstall: start,
+                StartUninstall: uninstall,
                 LaunchApp: launch,
                 RequestClose: close,
                 CancelInstall: cancel,
@@ -45,6 +47,7 @@ function mount(query = '', hosted = true) {
     document,
     click,
     start,
+    uninstall,
     launch,
     close,
     cancel,
@@ -181,7 +184,7 @@ describe('hosted installer UI contract (not Windows acceptance)', () => {
     await vi.waitFor(() => expect(then).toHaveBeenCalledOnce());
     expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
     ui.click('#btnCancelProgress');
-    expect(ui.cancel).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(ui.cancel).toHaveBeenCalledOnce());
     expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
     ui.event({ type: 'error', message: 'Cancelled after rollback' });
     expect(ui.document.querySelector('.page.active')?.id).toBe('page-error');
@@ -189,6 +192,111 @@ describe('hosted installer UI contract (not Windows acceptance)', () => {
       'Cancelled after rollback',
     );
     expect(ui.post).not.toHaveBeenCalled();
+  });
+  it.each(['install', 'uninstall'])(
+    'retains early Cancel through delayed %s admission without waiting for the operation',
+    async operation => {
+      const ui = mount(operation === 'uninstall' ? '?page=uninstall' : '');
+      let acknowledgeStart = () => {};
+      const pendingStart = new Promise<void>(resolve => {
+        acknowledgeStart = resolve;
+      });
+      (operation === 'install' ? ui.start : ui.uninstall).mockReturnValue({
+        then: pendingStart.then.bind(pendingStart),
+      });
+      const settled = Promise.resolve();
+      const then = vi.fn(settled.then.bind(settled));
+      ui.cancel.mockReturnValue({ then });
+      if (operation === 'install') ui.click('#licenseCheck');
+      ui.click(operation === 'install' ? '#btnInstall' : '#btnConfirmUninstall');
+      const button = ui.document.querySelector('#btnCancelProgress') as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      ui.click('#btnCancelProgress');
+      expect(ui.cancel).not.toHaveBeenCalled();
+      expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
+      await Promise.resolve();
+      expect(ui.cancel).not.toHaveBeenCalled();
+      acknowledgeStart();
+      await vi.waitFor(() => expect(then).toHaveBeenCalledOnce());
+      expect(ui.cancel).toHaveBeenCalledExactlyOnceWith();
+      expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
+      ui.event({
+        type: 'error',
+        message: 'Cancelled after rollback',
+        detail: 'cancelled by user',
+      });
+      expect(ui.document.querySelector('.page.active')?.id).toBe('page-error');
+      expect(ui.post).not.toHaveBeenCalled();
+    },
+  );
+  it('does not send Cancel after admission rejects, and a Retry gets its own cancellable admission', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ui = mount();
+    let rejectStart = (_error: Error) => {};
+    const pendingStart = new Promise<void>((_resolve, reject) => {
+      rejectStart = reject;
+    });
+    ui.start.mockReturnValue({ then: pendingStart.then.bind(pendingStart) });
+    ui.click('#licenseCheck');
+    ui.click('#btnInstall');
+    ui.click('#btnCancelProgress');
+    rejectStart(new Error('Start admission rejected'));
+    await vi.waitFor(() =>
+      expect(ui.document.querySelector('#errorMessage')?.textContent).toContain(
+        'Start admission rejected',
+      ),
+    );
+    expect(ui.cancel).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledOnce();
+    ui.click('#btnRetry');
+    ui.start.mockReturnValue(Promise.resolve());
+    ui.click('#btnInstall');
+    ui.click('#btnCancelProgress');
+    await vi.waitFor(() => expect(ui.cancel).toHaveBeenCalledExactlyOnceWith());
+    expect(ui.start).toHaveBeenCalledTimes(2);
+    expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
+  });
+  it.each([false, true])(
+    'does not apply an older pending Cancel to a newer Retry admission (old rejects: %s)',
+    async rejects => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const ui = mount();
+      let acknowledgeStart = () => {};
+      const pendingStart = new Promise<void>((resolve, reject) => {
+        acknowledgeStart = () =>
+          rejects ? reject(new Error('Previous admission rejected')) : resolve();
+      });
+      ui.start.mockReturnValue({ then: pendingStart.then.bind(pendingStart) });
+      ui.click('#licenseCheck');
+      ui.click('#btnInstall');
+      ui.click('#btnCancelProgress');
+      ui.event({ type: 'error', message: 'Previous attempt failed' });
+      ui.click('#btnRetry');
+      ui.start.mockReturnValue(Promise.resolve());
+      ui.click('#btnInstall');
+      acknowledgeStart();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(ui.cancel).not.toHaveBeenCalled();
+      ui.click('#btnCancelProgress');
+      await vi.waitFor(() => expect(ui.cancel).toHaveBeenCalledExactlyOnceWith());
+      expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
+    },
+  );
+  it('handles then-only Cancel rejection without claiming rollback or exposing Retry during installation', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ui = mount();
+    ui.click('#licenseCheck');
+    ui.click('#btnInstall');
+    const rejected = Promise.reject(new Error('Cancel request rejected'));
+    ui.cancel.mockReturnValue({ then: rejected.then.bind(rejected) });
+    ui.click('#btnCancelProgress');
+    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
+    expect(ui.document.querySelector('.page.active')?.id).toBe('page-progress');
+    expect(ui.document.querySelector('#errorMessage')?.textContent).toBe('');
+    expect(ui.document.querySelector('#launchError')?.textContent).toBe('');
+    expect((ui.document.querySelector('#btnCancelProgress') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
   it('shows a rejected close request without rewriting an already completed installation', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
