@@ -281,24 +281,32 @@ test.skipIf(process.platform !== 'win32')(
     );
     const command =
       "$ErrorActionPreference='Stop'; (Get-Command whoami -CommandType Application -ErrorAction Stop).Name";
+    // A fresh hosted Windows image can spend tens of seconds initializing
+    // PowerShell/Defender before executing any command. Match the separate
+    // startup diagnostic budget; timeouts still fail and never count as the
+    // expected command-discovery rejection.
+    const startupTimeoutMs = 90_000;
     const withoutExtensions = { ...env };
     delete withoutExtensions.PATHEXT;
     const before = spawnSync(pwsh, ['-NoProfile', '-NonInteractive', '-Command', command], {
       env: withoutExtensions,
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: startupTimeoutMs,
+      windowsHide: true,
     });
-    expect(before.error).toBeUndefined();
+    expect(before.error, before.stderr || before.stdout).toBeUndefined();
     expect(before.status).not.toBe(0);
     const after = spawnSync(pwsh, ['-NoProfile', '-NonInteractive', '-Command', command], {
       env,
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: startupTimeoutMs,
+      windowsHide: true,
     });
-    expect(after.error).toBeUndefined();
+    expect(after.error, after.stderr || after.stdout).toBeUndefined();
     expect(after.status, after.stderr).toBe(0);
     expect(after.stdout.trim().toLowerCase()).toBe('whoami.exe');
   },
+  190_000,
 );
 
 test('native case progress is delivered immediately and cannot replace a final result', async () => {

@@ -127,14 +127,31 @@ describe('real interactive NSIS acceptance safeguards', () => {
 
   it('reads the actual separate NSIS registration keys and preserves original failures during cleanup', () => {
     expect(script).toContain("$value.PSObject.Properties['UninstallString']");
-    expect(script).toContain('StartsWith($uninstallPrefix, [StringComparison]::OrdinalIgnoreCase)');
+    expect(script).toContain('[IO.Path]::GetFullPath($uninstallers[0].FullName)');
+    expect(script).toContain(
+      '$registeredUninstaller = [IO.Path]::GetFullPath($registeredUninstaller)',
+    );
+    expect(script).toContain(
+      '$registeredUninstaller.Equals($expectedUninstaller, [StringComparison]::OrdinalIgnoreCase)',
+    );
     expect(script).toContain('$installKey = "${hive}:/$software/$($item.PSChildName)"');
-    expect(script).toContain('$installValue.InstallLocation.TrimEnd');
+    expect(script).toContain('[IO.Path]::GetFullPath($installValue.InstallLocation).TrimEnd');
     expect(script).toContain('$item.GetValueNames()');
     expect(script).toContain('$installItem.GetValueNames()');
     expect(script).toContain('[InstallerInteractive] Acceptance failed:');
     expect(script).toContain('Stop-AcceptanceProcess $item.ProcessId');
     expect(script).not.toContain('& taskkill.exe');
+  });
+
+  it('covers real 8.3 path aliases without accepting unrelated existing executables', () => {
+    const regression = readFileSync(
+      path.join(__dirname, 'windows-installer-interactive-regression.ps1'),
+      'utf8',
+    );
+    expect(regression).toContain('[AcceptanceShortPath]::GetShortPathName');
+    expect(regression).toContain('Equivalent Windows path was not recognized');
+    expect(regression).toContain('A different existing executable was accepted');
+    expect(regression).toContain('Restoring raw registration values changed the snapshot');
   });
 
   it.skipIf(process.platform !== 'win32')(

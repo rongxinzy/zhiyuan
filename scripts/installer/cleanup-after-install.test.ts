@@ -91,6 +91,19 @@ describe('post-install cleanup ownership contract', () => {
     expect(source).toContain("($completion -split '\\|', 2)[0] -cne $version.Name");
     expect(source).not.toContain("'runtime-packs'");
   });
+
+  test('normalizes marker identity before asynchronous deletion and checks it is unchanged', () => {
+    const source = fs.readFileSync(scriptPath, 'utf8');
+    expect(source).toContain('$backup = Get-NormalizedDirectoryPath $OldInstallPath');
+    expect(source).toContain('$markerBackup = Get-NormalizedDirectoryPath $markerContent.Trim()');
+    expect(source).toContain(
+      '[string]::Equals($markerBackup, $backup, [StringComparison]::OrdinalIgnoreCase)',
+    );
+    expect(source.indexOf('$markerBackup =')).toBeLessThan(source.indexOf('Start-Process'));
+    expect(source).toContain(
+      '(Get-Content -LiteralPath $OldInstallPathFile -Raw) -ceq $ownedMarker',
+    );
+  });
 });
 
 describe.skipIf(process.platform !== 'win32')('post-install cleanup on Windows', () => {
@@ -127,6 +140,34 @@ describe.skipIf(process.platform !== 'win32')('post-install cleanup on Windows',
     expect(result.status, result.stderr || result.stdout).toBe(0);
     await expectRemoved(backup);
     expect(fs.readFileSync(preserved, 'utf8')).toBe('user-owned data');
+    expect(fs.existsSync(data.markerPath)).toBe(false);
+  });
+
+  test('recognizes normalized marker spellings as the same exact backup', async () => {
+    const data = fixture();
+    const backup = `${data.installDir}.old.${backupId}`;
+    writeSentinel(backup);
+    // Alternate separators and a trailing separator must normalize on both
+    // sides, just like the runner's short-name and expanded temp paths.
+    fs.writeFileSync(data.markerPath, backup.replaceAll('\\', '/') + '/');
+    const result = runCleanup(data, { backup });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    await expectRemoved(backup);
+    expect(fs.existsSync(data.markerPath)).toBe(false);
+  });
+
+  test('preserves a marker naming a different valid transaction backup', async () => {
+    const data = fixture();
+    const backup = `${data.installDir}.old.${backupId}`;
+    const otherBackup = `${data.installDir}.old.${'c'.repeat(32)}`;
+    writeSentinel(backup);
+    const preserved = writeSentinel(otherBackup);
+    fs.writeFileSync(data.markerPath, otherBackup);
+    const result = runCleanup(data, { backup });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    await expectRemoved(backup);
+    expect(fs.readFileSync(preserved, 'utf8')).toBe('user-owned data');
+    expect(fs.readFileSync(data.markerPath, 'utf8')).toBe(otherBackup);
   });
 
   test('does not consume a stale marker during a fresh shell install', () => {

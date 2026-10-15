@@ -187,7 +187,7 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(activateScript).toContain('Set-StrictMode -Version Latest');
     expect(activateScript).toContain('Missing prepared component target:');
     expect(activateScript).toContain(
-      'New-Item -ItemType Junction -Path $next -Target $target -Force -ErrorAction Stop',
+      'New-LiteralDirectoryJunction -LinkPath $next -TargetPath $target',
     );
     expect(activateScript).toContain('component-switch-state.txt');
     expect(installerScript).toContain('component-switch-state.txt');
@@ -225,7 +225,7 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(activateScript).toContain('^[0-9a-f]{64}\\z');
     expect(activateScript).not.toContain('^[0-9a-f]{64}$');
     expect(activateScript).toContain(
-      'New-Item -ItemType Junction -Path $next -Target $target -Force -ErrorAction Stop',
+      'New-LiteralDirectoryJunction -LinkPath $next -TargetPath $target',
     );
     expect(offlineComponents).toEqual([
       { key: 'portable-git', prefix: 'mingit', sentinel: 'mingit\\cmd\\git.exe' },

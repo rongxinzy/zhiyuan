@@ -243,18 +243,31 @@ describe('real final shell acceptance driver safeguards', () => {
     () => {
       const fixture = fs.mkdtempSync(path.join(tmpdir(), 'shell-component-recovery-'));
       try {
-        const runtime = path.join(fixture, 'runtime[owned]');
+        const runtime = path.join(fixture, 'runtime[owned] %PATH% !literal! & (cache)');
         const component = path.join(runtime, 'portable-git');
         const oldId = '1'.repeat(64);
         const newId = '2'.repeat(64);
         const oldTarget = path.join(component, oldId);
         const newTarget = path.join(component, newId);
         const plugin = path.join(fixture, 'plugin');
+        const resources = path.join(
+          fixture,
+          'application[owned] %PATH% !literal! & (app)',
+          'resources',
+        );
+        fs.mkdirSync(resources, { recursive: true });
         for (const target of [oldTarget, newTarget, plugin])
           fs.mkdirSync(target, { recursive: true });
         fs.writeFileSync(path.join(oldTarget, 'preserve.txt'), 'original component data');
         fs.writeFileSync(path.join(newTarget, 'preserve.txt'), 'prepared component data');
         fs.writeFileSync(path.join(newTarget, '.complete'), newId);
+        for (const target of [oldTarget, newTarget]) {
+          fs.mkdirSync(path.join(target, 'mingit/cmd'), { recursive: true });
+          fs.writeFileSync(
+            path.join(target, 'mingit/cmd/git.exe'),
+            `component:${path.basename(target)}`,
+          );
+        }
         fs.writeFileSync(path.join(plugin, 'component-portable-git.version'), newId);
         fs.symlinkSync(oldTarget, path.join(component, 'current'), 'junction');
         const manifest = path.join(fixture, 'manifest.json');
@@ -306,9 +319,33 @@ describe('real final shell acceptance driver safeguards', () => {
           fs.realpathSync.native(oldTarget),
         );
         expect(fs.readFileSync(state, 'utf8')).toContain('portable-git|True');
+        const linkArguments = [
+          '-ResourceRoot',
+          resources,
+          '-RuntimeRoot',
+          runtime,
+          '-ManifestPath',
+          manifest,
+        ];
+        run('link-runtime-junctions.ps1', linkArguments);
+        expect(fs.lstatSync(path.join(resources, 'mingit')).isSymbolicLink()).toBe(true);
+        expect(fs.realpathSync.native(path.join(resources, 'mingit'))).toBe(
+          fs.realpathSync.native(path.join(newTarget, 'mingit')),
+        );
+        // Replacing an existing link must also use literal discovery/removal.
+        run('link-runtime-junctions.ps1', linkArguments);
+        expect(fs.readFileSync(path.join(resources, 'mingit/cmd/git.exe'), 'utf8')).toBe(
+          `component:${newId}`,
+        );
         run('recover-component-switch.ps1', ['-RuntimeRoot', runtime]);
         expect(fs.realpathSync.native(path.join(component, 'current'))).toBe(
           fs.realpathSync.native(oldTarget),
+        );
+        expect(fs.realpathSync.native(path.join(resources, 'mingit'))).toBe(
+          fs.realpathSync.native(path.join(oldTarget, 'mingit')),
+        );
+        expect(fs.readFileSync(path.join(resources, 'mingit/cmd/git.exe'), 'utf8')).toBe(
+          `component:${oldId}`,
         );
         for (const removed of [
           state,
@@ -326,11 +363,37 @@ describe('real final shell acceptance driver safeguards', () => {
         expect(fs.realpathSync.native(path.join(component, 'current'))).toBe(
           fs.realpathSync.native(oldTarget),
         );
+        expect(fs.realpathSync.native(path.join(resources, 'mingit'))).toBe(
+          fs.realpathSync.native(path.join(oldTarget, 'mingit')),
+        );
+        expect(fs.readFileSync(path.join(resources, 'mingit/cmd/git.exe'), 'utf8')).toBe(
+          `component:${oldId}`,
+        );
       } finally {
         fs.rmSync(fixture, { recursive: true, force: true });
       }
     },
   );
+
+  it('keeps both shared junction creation paths literal and avoids interpolating caller paths into shell code', () => {
+    const scripts = ['activate-components.ps1', 'link-runtime-junctions.ps1'].map(name =>
+      readFileSync(path.join('scripts/installer', name), 'utf8'),
+    );
+    for (const text of scripts) {
+      expect(text).not.toMatch(/New-Item\s+-ItemType\s+Junction/);
+      expect(text).toContain(
+        '$start.Arguments = \'/d /v:off /c mklink /J "%ZY_JUNCTION_LINK%" "%ZY_JUNCTION_TARGET%"\'',
+      );
+      expect(text).toContain(
+        "$start.EnvironmentVariables['ZY_JUNCTION_LINK'] = [IO.Path]::GetFullPath($LinkPath)",
+      );
+      expect(text).toContain(
+        "$start.EnvironmentVariables['ZY_JUNCTION_TARGET'] = [IO.Path]::GetFullPath($TargetPath)",
+      );
+      expect(text).toContain('if ($process.ExitCode -ne 0)');
+    }
+    expect(scripts[1]).toContain('Test-Path -LiteralPath $link');
+  });
 
   it.skipIf(process.platform !== 'win32')('parses the actual native Windows driver', () => {
     const target = path.resolve('scripts/ci/windows-shell-native.ps1').replaceAll("'", "''");

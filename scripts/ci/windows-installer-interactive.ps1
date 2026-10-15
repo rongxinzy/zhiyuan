@@ -196,7 +196,11 @@ function Wait-AppWindow {
 function Get-RegistrationSnapshot {
   $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter 'Uninstall*.exe' -File)
   if ($uninstallers.Count -ne 1) { throw 'Expected one installed uninstaller for registration verification' }
-  $uninstallPrefix = '"' + $uninstallers[0].FullName + '"'
+  # Windows PowerShell's .NET Framework expands 8.3 paths in FileInfo.FullName.
+  # Registry strings can retain RUNNER~1 or another valid short path, so compare
+  # fully qualified paths on both sides rather than raw command prefixes.
+  $expectedUninstaller = [IO.Path]::GetFullPath($uninstallers[0].FullName)
+  $expectedInstallRoot = [IO.Path]::GetFullPath($installRoot).TrimEnd('\')
   $entries = foreach ($hive in @('HKCU', 'HKLM')) {
     foreach ($suffix in @('SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall', 'SOFTWARE/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall')) {
       $key = "${hive}:/$suffix"
@@ -205,13 +209,20 @@ function Get-RegistrationSnapshot {
         # electron-builder writes InstallLocation to Software\APP_GUID, not
         # to its separate Windows Uninstall entry. Bind the latter to the
         # exact installed uninstaller, then inspect both registration keys.
-        if ($value.PSObject.Properties['UninstallString'] -and
-            ([string]$value.UninstallString).StartsWith($uninstallPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not $value.PSObject.Properties['UninstallString']) { continue }
+        $uninstallCommand = [string]$value.UninstallString
+        if ($uninstallCommand -notmatch '^"([^"\r\n]+)"(?:\s|$)') { continue }
+        $registeredUninstaller = $Matches[1]
+        if (-not [IO.Path]::IsPathRooted($registeredUninstaller) -or
+            -not (Test-Path -LiteralPath $registeredUninstaller -PathType Leaf)) { continue }
+        $registeredUninstaller = [IO.Path]::GetFullPath($registeredUninstaller)
+        if ($registeredUninstaller.Equals($expectedUninstaller, [StringComparison]::OrdinalIgnoreCase)) {
           $software = if ($suffix -like '*WOW6432Node*') { 'SOFTWARE/WOW6432Node' } else { 'SOFTWARE' }
           $installKey = "${hive}:/$software/$($item.PSChildName)"
           $installValue = Get-ItemProperty -LiteralPath $installKey
           if (-not $installValue.PSObject.Properties['InstallLocation'] -or
-              $installValue.InstallLocation.TrimEnd('\') -ine $installRoot.TrimEnd('\')) {
+              -not (Test-Path -LiteralPath $installValue.InstallLocation -PathType Container) -or
+              -not ([IO.Path]::GetFullPath($installValue.InstallLocation).TrimEnd('\')).Equals($expectedInstallRoot, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Installer location registration does not match the installed bytes: $installKey"
           }
           $uninstallValues = [ordered]@{}

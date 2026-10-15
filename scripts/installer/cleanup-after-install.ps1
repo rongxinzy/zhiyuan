@@ -13,6 +13,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Get-NormalizedDirectoryPath([string]$Path) {
+  return [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+}
+
 function Assert-PhysicalDirectoryPath([string]$Path) {
   # A physical leaf underneath a junction still points outside the owned tree.
   for ($directory = [IO.DirectoryInfo]::new($Path); $null -ne $directory; $directory = $directory.Parent) {
@@ -42,13 +46,31 @@ if ($fromMarker -and (Test-Path -LiteralPath $OldInstallPathFile)) {
 }
 $backup = $null
 if (-not [string]::IsNullOrEmpty($OldInstallPath)) {
-  $installFull = [IO.Path]::GetFullPath($InstallDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-  $backup = [IO.Path]::GetFullPath($OldInstallPath).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+  $installFull = Get-NormalizedDirectoryPath $InstallDir
+  $backup = Get-NormalizedDirectoryPath $OldInstallPath
   # NSIS uses GetTickCount; the shell uses Guid.ToString("n"). Anchor the
   # entire literal install path, including any [] or other regex characters.
   $backupPattern = '^' + [regex]::Escape($installFull) + '\.old\.(?:[0-9a-f]{32}|-?[0-9]{1,10})\z'
   if ($backup -notmatch $backupPattern) { throw "Unowned previous installation: $OldInstallPath" }
   Assert-PhysicalDirectoryPath $backup
+}
+
+# Compare both sides with the same normalization. Windows PowerShell's .NET
+# Framework can expand an existing 8.3 path (for example RUNNER~1), so comparing
+# the raw marker with $backup would leave this transaction's marker behind.
+# Resolve ownership before the background worker can remove the named folder.
+$ownedMarker = $null
+if ($backup -and (Test-Path -LiteralPath $OldInstallPathFile)) {
+  $markerContent = Get-Content -LiteralPath $OldInstallPathFile -Raw
+  try {
+    $markerBackup = Get-NormalizedDirectoryPath $markerContent.Trim()
+    if ([string]::Equals($markerBackup, $backup, [StringComparison]::OrdinalIgnoreCase)) {
+      $ownedMarker = $markerContent
+    }
+  } catch {
+    # A stale or malformed marker is not proof of ownership; leave it alone.
+    Write-Verbose 'Preserving an invalid previous-install marker'
+  }
 }
 
 # Every recursive step checks for links before enumerating. This also protects
@@ -98,8 +120,8 @@ if (Test-Path -LiteralPath $target -PathType Container) { Remove-TreeWithoutFoll
     $env:ZY_CLEANUP_TARGET = $previousTarget
   }
 }
-if ($backup -and (Test-Path -LiteralPath $OldInstallPathFile) -and
-    (Get-Content -LiteralPath $OldInstallPathFile -Raw).Trim() -eq $backup) {
+if ($null -ne $ownedMarker -and (Test-Path -LiteralPath $OldInstallPathFile) -and
+    (Get-Content -LiteralPath $OldInstallPathFile -Raw) -ceq $ownedMarker) {
   Remove-Item -LiteralPath $OldInstallPathFile -Force
 }
 
