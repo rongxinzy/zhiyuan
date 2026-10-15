@@ -194,18 +194,56 @@ function Wait-AppWindow {
 }
 
 function Get-RegistrationSnapshot {
+  $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter 'Uninstall*.exe' -File)
+  if ($uninstallers.Count -ne 1) { throw 'Expected one installed uninstaller for registration verification' }
+  $uninstallPrefix = '"' + $uninstallers[0].FullName + '"'
   $entries = foreach ($hive in @('HKCU', 'HKLM')) {
     foreach ($suffix in @('SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall', 'SOFTWARE/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall')) {
       $key = "${hive}:/$suffix"
       foreach ($item in @(Get-ChildItem -LiteralPath $key -ErrorAction SilentlyContinue)) {
         $value = Get-ItemProperty -LiteralPath $item.PSPath
-        if ($value.PSObject.Properties['InstallLocation'] -and $value.InstallLocation.TrimEnd('\') -ieq $installRoot.TrimEnd('\')) {
-          [ordered]@{ path = $item.Name; location = $value.InstallLocation; uninstall = $value.UninstallString; version = $value.DisplayVersion }
+        # electron-builder writes InstallLocation to Software\APP_GUID, not
+        # to its separate Windows Uninstall entry. Bind the latter to the
+        # exact installed uninstaller, then inspect both registration keys.
+        if ($value.PSObject.Properties['UninstallString'] -and
+            ([string]$value.UninstallString).StartsWith($uninstallPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+          $software = if ($suffix -like '*WOW6432Node*') { 'SOFTWARE/WOW6432Node' } else { 'SOFTWARE' }
+          $installKey = "${hive}:/$software/$($item.PSChildName)"
+          $installValue = Get-ItemProperty -LiteralPath $installKey
+          if (-not $installValue.PSObject.Properties['InstallLocation'] -or
+              $installValue.InstallLocation.TrimEnd('\') -ine $installRoot.TrimEnd('\')) {
+            throw "Installer location registration does not match the installed bytes: $installKey"
+          }
+          $uninstallValues = [ordered]@{}
+          $installValues = [ordered]@{}
+          foreach ($name in @($item.GetValueNames() | Sort-Object)) {
+            $uninstallValues[$name] = [ordered]@{ kind = $item.GetValueKind($name).ToString(); value = $item.GetValue($name) }
+          }
+          $installItem = Get-Item -LiteralPath $installKey
+          foreach ($name in @($installItem.GetValueNames() | Sort-Object)) {
+            $installValues[$name] = [ordered]@{ kind = $installItem.GetValueKind($name).ToString(); value = $installItem.GetValue($name) }
+          }
+          [ordered]@{ path = $item.Name; installPath = $installItem.Name; uninstallValues = $uninstallValues; installValues = $installValues }
         }
       }
     }
   }
-  @($entries | Sort-Object { $_.path }) | ConvertTo-Json -Depth 5 -Compress
+  @($entries | Sort-Object { $_.path }) | ConvertTo-Json -Depth 8 -Compress
+}
+
+function Stop-AcceptanceProcess {
+  param([int]$ProcessId)
+  # A previous /T may already have removed this PID. Start-Process keeps a
+  # benign native stderr race from becoming a terminating PS 5.1 error that
+  # overwrites the original acceptance failure.
+  if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return }
+  $killer = Start-Process -FilePath "$env:SystemRoot/System32/taskkill.exe" -ArgumentList @('/PID', "$ProcessId", '/T', '/F') -PassThru -WindowStyle Hidden
+  if (-not $killer.WaitForExit(10000)) {
+    Stop-Process -Id $killer.Id -Force -ErrorAction SilentlyContinue
+    Write-Warning "Cleanup timed out for acceptance process $ProcessId"
+  } elseif ($killer.ExitCode -ne 0 -and (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+    Write-Warning "Cleanup could not stop acceptance process $ProcessId (exit $($killer.ExitCode))"
+  }
 }
 
 try {
@@ -312,6 +350,7 @@ try {
   $report.passed = $true
 } catch {
   $report.errors += $_.Exception.ToString()
+  Write-Host "[InstallerInteractive] Acceptance failed: $($_.Exception.Message)"
   try {
     foreach ($window in (Get-InstallerWindows)) { Save-Page "failure-$($window.Handle)" $window.Handle }
   } catch { $report.errors += "Failure screenshot: $($_.Exception.Message)" }
@@ -326,14 +365,14 @@ try {
   # Exact CI-owned paths and tracked process trees only; no broad process-name
   # termination and no security policy changes.
   foreach ($item in (Get-AppProcesses)) {
-    & taskkill.exe /PID $item.ProcessId /T /F 2>&1 | Out-Host
+    try { Stop-AcceptanceProcess $item.ProcessId } catch { Write-Warning "Application cleanup failed: $($_.Exception.Message)" }
   }
   foreach ($processId in $script:installerProcesses) {
-    if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
-      & taskkill.exe /PID $processId /T /F 2>&1 | Out-Host
-    }
+    try { Stop-AcceptanceProcess $processId } catch { Write-Warning "Installer cleanup failed: $($_.Exception.Message)" }
   }
-  & (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -ProjectRoot $ProjectRoot -InstallRoot $installRoot -StartedAt $started
+  try {
+    & (Join-Path $PSScriptRoot 'windows-installer-diagnostics.ps1') -ProjectRoot $ProjectRoot -InstallRoot $installRoot -StartedAt $started
+  } catch { Write-Warning "Additional installer diagnostics failed: $($_.Exception.Message)" }
   # taskkill's status must not become the PowerShell script's success status.
   $global:LASTEXITCODE = 0
 }

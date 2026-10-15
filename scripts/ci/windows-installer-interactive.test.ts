@@ -75,7 +75,7 @@ describe('real interactive NSIS acceptance safeguards', () => {
     expect(script).toContain('$report.checks.lockedDirectoryRetry = $true');
   });
 
-  it('requires hash-bound interactive proof before silent full-app acceptance and artifact delivery', () => {
+  it('retains hash-bound NSIS interactive proof before its separate silent regression', () => {
     for (const check of [
       'freshInstall',
       'closeWithoutLaunch',
@@ -89,12 +89,12 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(delivery).toContain(`'${check}'`);
       expect(script).toContain(`$report.checks.${check} = $true`);
     }
-    expect(delivery).toContain('$interactive.installerSha256 -ne $installerHash');
+    expect(delivery).toContain('$interactive.installerSha256 -ne $nativeHash');
     expect(delivery).toContain('$interactive.commit -ne $env:GITHUB_SHA');
     expect(delivery).toContain('$interactive.runId -ne $env:GITHUB_RUN_ID');
     expect(
       delivery.indexOf('Real interactive installer acceptance evidence is required'),
-    ).toBeLessThan(delivery.indexOf('Start-Process -FilePath $installer.FullName'));
+    ).toBeLessThan(delivery.indexOf('Start-Process -FilePath $nativeInstaller.FullName'));
     expect(workflow.indexOf('run: ./scripts/ci/windows-installer-interactive.ps1')).toBeLessThan(
       workflow.indexOf('run: ./scripts/ci/windows-acceptance-install.ps1'),
     );
@@ -125,6 +125,43 @@ describe('real interactive NSIS acceptance safeguards', () => {
     expect(script).toContain('$report.checks.launchFailureRecovery = $true');
   });
 
+  it('reads the actual separate NSIS registration keys and preserves original failures during cleanup', () => {
+    expect(script).toContain("$value.PSObject.Properties['UninstallString']");
+    expect(script).toContain('StartsWith($uninstallPrefix, [StringComparison]::OrdinalIgnoreCase)');
+    expect(script).toContain('$installKey = "${hive}:/$software/$($item.PSChildName)"');
+    expect(script).toContain('$installValue.InstallLocation.TrimEnd');
+    expect(script).toContain('$item.GetValueNames()');
+    expect(script).toContain('$installItem.GetValueNames()');
+    expect(script).toContain('[InstallerInteractive] Acceptance failed:');
+    expect(script).toContain('Stop-AcceptanceProcess $item.ProcessId');
+    expect(script).not.toContain('& taskkill.exe');
+  });
+
+  it.skipIf(process.platform !== 'win32')(
+    'handles real electron-builder registry layout and repeated process cleanup',
+    () => {
+      const result = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          path.join(__dirname, 'windows-installer-interactive-regression.ps1'),
+          '-DriverPath',
+          scriptPath,
+        ],
+        { encoding: 'utf8', timeout: 25_000 },
+      );
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(
+        'PASS: registration and repeated process cleanup regressions',
+      );
+    },
+  );
+
   it.skipIf(process.platform !== 'win32')(
     'parses PowerShell and compiles the native driver before packaging',
     () => {
@@ -135,7 +172,7 @@ describe('real interactive NSIS acceptance safeguards', () => {
         `$null = [System.Management.Automation.Language.Parser]::ParseFile(${quote(scriptPath)}, [ref]$null, [ref]$parseErrors)`,
         'if ($parseErrors.Count) { throw ($parseErrors | Out-String) }',
         'Add-Type -AssemblyName System.Drawing',
-      `Add-Type -Path ${quote(helperPath)} -ReferencedAssemblies System,System.Core,System.Drawing`,
+        `Add-Type -Path ${quote(helperPath)} -ReferencedAssemblies System,System.Core,System.Drawing`,
         '[ZhiYuan.Acceptance.InstallerUi]::UsePhysicalCoordinates()',
       ].join('; ');
       const result = spawnSync(

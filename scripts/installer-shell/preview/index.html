@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>知远智能体 · 安装器设计原型</title>
+<title>知远智能体 · 安装程序</title>
 <style>
   :root {
     --brand: #0F6BF2;
@@ -35,7 +35,7 @@
 
   /* ============ window ============ */
   .window {
-    width: 860px; height: 560px;
+    width: min(860px, 100vw); height: min(560px, 100vh);
     background: var(--surface);
     border-radius: 12px;
     box-shadow: var(--shadow-window);
@@ -79,7 +79,7 @@
   .btn {
     height: 40px; padding: 0 22px;
     border-radius: var(--radius);
-    font: 600 13.5px/1 var(--font);
+    font: 600 14px/1 var(--font);
     border: 1px solid transparent;
     cursor: pointer;
     transition: background .12s var(--ease-out), border-color .12s, transform .06s, box-shadow .12s;
@@ -106,9 +106,9 @@
   /* ============ hero ============ */
   .brand-row { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
   .brand-row img { height: 46px; display: block; }
-  .hero-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .hero-title { font-size: 16px; font-weight: 600; color: var(--text); }
   .hero-title .en { font-weight: 400; color: var(--text-3); }
-  .hero-tag { margin-top: 6px; font-size: 13px; color: var(--text-2); }
+  .hero-tag { margin-top: 6px; font-size: 14px; color: var(--text-2); }
 
   .options { margin-top: 34px; display: flex; flex-direction: column; }
   .opt-row {
@@ -124,41 +124,24 @@
     color: var(--brand);
   }
   .opt-body { flex: 1; min-width: 0; }
-  .opt-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .opt-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .opt-desc { font-size: 12px; color: var(--text-3); margin-top: 3px; }
   .opt-path {
     font-size: 12px; color: var(--text-2);
     font-family: Consolas, "SF Mono", monospace;
     background: var(--tint); border-radius: 6px;
     padding: 4px 10px; margin-right: 10px;
-    max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 360px; min-width: 0; overflow-wrap: anywhere; white-space: normal; user-select: text;
   }
   .link {
     background: none; border: 0; padding: 0;
-    color: var(--brand); font: 500 12.5px var(--font);
+    color: var(--brand); font: 500 14px var(--font);
     cursor: pointer; border-radius: 4px;
   }
   .link:hover { color: var(--brand-strong); text-decoration: underline; }
   .link:focus-visible { outline: 2px solid rgba(15,107,242,.45); }
 
-  /* toggle switch */
-  .switch { position: relative; width: 40px; height: 22px; flex: none; cursor: pointer; display: inline-block; }
-  .switch input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; appearance: none; -webkit-appearance: none; }
-  .switch .track {
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 999px;
-    background: #D1D5DB; transition: background .18s var(--ease-out);
-  }
-  .switch .thumb {
-    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
-    border-radius: 50%; background: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,.25);
-    transition: transform .18s var(--ease-out);
-  }
-  .switch input:checked ~ .track { background: var(--brand); }
-  .switch input:checked ~ .thumb { transform: translateX(18px); }
-  .switch input:focus-visible ~ .track { outline: 2px solid rgba(15,107,242,.45); outline-offset: 2px; }
-
-  .license-row { margin-top: 18px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+  .license-row { margin-top: 18px; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); }
   .checkbox {
     width: 16px; height: 16px; border-radius: 5px;
     border: 1.5px solid #CBD5E1; background: #fff;
@@ -183,12 +166,12 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .progress-title { font-size: 17px; font-weight: 600; }
-  .phase { font-size: 12.5px; color: var(--text-3); margin-top: 8px; height: 18px; transition: opacity .2s; }
+  .progress-title { font-size: 18px; font-weight: 600; }
+  .phase { font-size: 14px; color: var(--text-3); margin-top: 8px; height: 18px; transition: opacity .2s; }
   .phase.swap { opacity: 0; }
 
   .track-wrap { width: 420px; margin-top: 26px; }
-  .track-meta { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-3); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+  .track-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-3); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
   .prog-track {
     height: 6px; border-radius: 999px; background: #E8EDF5; overflow: hidden;
   }
@@ -196,7 +179,7 @@
     height: 100%; width: 0%; border-radius: 999px; background: var(--brand);
     transition: width .5s var(--ease-out);
   }
-  .tips { margin-top: 40px; font-size: 12.5px; color: var(--text-3); height: 20px; position: relative; width: 100%; }
+  .tips { margin-top: 40px; font-size: 14px; color: var(--text-3); height: 20px; position: relative; width: 100%; }
   .tip { position: absolute; inset: 0; opacity: 0; transition: opacity .45s; }
   .tip.show { opacity: 1; }
 
@@ -208,8 +191,8 @@
     stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw .45s .18s var(--ease-out) forwards; }
   @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   @keyframes draw { to { stroke-dashoffset: 0; } }
-  .complete-title { font-size: 17px; font-weight: 600; }
-  .complete-sub { font-size: 12.5px; color: var(--text-3); margin-top: 8px; }
+  .complete-title { font-size: 18px; font-weight: 600; }
+  .complete-sub { font-size: 14px; color: var(--text-3); margin-top: 8px; }
 
   /* ============ uninstall ============ */
   .page-uninstall { justify-content: center; }
@@ -219,8 +202,8 @@
     display: flex; align-items: center; justify-content: center;
     margin-bottom: 22px;
   }
-  .uninstall-title { font-size: 17px; font-weight: 600; }
-  .uninstall-desc { font-size: 13px; color: var(--text-2); margin-top: 10px; max-width: 460px; line-height: 1.7; }
+  .uninstall-title { font-size: 18px; font-weight: 600; }
+  .uninstall-desc { font-size: 14px; color: var(--text-2); margin-top: 10px; max-width: 460px; line-height: 1.7; }
   .uninstall-desc code { background: var(--tint); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
 
   /* ============ demo toolbar (not part of the design) ============ */
@@ -242,6 +225,21 @@
 
   /* shell mode (running inside the WebView2 host): no demo chrome */
   body.shell .demo-bar { display: none; }
+  body.shell { background: var(--surface); }
+  body.shell .window { width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
+  .error-message { font-size: 14px; line-height: 1.5; color: var(--danger); margin-top: 16px; overflow-wrap: anywhere; }
+  .error-message:empty { display: none; }
+  .error-detail { margin-top: 16px; max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+  .page-error { padding-top: 48px; }
+  .complete-sub { max-width: 100%; overflow-wrap: anywhere; }
+  dialog { margin: auto; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); width: min(720px, 90vw); color: var(--text); }
+  dialog::backdrop { background: rgba(17,24,39,.3); }
+  dialog h2 { font-size: 18px; font-weight: 600; }
+  dialog pre { margin: 16px 0; max-height: 55vh; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
+  dialog form { display: flex; justify-content: end; }
+  @media (max-width: 700px) { .page { padding-left: 24px; padding-right: 24px; } .opt-row { flex-wrap: wrap; } .opt-path { flex: 1; max-width: 100%; } .track-wrap { width: min(420px, 100%); } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .check .tick { stroke-dashoffset: 0; } }
+
 </style>
 </head>
 <body>
@@ -278,26 +276,13 @@
           <button class="link" id="btnBrowse" data-i18n="browse"></button>
         </div>
 
-        <div class="opt-row">
-          <div class="opt-icon">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
-          </div>
-          <div class="opt-body">
-            <div class="opt-title" data-i18n="localInference"></div>
-            <div class="opt-desc" data-i18n="localInferenceHint"></div>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="toggleInference">
-            <span class="track"></span><span class="thumb"></span>
-          </label>
-        </div>
       </div>
 
       <div class="license-row">
         <span class="checkbox" id="licenseCheck" role="checkbox" aria-checked="false" tabindex="0">
           <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5.2 4 7.5 8.5 2.5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
-        <span><span data-i18n="licenseAgree"></span> <button class="link" data-i18n="licenseLink"></button></span>
+        <span><span data-i18n="licenseAgree"></span> <button class="link" id="btnLicense" data-i18n="licenseLink"></button></span>
       </div>
 
       <div class="footer">
@@ -331,11 +316,23 @@
         <circle class="circle" cx="42" cy="42" r="42"/>
         <path class="tick" d="M26 43.5 37 54l21-24"/>
       </svg>
-      <div class="complete-title" data-i18n="completeTitle"></div>
+      <div class="complete-title" id="completeTitle" data-i18n="completeTitle"></div>
       <div class="complete-sub" id="completeSub"></div>
+      <p id="launchError" class="error-message" role="alert"></p>
       <div class="footer" style="justify-content:center; margin-top:36px; padding-top:0;">
         <button class="btn btn-ghost" id="btnDone" data-i18n="done"></button>
         <button class="btn btn-primary" id="btnLaunch" data-i18n="launch"></button>
+      </div>
+    </section>
+
+    <section class="page page-error" id="page-error">
+      <div class="complete-title" data-i18n="errorTitle"></div>
+      <p id="errorMessage" class="error-message" role="alert"></p>
+      <pre id="errorDetail" class="error-detail"></pre>
+      <div class="footer">
+        <button class="btn btn-ghost" id="btnCloseError" data-i18n="done"></button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="btnRetry" data-i18n="retry"></button>
       </div>
     </section>
 
@@ -356,6 +353,12 @@
   </div>
 </div>
 
+<dialog id="licenseDialog" aria-labelledby="licenseTitle">
+  <h2 id="licenseTitle" data-i18n="licenseLink"></h2>
+  <pre id="licenseText"></pre>
+  <form method="dialog"><button class="btn btn-primary" data-i18n="done"></button></form>
+</dialog>
+
 <div class="demo-bar">
   <span class="label">原型演示</span>
   <button data-goto="hero">首页</button>
@@ -365,83 +368,85 @@
 </div>
 
 <script>
+const inShell = !!(window.chrome && window.chrome.webview);
 const I18N = {
   zh: {
     winTitle: '知远智能体 安装程序',
     product: '知远智能体',
     productEn: '(ZhiYuan Agent)',
-    tagline: '本地优先的全能 AI 智能体，装好离线环境即可使用。',
+    tagline: '本地优先的 AI 智能体。选择安装位置，即可开始。',
     installLocation: '安装位置',
     locationHint: '应用与离线运行环境将安装到此目录',
     browse: '更改…',
-    localInference: '安装本地推理组件',
-    localInferenceHint: '开启后首次启动时会下载 CPU 或 NVIDIA CUDA 后端（16–621 MB），不勾选不影响其他功能',
     licenseAgree: '我已阅读并同意',
     licenseLink: '《许可协议》',
     cancel: '取消',
     install: '安装',
     installingTitle: '正在安装知远智能体',
     completeTitle: '安装完成',
-    completeSubLocal: '本地推理组件将在首次启动时按你的硬件自动准备',
     completeSub: '知远智能体已就绪，开始你的第一个任务吧',
-    done: '完成',
+    done: '关闭',
+    errorTitle: '安装未完成',
+    retry: '返回并重试',
+    licenseUnavailable: '许可协议暂时无法读取，请关闭后重新运行完整安装包。',
     launch: '启动知远智能体',
     uninstallTitle: '确定要卸载知远智能体吗？',
-    uninstallDesc: '将删除应用程序、本地离线运行环境以及你的个人数据（包括会话与记忆）。此操作无法撤销。',
+    uninstallDesc: '将移除应用程序和可重新下载的运行环境。你的会话、设置和个人文件会保留。',
     uninstall: '卸载',
     uninstallingTitle: '正在卸载知远智能体',
     uninstalledTitle: '已卸载知远智能体',
-    uninstalledSub: '应用程序、离线运行环境及个人数据已从你的设备移除',
+    uninstalledSub: '应用程序已移除。你的会话、设置和个人文件已保留。',
     phases: [
       '正在校验离线组件', '正在展开命令运行环境',
       '正在激活离线组件',
       '正在连接本地运行环境', '正在安装 VC++ 运行时', '正在清理旧版本'
     ],
     tips: [
-      '提示：知远可以在完全离线的环境下运行日常任务',
+      '提示：使用在线模型和首次准备 Python 环境需要联网',
       '提示：可以在设置中选择适合你的模型',
-      '提示：本地推理组件可按需启用，不占用安装时间'
+      '提示：安装不会删除已有会话、设置和个人文件'
     ]
   },
   en: {
     winTitle: 'ZhiYuan Agent Setup',
     product: 'ZhiYuan Agent',
     productEn: '',
-    tagline: 'A local-first AI agent. The offline runtime is prepared during setup.',
+    tagline: 'Your local-first AI agent. Choose a location to get started.',
     installLocation: 'Install location',
     locationHint: 'The app and its offline runtime go here',
     browse: 'Change…',
-    localInference: 'Install local inference components',
-    localInferenceHint: 'Downloads the CPU or NVIDIA CUDA backend on first launch (16–621 MB). Optional.',
     licenseAgree: 'I have read and agree to the',
     licenseLink: 'License Agreement',
     cancel: 'Cancel',
     install: 'Install',
     installingTitle: 'Installing ZhiYuan Agent',
     completeTitle: 'Installation complete',
-    completeSubLocal: 'Local inference components will be prepared on first launch',
     completeSub: 'ZhiYuan Agent is ready for your first task',
-    done: 'Finish',
+    done: 'Close',
+    errorTitle: 'Installation did not complete',
+    retry: 'Back and retry',
+    licenseUnavailable: 'The license could not be read. Close setup and run the complete installer again.',
     launch: 'Launch ZhiYuan Agent',
     uninstallTitle: 'Uninstall ZhiYuan Agent?',
-    uninstallDesc: 'This removes the app, its local offline runtime, and your personal data (including sessions and memories). This cannot be undone.',
+    uninstallDesc: 'This removes the app and its downloadable runtime. Your sessions, settings and personal files are kept.',
     uninstall: 'Uninstall',
     uninstallingTitle: 'Uninstalling ZhiYuan Agent',
     uninstalledTitle: 'ZhiYuan Agent uninstalled',
-    uninstalledSub: 'The app, offline runtime and personal data have been removed from this device',
+    uninstalledSub: 'The app has been removed. Your sessions, settings and personal files are kept.',
     phases: [
       'Validating offline components', 'Expanding command runtime',
       'Activating offline components',
       'Linking local runtimes', 'Installing VC++ runtime', 'Cleaning up previous version'
     ],
     tips: [
-      'Tip: ZhiYuan runs everyday tasks fully offline',
+      'Tip: Online models and initial Python setup require an internet connection',
       'Tip: Choose the model that fits your needs in Settings',
-      'Tip: Local inference is optional and installs on demand'
+      'Tip: Setup preserves your existing sessions, settings and personal files'
     ]
   }
 };
-let lang = 'zh';
+let lang = new URLSearchParams(location.search).get('lang') || (navigator.language.startsWith('zh') ? 'zh' : 'en');
+if (!I18N[lang]) lang = 'zh';
 const t = k => I18N[lang][k];
 
 /* deep links for design review: ?page=hero|progress|complete|uninstall&freeze=0.5 */
@@ -450,6 +455,7 @@ const uninstallMode = params.get('page') === 'uninstall';
 const initialPage = params.get('page');
 
 function applyI18n() {
+  document.getElementById('licenseCheck').setAttribute('aria-label', t('licenseAgree') + ' ' + t('licenseLink'));
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   if (uninstallMode) {
@@ -490,16 +496,14 @@ document.getElementById('btnBrowse').addEventListener('click', () => {
   const path = prompt(lang === 'zh' ? '安装目录' : 'Install directory', installPath.textContent);
   if (path) installPath.textContent = path;
 });
-document.getElementById('toggleInference').addEventListener('change', e => {
-  inferenceOn = e.target.checked;
-});
-let inferenceOn = false;
 btnInstall.addEventListener('click', () => {
+  if (btnInstall.disabled || licenseCheck.getAttribute('aria-checked') !== 'true') return;
+  btnInstall.disabled = true;
   showPage('progress');
   if (inShell) {
     resetProgressView();
     window.chrome.webview.hostObjects.shell.StartInstall(
-      document.getElementById('installPath').textContent, inferenceOn);
+      document.getElementById('installPath').textContent).catch(error => handleEngineEvent({ type: 'error', message: String(error) }));
   } else {
     runInstall();
   }
@@ -546,7 +550,11 @@ function handleEngineEvent(evt) {
     }
     setTimeout(() => showPage('complete'), 400);
   } else if (evt.type === 'error') {
-    phaseLabel.textContent = evt.message || (lang === 'zh' ? '安装失败' : 'Installation failed');
+    document.getElementById('errorMessage').textContent = evt.message || t('errorTitle');
+    document.getElementById('errorDetail').textContent = evt.detail || '';
+    showPage('error');
+  } else if (evt.type === 'launch-error') {
+    document.getElementById('launchError').textContent = evt.message || t('errorTitle');
   }
 }
 
@@ -612,7 +620,7 @@ function runInstall() {
     if (raw < 1) requestAnimationFrame(frame);
     else {
       clearInterval(tipsTimer);
-      document.getElementById('completeSub').textContent = inferenceOn ? t('completeSubLocal') : t('completeSub');
+      document.getElementById('completeSub').textContent = t('completeSub');
       setTimeout(() => { if (token === simToken) showPage('complete'); }, 500);
     }
   }
@@ -627,7 +635,13 @@ document.getElementById('btnDone').addEventListener('click', () => {
   showPage('hero');
 });
 document.getElementById('btnLaunch').addEventListener('click', () => {
-  if (inShell) { window.chrome.webview.hostObjects.shell.LaunchApp(); return; }
+  if (inShell) {
+    document.getElementById('launchError').textContent = '';
+    window.chrome.webview.hostObjects.shell.LaunchApp().then(launched => {
+      if (launched) window.chrome.webview.postMessage({ type: 'close' });
+    }).catch(error => handleEngineEvent({ type: 'launch-error', message: String(error) }));
+    return;
+  }
   alert(lang === 'zh' ? '将启动 知远智能体' : 'Launching ZhiYuan Agent');
 });
 document.getElementById('btnCancelHero').addEventListener('click', () => {
@@ -645,11 +659,28 @@ document.getElementById('btnConfirmUninstall').addEventListener('click', () => {
   if (inShell) { window.chrome.webview.hostObjects.shell.StartUninstall(); }
 });
 
+document.getElementById('btnRetry').addEventListener('click', () => {
+  btnInstall.disabled = licenseCheck.getAttribute('aria-checked') !== 'true';
+  showPage(uninstallMode ? 'uninstall' : 'hero');
+});
+document.getElementById('btnCloseError').addEventListener('click', () => {
+  if (inShell) window.chrome.webview.postMessage({ type: 'close' });
+  else showPage('hero');
+});
+document.getElementById('btnLicense').addEventListener('click', async () => {
+  const dialog = document.getElementById('licenseDialog');
+  const text = document.getElementById('licenseText');
+  try {
+    text.textContent = inShell ? await window.chrome.webview.hostObjects.shell.GetLicenseText() : await (await fetch('../../../LICENSE')).text();
+  } catch { text.textContent = t('licenseUnavailable'); }
+  dialog.showModal();
+});
+
 applyI18n();
 
 /* deep links are parsed at the top (uninstallMode feeds applyI18n); this
    block only acts on them. */
-if (initialPage === 'progress') {
+if (!inShell && initialPage === 'progress') {
   showPage('progress');
   const freeze = parseFloat(params.get('freeze') || 'NaN');
   if (!Number.isNaN(freeze)) {
@@ -664,26 +695,10 @@ if (initialPage === 'progress') {
   } else {
     runInstall();
   }
-} else if (initialPage) {
+} else if (initialPage && (!inShell || initialPage === 'uninstall')) {
   showPage(initialPage);
 }
-if (params.has('debug')) {
-  window.addEventListener('load', () => {
-    const sw = document.querySelector('.switch');
-    const parts = {};
-    [sw, sw.querySelector('input'), sw.querySelector('.track'), sw.querySelector('.thumb')].forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      parts[['switch', 'input', 'track', 'thumb'][i]] = [r.x, r.y, r.width, r.height].map(v => Math.round(v * 10) / 10);
-    });
-    const pre = document.createElement('pre');
-    pre.id = 'debug-rects';
-    pre.textContent = JSON.stringify(parts);
-    document.body.appendChild(pre);
-  });
-}
-
 /* WebView2 shell integration: close + titlebar drag are delegated to the host window */
-const inShell = !!(window.chrome && window.chrome.webview);
 /* Asset roots differ: browser preview resolves repo paths, the packaged shell
    ships copies next to index.html. */
 const assetRoots = inShell

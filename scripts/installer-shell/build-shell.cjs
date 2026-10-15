@@ -18,14 +18,17 @@ const appDir = path.join(projectRoot, 'scripts', 'installer-shell', 'app');
 const previewDir = path.join(projectRoot, 'scripts', 'installer-shell', 'preview');
 const outDir = path.join(projectRoot, 'scripts', 'installer-shell', 'out');
 const dotnet =
-  process.env.ZHIYUAN_DOTNET || path.join(projectRoot, '.cache', 'dotnet', 'dotnet.exe');
+  process.env.ZHIYUAN_DOTNET ||
+  (fs.existsSync(path.join(projectRoot, '.cache', 'dotnet', 'dotnet.exe'))
+    ? path.join(projectRoot, '.cache', 'dotnet', 'dotnet.exe')
+    : 'dotnet');
 
 function fail(message) {
   console.error(`[installer-shell] ${message}`);
   process.exitCode = 1;
 }
 
-if (!fs.existsSync(dotnet)) {
+if (dotnet !== 'dotnet' && !fs.existsSync(dotnet)) {
   fail(`dotnet not found at ${dotnet}`);
   return;
 }
@@ -48,6 +51,10 @@ const publish = spawnSync(
   ],
   { cwd: appDir, encoding: 'utf8' },
 );
+if (publish.error) {
+  fail(`Could not run .NET SDK: ${publish.error.message}`);
+  return;
+}
 process.stdout.write(publish.stdout || '');
 process.stderr.write(publish.stderr || '');
 if (publish.status !== 0) {
@@ -73,7 +80,10 @@ console.log(`[installer-shell] staged UI at ${uiDir}`);
 
 const exe = path.join(outDir, 'ZhiYuanSetupShell.exe');
 if (process.argv.includes('--run')) {
-  const child = spawnSync('cmd.exe', ['/c', 'start', '', exe], { cwd: outDir, stdio: 'ignore' });
+  const child = spawnSync('cmd.exe', ['/c', 'start', '', exe], {
+    cwd: outDir,
+    stdio: 'ignore',
+  });
   if (child.error) {
     fail(`failed to start shell: ${child.error.message}`);
     return;

@@ -12,7 +12,12 @@ const offlineComponentValidatorPath = path.resolve(
   'scripts/installer/validate-offline-components.ps1',
 );
 
-describe('NSIS offline resource and local inference flow', () => {
+describe('NSIS offline resources and installer lifecycle', () => {
+  test('production and acceptance uninstall preserve personal application data', () => {
+    const production = JSON.parse(fs.readFileSync('electron-builder.json', 'utf8'));
+    expect(production.nsis.deleteAppDataOnUninstall).toBe(false);
+  });
+
   test('declares the installer as DPI-aware for high-DPI displays', () => {
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
 
@@ -139,7 +144,9 @@ describe('NSIS offline resource and local inference flow', () => {
 
     expect(installerScript).toContain('RequestExecutionLevel user');
     expect(installerScript).not.toContain('RequestExecutionLevel admin');
-    expect(installerScript).toContain('current.previous');
+    expect(fs.readFileSync('scripts/installer/recover-component-switch.ps1', 'utf8')).toContain(
+      'current.previous',
+    );
     // current.next only remains in the shared uninstall cleanup script.
     expect(installerScript).toContain('component-manifest.json');
     expect(installerScript).not.toContain('component-targets.txt');
@@ -185,8 +192,13 @@ describe('NSIS offline resource and local inference flow', () => {
     expect(activateScript).toContain('component-switch-state.txt');
     expect(installerScript).toContain('component-switch-state.txt');
     expect(installerScript).toContain('Keep the journal in the persistent cache');
-    expect(installerScript).toContain('^[^=|]+\\\\|(?:True|False)\\\\z');
     expect(installerScript).not.toContain('(?:True|False)$$');
+    const failureRecovery = installerScript.slice(
+      installerScript.indexOf('  OfflineComponentInstallFailed:'),
+      installerScript.indexOf('  OfflineComponentsReady:'),
+    );
+    expect(failureRecovery).toContain('recover-component-switch.ps1');
+    expect(failureRecovery).not.toContain('$$parts');
     expect(installerScript).toContain('phase=component-set-rollback');
     expect(installerScript).toContain('phase=component-cleanup-complete');
     expect(installerScript).not.toContain('离线组件原子切换失败');
@@ -362,7 +374,9 @@ describe('NSIS offline resource and local inference flow', () => {
     );
     expect(installerScript).not.toContain('Get-ChildItem -Path "$$INSTDIR.old*"');
     expect(installerScript).not.toContain('Get-ChildItem -Path "$INSTDIR.old*"');
-    expect(cleanupScript).toContain('Get-ChildItem -Path "$InstallDir.old*"');
+    expect(cleanupScript).not.toContain('Get-ChildItem -Path "$InstallDir.old*"');
+    expect(cleanupScript).toContain("$PSBoundParameters.ContainsKey('OldInstallPath')");
+    expect(cleanupScript).toContain('Get-Content -LiteralPath $OldInstallPathFile -Raw');
   });
 
   test('stops processes by install-root path prefix so orphaned sidecars cannot block setup', () => {

@@ -1,5 +1,8 @@
 # Windows 安装器 WebView2 外壳 · 实施规格
 
+> 2026-10-15 更新：本文下方保留早期实施基线，当前实现与验收状态以 `docs/refactor-roadmap.md` 第 18 项为准。正式首装包接入既有 WebView2 壳，使用真实应用 / 组件载荷；启动失败保留完成页，取消 / 失败可恢复，卸载保留个人数据。SKILLs 迁移、本地推理开关及 pending-local-inference-install 写入均已废弃，不得按旧规格恢复。实际门禁是最终壳 Windows 可见交互和完整应用验收，预览 / synthetic e2e 不能作为交付证据。
+
+
 日期：2026-10-12。状态：实施基线（Milestone A：真实安装引擎）。视觉原型已验收（见 `scripts/installer-shell/preview/index.html` 与 `docs/2026-10-11-windows-installer-custom-ui.zh-CN.md`）。
 
 ## 目标形态（双安装器，已锁定）

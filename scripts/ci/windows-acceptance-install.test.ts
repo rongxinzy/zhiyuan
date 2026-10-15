@@ -5,11 +5,14 @@ const script = readFileSync('scripts/ci/windows-acceptance-install.ps1', 'utf8')
 const workflow = readFileSync('.github/workflows/windows-acceptance.yml', 'utf8');
 
 describe('Windows acceptance delivery gate', () => {
-  it('installs into a CI-owned destination and requires a real installed application smoke', () => {
+  it('keeps NSIS silent regression separate and requires the real shell-installed application smoke', () => {
     expect(script).toContain("Join-Path $env:RUNNER_TEMP 'zhiyuan-acceptance-installed'");
     expect(script).toContain('Expected an explicitly unsigned acceptance installer');
     expect(script).toContain('/S /D=$installRoot');
     expect(script).toContain('windows-app-smoke.mjs');
+    expect(script).toContain("Join-Path $project 'release/setup'");
+    expect(script).toContain("'zhiyuan-shell-acceptance/安装路径/知远.exe'");
+    expect(script).toContain('windows-shell-evidence.mjs');
     expect(script.indexOf('Installed application smoke failed')).toBeLessThan(
       script.indexOf('Copy-Item -LiteralPath $installer.FullName'),
     );

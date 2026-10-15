@@ -20,7 +20,8 @@ public sealed record EngineEvent(
     string? InstallDir = null,
     string? LaunchPath = null,
     string? Message = null,
-    string? Detail = null)
+    string? Detail = null,
+    bool? IsUpgrade = null)
 {
     public string ToJson() => JsonSerializer.Serialize(this, EngineJsonContext.Default.EngineEvent);
 }
@@ -111,9 +112,12 @@ public sealed class InstallerEngine
     private string ManifestPath => Path.Combine(payloadDir!, "component-manifest.json");
     private string TargetsPath => Path.Combine(payloadDir!, "component-targets.json");
 
-    private string? detachedPath;
     private string? extractedPayloadDir;
-    private bool installDirCreatedByUs;
+    private readonly InstallDirectoryTransaction transaction;
+    private bool installCommitted;
+    private bool transactionOwned;
+    private bool isUpgrade;
+    private InstallRegistrationSnapshot? registrationSnapshot;
 
     public InstallerEngine(
         string? payloadDir,
@@ -124,7 +128,7 @@ public sealed class InstallerEngine
         IProgress<EngineEvent> progress)
     {
         payloadDirArg = payloadDir is null ? null : Path.GetFullPath(payloadDir);
-        this.installDir = Path.GetFullPath(installDir);
+        this.installDir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installDir));
         this.registerInstall = registerInstall;
         this.progress = progress;
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -134,37 +138,63 @@ public sealed class InstallerEngine
         runtimeRoot = runtimeRootOverride is null
             ? Path.Combine(localAppData, "ZhiYuanAgent", "runtimes")
             : Path.GetFullPath(runtimeRootOverride);
+        InstallDirectoryTransaction.ValidateRoots(this.installDir, runtimeRoot, appDataRoot);
+        transaction = new InstallDirectoryTransaction(this.installDir);
         workDir = Path.Combine(Path.GetTempPath(), "zy-setup-" + Guid.NewGuid().ToString("n")[..12]);
     }
 
     public string LaunchPath => Path.Combine(installDir, AppExeName);
 
-    public async Task RunAsync(bool localInference, CancellationToken cancellationToken)
+    public async Task RunAsync(CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(appDataRoot);
-        Directory.CreateDirectory(runtimeRoot);
         try
         {
+            transaction.ValidateOwnership();
+            Directory.CreateDirectory(appDataRoot);
+            Directory.CreateDirectory(runtimeRoot);
             await ResolvePayloadDirAsync(cancellationToken);
             await StepStopAppProcesses(cancellationToken);
+            // Recover both halves before starting another transaction. A
+            // committed journal means only housekeeping was interrupted.
+            if (transaction.HasPendingState && transaction.IsCommitted)
+            {
+                File.Delete(Path.Combine(runtimeRoot, "component-switch-state.txt"));
+                await StepCleanup(CancellationToken.None);
+                transaction.Finish();
+            }
+            await StepRecoverComponentSwitch(cancellationToken);
+            transaction.Rollback();
             await StepDetachPreviousInstall(cancellationToken);
             await StepExtractAppPackage(cancellationToken);
-            await StepRecoverComponentSwitch(cancellationToken);
             await StepValidateComponents("cache", "正在校验离线组件", cancellationToken);
             await StepValidateComponents("expand", "正在展开离线组件", cancellationToken);
             await StepActivateComponents(cancellationToken);
             await StepLinkRuntimeJunctions(cancellationToken);
             StepVerifyRuntimeSentinels();
             await StepInstallVcRuntime(cancellationToken);
-            StepWritePendingInferenceMarker(localInference);
-            await StepCleanup(cancellationToken);
             if (registerInstall)
             {
+                registrationSnapshot = new InstallRegistrationSnapshot();
                 StepRegisterUninstall();
                 CreateShortcut(Environment.GetFolderPath(Environment.SpecialFolder.Programs));
                 CreateShortcut(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
             }
-            progress.Report(new EngineEvent(Type: "done", InstallDir: installDir, LaunchPath: LaunchPath));
+            cancellationToken.ThrowIfCancellationRequested();
+            transaction.MarkCommitted();
+            installCommitted = true;
+            // Never destroy rollback material before registry/shortcuts and
+            // all mandatory validation have succeeded. Cleanup is post-commit.
+            try
+            {
+                File.Delete(Path.Combine(runtimeRoot, "component-switch-state.txt"));
+                await StepCleanup(CancellationToken.None);
+                transaction.Finish();
+            }
+            catch (Exception ex)
+            {
+                progress.Report(new EngineEvent(Type: "phase", Label: "安装已完成，旧版本清理将在下次安装时重试", Detail: ex.GetType().Name));
+            }
+            progress.Report(new EngineEvent(Type: "done", InstallDir: installDir, LaunchPath: LaunchPath, IsUpgrade: isUpgrade));
         }
         catch (OperationCanceledException)
         {
@@ -243,12 +273,7 @@ public sealed class InstallerEngine
 
         progress.Report(new EngineEvent(Type: "phase", Label: "正在准备安装包"));
         var extractRoot = Path.GetTempPath();
-        foreach (var stale in Directory.EnumerateDirectories(extractRoot, "zhiyuan-setup-*"))
-        {
-            // Leftovers from a crashed run would shadow the fresh extraction.
-            try { Directory.Delete(stale, recursive: true); } catch { }
-        }
-        var extractDir = Path.GetFullPath(Path.Combine(extractRoot, "zhiyuan-setup-" + Environment.ProcessId));
+        var extractDir = Path.GetFullPath(Path.Combine(extractRoot, "zhiyuan-setup-" + Guid.NewGuid().ToString("n")));
         Directory.CreateDirectory(extractDir);
         extractedPayloadDir = extractDir;
 
@@ -257,7 +282,6 @@ public sealed class InstallerEngine
             new OffsetStream(fileStream, zipSize), System.IO.Compression.ZipArchiveMode.Read);
         var totalBytes = zip.Entries.Sum(entry => entry.Length);
         long doneBytes = 0;
-        var skippedEntries = 0;
         foreach (var entry in zip.Entries)
         {
             ct.ThrowIfCancellationRequested();
@@ -267,8 +291,7 @@ public sealed class InstallerEngine
             var targetPath = Path.GetFullPath(Path.Combine(extractDir, entry.FullName));
             if (!targetPath.StartsWith(extractDir + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             {
-                skippedEntries++;
-                continue;
+                throw new EngineException("内嵌载荷包含无效路径，请重新下载安装包。");
             }
             if (entry.FullName.EndsWith("/", StringComparison.Ordinal) || entry.FullName.EndsWith("\\", StringComparison.Ordinal))
             {
@@ -292,7 +315,7 @@ public sealed class InstallerEngine
         progress.Report(new EngineEvent(
             Type: "phase",
             Label: "安装包已就绪",
-            Detail: skippedEntries > 0 ? $"{extractDir} (skipped {skippedEntries} unsafe entries)" : extractDir));
+            Detail: extractDir));
         payloadDir = extractDir;
     }
 
@@ -359,7 +382,7 @@ public sealed class InstallerEngine
             if (targets.Count == 0) return;
             foreach (var proc in targets)
             {
-                try { proc.Kill(); } catch { /* already exited or access denied */ }
+                using (proc) { try { proc.Kill(); } catch { /* already exited or access denied */ } }
             }
             if (attempt > 0) await Task.Delay(500, ct);
         }
@@ -383,11 +406,12 @@ public sealed class InstallerEngine
         {
             string? path = null;
             try { path = proc.MainModule?.FileName; } catch { /* access denied */ }
-            if (path is null || proc.Id == Environment.ProcessId) continue;
-            if (roots.Any(r => path.StartsWith(r, StringComparison.CurrentCultureIgnoreCase)))
+            if (path is null || proc.Id == Environment.ProcessId) { proc.Dispose(); continue; }
+            if (roots.Any(r => path.StartsWith(r, StringComparison.OrdinalIgnoreCase)))
             {
                 yield return proc;
             }
+            else proc.Dispose();
         }
     }
 
@@ -398,22 +422,22 @@ public sealed class InstallerEngine
     {
         ReportPhase("正在准备安装目录");
         ct.ThrowIfCancellationRequested();
-        if (!Directory.Exists(installDir)) return Task.CompletedTask;
-        if (!Directory.EnumerateFileSystemEntries(installDir).Any()) return Task.CompletedTask;
-        detachedPath = installDir + ".old." + Environment.TickCount64;
+        isUpgrade = File.Exists(LaunchPath);
         try
         {
-            Directory.Move(installDir, detachedPath);
+            transactionOwned = true;
+            transaction.Begin();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            var running = FindInstallRootProcesses().Count();
+            var running = FindInstallRootProcesses().Sum(proc => { proc.Dispose(); return 1; });
             var message = running > 0
                 ? "检测到知远进程仍在运行，且无法自动关闭。请手动退出知远后重试。"
                 : "无法更新安装目录，目录正被其他程序占用。请关闭占用该目录的窗口或程序后重试：" + installDir;
             throw new EngineException(message, $"running={running}");
         }
-        File.WriteAllText(Path.Combine(appDataRoot, "old-install-path.txt"), detachedPath);
+        if (transaction.BackupDir is not null)
+            File.WriteAllText(Path.Combine(appDataRoot, "old-install-path.txt"), transaction.BackupDir);
         return Task.CompletedTask;
     }
 
@@ -428,7 +452,6 @@ public sealed class InstallerEngine
         if (!File.Exists(archivePath)) throw new EngineException("安装包缺少应用程序归档 app.7z");
         var bytesTotal = new FileInfo(archivePath).Length;
         Directory.CreateDirectory(installDir);
-        installDirCreatedByUs = true;
         var percentRegex = new Regex(@"(\d+)%", RegexOptions.Compiled);
         var lastReported = -1;
         await ShellProcessRunner.RunAsync(
@@ -443,7 +466,9 @@ public sealed class InstallerEngine
                 progress.Report(new EngineEvent(
                     Type: "progress", Percent: percent,
                     BytesDone: bytesTotal * percent / 100, BytesTotal: bytesTotal));
-            });
+            }, failureMessage: "应用程序解包失败");
+        if (!File.Exists(LaunchPath) || !File.Exists(Path.Combine(installDir, "resources", "app.asar")))
+            throw new EngineException("安装包缺少必需的应用文件，请重新下载安装包。");
     }
 
     private void VerifySevenZip()
@@ -525,7 +550,13 @@ public sealed class InstallerEngine
         var resources = Path.Combine(installDir, "resources");
         foreach (var sentinel in new[]
         {
-            Path.Combine(resources, "mingit", "usr", "bin", "bash.exe"),
+            Path.Combine(resources, "mingit", "cmd", "git.exe"),
+            Path.Combine(resources, "mingit", "mingw64", "bin", "git.exe"),
+            Path.Combine(resources, "mingit", "mingw64", "bin", "libiconv-2.dll"),
+            Path.Combine(resources, "mingit", "mingw64", "bin", "libintl-8.dll"),
+            Path.Combine(resources, "mingit", "mingw64", "bin", "libpcre2-8-0.dll"),
+            Path.Combine(resources, "mingit", "mingw64", "bin", "libwinpthread-1.dll"),
+            Path.Combine(resources, "mingit", "mingw64", "bin", "zlib1.dll"),
         })
         {
             if (!File.Exists(sentinel))
@@ -574,33 +605,25 @@ public sealed class InstallerEngine
             Type: "phase", Label: "Microsoft Visual C++ Runtime 未能自动安装，部分本地组件可能暂时不可用"));
     }
 
-    /// <summary>Step 12 — the in-app downloader reads this marker on first launch.
-    /// NSIS writes the local-inference component's content-id; the shell does not
-    /// track component ids, so it writes the app's canonical fallback request id
-    /// instead of an arbitrary word.</summary>
-    private void StepWritePendingInferenceMarker(bool localInference)
-    {
-        var marker = Path.Combine(appDataRoot, "pending-local-inference-install");
-        if (File.Exists(marker)) File.Delete(marker);
-        if (localInference) File.WriteAllText(marker, "installer-request");
-    }
-
     /// <summary>Step 13 — previous-version teardown plus unused component-version
     /// reclamation (shared script, same one the NSIS installer calls).</summary>
     private async Task StepCleanup(CancellationToken ct)
     {
         ReportPhase("正在清理旧版本");
+        var previousInstallArgument = transaction.BackupDir is { } backup
+            ? $"-OldInstallPath \"{backup}\" " : string.Empty;
         await RunPowerShellAsync(
             Path.Combine(ScriptsDir, "cleanup-after-install.ps1"),
             $"-InstallDir \"{installDir}\" -RuntimeRoot \"{runtimeRoot}\" " +
             $"-ManifestPath \"{ManifestPath}\" " +
+            "-UseExactOldInstallPath " + previousInstallArgument +
             $"-OldInstallPathFile \"{Path.Combine(appDataRoot, "old-install-path.txt")}\"", ct,
-            failureMessage: null); // NSIS ignores cleanup failures; keep installing
+            failureMessage: "旧版本清理未完成，请关闭占用旧版本目录的程序后重试");
     }
 
     /// <summary>Step 14 — registry keys in the exact electron-builder shape so
     /// electron-updater locates this install exactly like an NSIS one. Also
-    /// ships the uninstall entry point: a byte-copy of this shell exe (it boots
+    /// ships the uninstall entry point: this shell without its SFX payload (it boots
     /// into uninstall mode when named uninstall.exe) plus the shared cleanup
     /// script that the uninstall engine -File-invokes.</summary>
     private void StepRegisterUninstall()
@@ -610,7 +633,7 @@ public sealed class InstallerEngine
         var selfPath = Environment.ProcessPath;
         if (selfPath is not null && File.Exists(selfPath))
         {
-            File.Copy(selfPath, uninstallExe, overwrite: true);
+            CopyUninstallerHost(selfPath, uninstallExe);
         }
         var cleanupScript = Path.Combine(payloadDir!, "scripts", "uninstall-cleanup.ps1");
         if (File.Exists(cleanupScript))
@@ -634,13 +657,42 @@ public sealed class InstallerEngine
         uninstallKey.SetValue("Publisher", Publisher);
         uninstallKey.SetValue("NoModify", 1, RegistryValueKind.DWord);
         uninstallKey.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-        uninstallKey.SetValue("EstimatedSize", EstimateInstallSize() / 1024, RegistryValueKind.DWord);
+        uninstallKey.SetValue("EstimatedSize", (int)Math.Min(EstimateInstallSize() / 1024, int.MaxValue), RegistryValueKind.DWord);
     }
 
     private string ReadPayloadVersion()
     {
         var versionPath = Path.Combine(payloadDir!, "version.txt");
         return File.Exists(versionPath) ? File.ReadAllText(versionPath).Trim() : "0.0.0";
+    }
+
+    internal static void CopyUninstallerHost(string source, string destination)
+    {
+        using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var hostLength = input.Length;
+        if (input.Length >= 12)
+        {
+            input.Seek(-12, SeekOrigin.End);
+            var footer = new byte[12];
+            input.ReadExactly(footer);
+            if (footer.AsSpan(8).SequenceEqual("ZYP1"u8))
+            {
+                var payloadLength = BitConverter.ToInt64(footer, 0);
+                if (payloadLength <= 0 || payloadLength > input.Length - 12)
+                    throw new EngineException("安装程序尾部数据损坏，无法创建卸载程序。");
+                hostLength -= payloadLength + 12;
+            }
+        }
+        input.Position = 0;
+        using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+        var buffer = new byte[64 * 1024];
+        while (hostLength > 0)
+        {
+            var count = input.Read(buffer, 0, (int)Math.Min(hostLength, buffer.Length));
+            if (count == 0) throw new EndOfStreamException();
+            output.Write(buffer, 0, count);
+            hostLength -= count;
+        }
     }
 
     private long EstimateInstallSize()
@@ -699,26 +751,26 @@ public sealed class InstallerEngine
     /// directory is removed outright.</summary>
     private async Task RollbackAsync(string reason)
     {
+        if (installCommitted || !transactionOwned) return;
+        var failures = new List<string>();
         try
         {
             await RunPowerShellAsync(
                 Path.Combine(ScriptsDir, "recover-component-switch.ps1"),
                 $"-RuntimeRoot \"{runtimeRoot}\"", CancellationToken.None,
-                failureMessage: null);
+                failureMessage: "组件状态恢复失败");
         }
-        catch { /* rollback is best-effort */ }
+        catch (Exception ex) { failures.Add(ex.Message); }
         try
         {
-            if (detachedPath is not null && Directory.Exists(detachedPath) && !Directory.Exists(installDir))
-            {
-                Directory.Move(detachedPath, installDir);
-            }
-            else if (detachedPath is null && installDirCreatedByUs && Directory.Exists(installDir))
-            {
-                Directory.Delete(installDir, recursive: true);
-            }
+            transaction.Rollback(preserveJournal: failures.Count > 0);
+            File.Delete(Path.Combine(appDataRoot, "old-install-path.txt"));
         }
-        catch { /* leave the tree for diagnostics rather than masking the original error */ }
+        catch (Exception ex) { failures.Add(ex.Message); }
+        try { registrationSnapshot?.Restore(); }
+        catch (Exception ex) { failures.Add(ex.Message); }
+        if (failures.Count > 0)
+            progress.Report(new EngineEvent(Type: "phase", Label: "安装恢复未完成，请保留安装目录并重试", Detail: string.Join("; ", failures)));
         try
         {
             if (Directory.Exists(workDir)) Directory.Delete(workDir, recursive: true);

@@ -213,7 +213,7 @@ try {
   check(treeOk, 'all resources junctions + .complete sentinels present');
   check(
     fs.existsSync(path.join(installDir, '知远.exe')) &&
-      fs.existsSync(path.join(installDir, 'resources', 'mingit', 'usr', 'bin', 'bash.exe')),
+      fs.existsSync(path.join(installDir, 'resources', 'mingit', 'cmd', 'git.exe')),
     'fake app + PortableGit sentinel installed',
   );
 

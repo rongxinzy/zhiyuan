@@ -19,6 +19,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { appendPayload, hashFile } = require('./sfx-format.cjs');
+const { verifyNativePackage } = require('../native-package-hygiene.cjs');
 const { getWindowsResourcePayloadFiles } = require('../windows-resource-pack.cjs');
 
 const projectRoot = path.resolve(__dirname, '..', '..');
@@ -76,6 +78,12 @@ try {
     for (const dir of ['tools', 'components', 'scripts']) {
       fs.mkdirSync(path.join(payloadDir, dir), { recursive: true });
     }
+
+    // Recheck actual app.asar/unpacked inputs at the final shell boundary.
+    verifyNativePackage(path.join(path.resolve(appDir), 'resources'), {
+      platform: 'win32',
+      arch: 'x64',
+    });
 
     // Application archive.
     const appArchive = path.join(payloadDir, 'app.7z');
@@ -150,13 +158,15 @@ try {
 
   // Append [zip][size LE 8B]["ZYP1"] to the shell exe.
   const outPath = path.resolve(outArg || `ZhiYuanAgent-Setup-${packageVersion}.exe`);
-  const exeBytes = fs.readFileSync(shellExe);
-  const zipBytes = fs.readFileSync(payloadZip);
-  const tail = Buffer.alloc(12);
-  tail.writeBigUInt64LE(BigInt(zipBytes.length), 0);
-  tail.write('ZYP1', 8, 'ascii');
-  fs.writeFileSync(outPath, Buffer.concat([exeBytes, zipBytes, tail]));
-  console.log(`[pack-setup] wrote ${outPath} (${exeBytes.length}+${zipBytes.length}+12 bytes)`);
+  const result = appendPayload(shellExe, payloadZip, outPath);
+  const report = {
+    ...result,
+    version: packageVersion,
+    sha256: hashFile(outPath),
+    signed: false,
+  };
+  fs.writeFileSync(`${outPath}.manifest.json`, JSON.stringify(report, null, 2) + '\n');
+  console.log(`[pack-setup] wrote ${outPath} (${result.installerBytes} bytes, ${report.sha256})`);
 } finally {
   fs.rmSync(staging, { recursive: true, force: true });
 }

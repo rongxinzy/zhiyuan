@@ -133,11 +133,11 @@ try {
   }
   check(
     fs.existsSync(path.join(installDir, '知远.exe')) &&
-      fs.existsSync(path.join(installDir, 'resources', 'mingit', 'usr', 'bin', 'bash.exe')),
+      fs.existsSync(path.join(installDir, 'resources', 'mingit', 'cmd', 'git.exe')),
     'fake app + sentinels installed',
   );
   const marker = path.join(appDataRoot, 'pending-local-inference-install');
-  check(!fs.existsSync(marker), 'pending-inference marker absent (localInference=false)');
+  check(!fs.existsSync(marker), 'retired pending-inference marker absent');
 
   // Zero pollution: the real runtime cache must not exist after the run.
   check(!fs.existsSync(realRuntimeRoot), 'real runtime cache absent after run');

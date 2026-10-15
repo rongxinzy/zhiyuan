@@ -4,7 +4,7 @@
  * Milestone C uninstall end-to-end: synthetic payload -> SFX install (real
  * registration, isolated roots) -> assert uninstall.exe / registry keys /
  * start-menu shortcut -> run <inst>\uninstall.exe --silent with unknown args
- * -> assert install dir, registry, shortcut, runtime cache and appDataRoot are
+ * -> assert install dir, registry, shortcut and runtime cache are
  * gone, real system untouched -> capture the confirm + in-progress pages.
  * Repeatable; recursive deletes are path-guarded to this process's mkdtemp
  * root (same safety shape as e2e-sfx.cjs).
@@ -236,6 +236,9 @@ try {
     sfxExe,
   ]);
 
+  fs.mkdirSync(appDataRoot, { recursive: true });
+  fs.writeFileSync(path.join(appDataRoot, 'preserve-test.txt'), 'keep user data');
+
   // --- install with real registration, isolated roots -----------------------
   if (fs.existsSync(eventsLog)) fs.rmSync(eventsLog);
   let launched = ps(
@@ -329,7 +332,11 @@ try {
   while (Date.now() < runtimeDeadline && !detachedGone()) sleep(500);
   check(waitForGone(installDir, 60000), 'install directory removed');
   check(detachedGone(), 'runtime cache removed (including detached cache)');
-  check(!fs.existsSync(appDataRoot), 'appDataRoot deleted (deleteAppDataOnUninstall semantics)');
+  check(fs.existsSync(appDataRoot), 'personal application data directory preserved');
+  check(
+    fs.readFileSync(path.join(appDataRoot, 'preserve-test.txt'), 'utf8') === 'keep user data',
+    'personal data bytes preserved',
+  );
   check(!regKeyExists(installRegKey), 'install registry key removed');
   check(!regKeyExists(uninstallRegKey), 'uninstall registry key removed');
   check(!fs.existsSync(shortcutPath), 'start-menu shortcut removed');

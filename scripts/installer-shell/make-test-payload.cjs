@@ -75,6 +75,20 @@ try {
     fs.mkdirSync(path.dirname(sentinelPath), { recursive: true });
     const sentinelBody = `synthetic sentinel for ${component.key}\n`;
     fs.writeFileSync(sentinelPath, sentinelBody);
+    if (component.key === 'portable-git') {
+      for (const file of [
+        'git.exe',
+        'libiconv-2.dll',
+        'libintl-8.dll',
+        'libpcre2-8-0.dll',
+        'libwinpthread-1.dll',
+        'zlib1.dll',
+      ]) {
+        const dependency = path.join(compRoot, 'mingit', 'mingw64', 'bin', file);
+        fs.mkdirSync(path.dirname(dependency), { recursive: true });
+        fs.writeFileSync(dependency, `synthetic dependency ${file}\n`);
+      }
+    }
 
     const archive = path.join(outDir, 'components', `${component.key}.7z`);
     // Archive entries carry the prefix layout (what the validator's safe-path
@@ -91,6 +105,8 @@ try {
     manifest.components.push({
       key: component.key,
       prefix: component.prefix,
+      sentinel: component.sentinel,
+      archiveSizeBytes: archiveBytes.length,
       contentId,
     });
   }

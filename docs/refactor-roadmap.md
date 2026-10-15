@@ -167,14 +167,25 @@
 - 新包实际 NSIS 安装 exit 0（约 49.1 秒）；安装后 UI、Magpie、Python 执行 42、PowerShell 7.6 / 5.1 的全部专项检查均通过，报告 passed 为 true、errors 为空；SQLite / Durable / PTY / Photon 包内运行检查通过。与第 15 项相同，仍为无签名测试包，首次 Python 使用需要联网；未扩大为所有平台 / 视觉 / 真实账号验收。
 - [缩减后的验收 artifact](https://github.com/rongxinzy/zhiyuan/actions/runs/38598564154/artifacts/11913438818) 为 ZIP，包含同名 exe、构建 manifest、SHA 清单和 evidence；保留至 2026-10-28 16:47:48 UTC。exe SHA-256 实测为 `7a998e6445df97cfd063a94ec408397a40559e73d3eba78ef223b99c2d6a7a33`，与 manifest 一致。包固定对应 87debca8，后续文档提交不改变包来源；旧合格 artifact 保留。
 
-## 17. Windows 安装向导终点与交互验收 — 实现完成，等待真实 Windows 验收
+## 17. Windows 安装向导终点与交互验收 — 底层修复已推送，正式安装壳接入中
 
 - 用户实机截图暴露第 15 / 16 项只覆盖静默安装，没有覆盖交互向导：首屏隐藏原生 Next 后未恢复，自定义完成页漏掉 MUI 标准 `SetAutoClose true`，安装节结束仍停在无可用动作的进度页。旧进度位图直接附在向导顶层，离页只清句柄，实际不会随内部页面销毁，可能遮挡完成页。
-- 改为系统原生向导：单一标题、可选择并换行的安装位置、必要许可、原生进度与详情、明确“关闭”与“启动”。移除拼贴位图 / 重复字标 / 假进度动画和旧本地推理安装选项；不新增 WebView 安装壳。字体与布局按 DESIGN.md 原生安装规范，使用系统微软雅黑及随 DPI 缩放的 dialog units。
+- 底层 NSIS 改为系统原生向导：单一标题、可选择并换行的安装位置、必要许可、原生进度与详情、明确“关闭”与“启动”。移除拼贴位图 / 重复字标 / 假进度动画和旧本地推理安装选项；首批仅修复底层 NSIS，未作为最终界面交付。字体与布局按 DESIGN.md 原生安装规范，使用系统微软雅黑及随 DPI 缩放的 dialog units。
 - 成功推进使用 NSIS 原生节完成机制，禁止从“安装完成”状态文本提前跳页；安装失败不进入成功页。关闭不启动应用，显式启动检查返回值，失败保留可重试完成页；静默安装不启动应用。修复旧进程匹配把单引号当路径分隔符的错误，按安装根边界匹配，不按进程名广杀。
 - 新增真实 Windows HWND 交互验收：从许可禁用状态点击安装，必须自动抵达完成页并保存真实各页截图；关闭退出、不自动启动；已有安装打开后取消不改运行进程 / app bytes / 注册；真实文件共享锁造成可恢复错误，释放锁后重试安装、显式启动并确认安装目录内的应用窗口。交互报告绑定同一 exe SHA-256 / commit / run，最终交付门禁必须同时满足交互验收与原有静默安装、UI、Magpie、Python、原生执行和包体门禁。
-- 本地已通过：30 项 NSIS 回归、NSIS 3.0.4.1 Unicode 安装 / 卸载预览严格编译、lint、格式、清洁总 build 与生产依赖解析。Windows 实际渲染 / 真实升级重试正在等待 CI，不提前标为已通过，也不提前替换旧 artifact。DPI 证据只记录实际测得值；未实际覆盖的高 DPI 不宣称验收。
+- 本地已通过：30 项 NSIS 回归、NSIS 3.0.4.1 Unicode 安装 / 卸载预览严格编译、lint、格式、清洁总 build 与生产依赖解析。首轮 Windows run 38674560505 已实测中文首屏 → 进度 → 完成（约 44 秒，96 DPI）及关闭不启动；后续升级取消检查因驱动把 electron-builder 的 InstallLocation 查错注册表位置而失败，并被重复 taskkill 清理遮盖。驱动修复后需重跑全链，不能以局部通过交付。未实际覆盖的高 DPI 不宣称验收。
 - 原样 Magpie、Pi Durable、Python 架构、现有用户数据与包体防回归门禁不变；仍只生成无签名验收包，不发行签名版或覆盖旧合格包。
+
+## 18. 既有 WebView2 单文件安装壳接入 — 实现与验收进行中
+
+- 用户指出主仓库已有新版界面，核实 [RongxinAI PR #943](https://github.com/rongxinzy/RongxinAI/pull/943) 已合入 860×560 WebView2 壳，zhiyuan 也已继承同份实现；缺口在实际打包流水线仍只生成 NSIS，不能称为壳未迁入。按既有版式接入 build-shell → pack-setup → 真实 win-unpacked / windows-components，NSIS保留底层及更新用途。
+- 普通 `dist:win` / `dist:win:offline` / `dist:win:lite` 统一走 `dist:win:setup`，先生成更新用途的 `dist:win:nsis`，再 build-shell / pack-setup，避免下次普通构建漏壳。`dist:win:signed` 与 enterprise 原流程未扩展，仍为原 NSIS 路径，不能声称所有签名 / 企业发行入口已支持新壳。
+- 最终交付对象改为包含真实载荷的单文件壳 exe，记录其自身 SHA-256、载荷边界与包体预算；原有 ASAR / unpacked 禁残留、必要原生模块和 NSIS 预算继续执行。旧合格包保留，新的壳未完成真实 Windows 验收前不标为可交付。
+- 保留数据同时覆盖壳与生产 NSIS（deleteAppDataOnUninstall=false）；任意杀进程前先校验目标安装目录归属。旧版清理只接受事务明确记录的精确备份，不扫描 `.old*`，保留其他手工备份与历史数据，未知组件恢复状态明确拒绝且保留记录。
+- 清除壳中的 localInference 旧契约及 CPU / CUDA 选项，保留实际许可确认；加入明确的失败 / 重试与启动失败保留页面，长路径换行。引擎同步检查真实解压退出码、当前组件哨兵、事务回滚、取消及数据保留，避免错误宣称成功；WebView2 缺失提供明确支持提示，不暗中下载。
+- 新增最终壳真实 Windows 可见点击、安装 / 完成 / 启动 / 关闭 / 取消 / 锁冲突恢复与截图门禁，并将后续完整应用专项验收绑定同一壳安装结果。设计预览与模拟事件只用于本地 UI 回归，不能冒充 Windows 验收；DPI 只报告实际测得或明确标出的测试范围。
+- 本地验证：安装壳 / SFX / 交互交付 / 共享脚本相关 73 项通过，44 项 Windows / .NET 依赖项在常规云端环境跳过；完整 lint、格式、清洁 build 与生产依赖解析通过。官方 .NET 8 的常规 CLI 受云沙箱 NuGet 命名互斥锁限制；改用该 SDK 已有 Roslyn 直接编译实际引擎与行为 harness，编译 / 运行 exit 0，验证中断升级恢复、首次失败清理、已提交事务保护、用户数据保留、非法路径拒绝和 SFX host 拷贝。完整 WinForms / WebView2 仍必须由 Windows CI 编译验证。
+- 当前状态：等待最终壳 Windows 编译与真实交互验收，尚无成功截图 / artifact；保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
 

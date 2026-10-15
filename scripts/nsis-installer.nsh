@@ -649,27 +649,9 @@ Var /GLOBAL zyDeleteRealAppData
     Goto OfflineComponentInstallFailed
 
   OfflineComponentInstallFailed:
-    nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\
-      $$runtimeRoot = \"$LOCALAPPDATA\ZhiYuanAgent\runtimes\";\
-      $$statePath = Join-Path $$runtimeRoot \"component-switch-state.txt\";\
-      if (Test-Path -LiteralPath $$statePath) {\
-        $$states = @(Get-Content -LiteralPath $$statePath | Where-Object { $$_ -match \"^[^=|]+\\|(?:True|False)\\z\" });\
-        [array]::Reverse($$states);\
-        foreach ($$state in $$states) {\
-          $$parts = $$state.Split(\"|\");\
-          $$root = Join-Path $$runtimeRoot $$parts[0];\
-          $$current = Join-Path $$root \"current\";\
-          $$previous = Join-Path $$root \"current.previous\";\
-          if ($$parts[1] -eq \"True\") {\
-            if (Test-Path -LiteralPath $$previous) {\
-              if (Test-Path -LiteralPath $$current) { [IO.Directory]::Delete($$current) };\
-              Rename-Item -LiteralPath $$previous -NewName \"current\"\
-            }\
-          } elseif (Test-Path -LiteralPath $$current) {\
-            [IO.Directory]::Delete($$current)\
-          }\
-        }\
-      }"'
+    ; Use the same validated recovery contract as startup; never interpret
+    ; arbitrary journal keys in a second inline rollback implementation.
+    nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\recover-component-switch.ps1" -RuntimeRoot "$LOCALAPPDATA\ZhiYuanAgent\runtimes"'
     Pop $0
     !insertmacro OpenTimingLogForAppend $2
     FileWrite $2 "phase=component-set-rollback reason=$R9$\r$\n"

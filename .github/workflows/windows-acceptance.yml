@@ -19,6 +19,8 @@ on:
       - 'tests/nsis-installer.test.ts'
       - 'src/main/libs/agentEngine/durable/nativeExecution*'
       - 'scripts/ci/windows-installer-*'
+      - 'scripts/ci/windows-shell-*'
+      - 'scripts/installer-shell/**'
 
 permissions:
   contents: read
@@ -30,7 +32,7 @@ concurrency:
 jobs:
   acceptance:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       HUSKY: '0'
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -44,12 +46,15 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.0'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Install locked dependencies without application setup
         run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run apply:patches
       - name: Verify acceptance safeguards
-        run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts scripts/ci/windows-installer-interactive.test.ts scripts/ci/windows-installer-size-smoke.test.ts tests/nsis-installer.test.ts scripts/magpie-archive.test.ts scripts/native-package-hygiene.test.ts scripts/installer/validate-offline-components.test.ts scripts/ci/windows-installer-diagnostics.test.ts scripts/setup-mingit.test.ts src/renderer/components/cowork/CoworkView.modelGate.test.tsx --maxWorkers=1
+        run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts scripts/ci/windows-installer-interactive.test.ts scripts/ci/windows-shell-interactive.test.ts scripts/installer-shell/sfx-format.test.ts scripts/installer-shell/preview-ui.test.ts scripts/installer-shell/app/engine-contracts.test.ts scripts/ci/windows-installer-size-smoke.test.ts tests/nsis-installer.test.ts scripts/magpie-archive.test.ts scripts/native-package-hygiene.test.ts scripts/installer/validate-offline-components.test.ts scripts/installer/cleanup-after-install.test.ts scripts/installer/recover-component-switch.test.ts scripts/ci/windows-installer-diagnostics.test.ts scripts/setup-mingit.test.ts src/renderer/components/cowork/CoworkView.modelGate.test.tsx --maxWorkers=1
       - name: Record isolated Windows PowerShell startup evidence
         run: node scripts/ci/windows-powershell-startup.mjs --output acceptance-diagnostics/powershell-startup
       - name: Download official Electron for packaging
@@ -94,7 +99,25 @@ jobs:
         # Unavailable interactive desktop/screenshots fail the gate, never skip it.
         shell: powershell
         run: ./scripts/ci/windows-installer-interactive.ps1
-      - name: Install and validate the actual application
+      - name: Preserve underlying NSIS silent-install regression
+        shell: pwsh
+        run: ./scripts/ci/windows-acceptance-install.ps1 -NativeOnly
+      - name: Build official .NET 8 single-file WebView2 shell
+        shell: pwsh
+        run: |
+          $env:ZHIYUAN_DOTNET = (Get-Command dotnet).Source
+          node scripts/installer-shell/build-shell.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'WebView2 shell build failed' }
+      - name: Pack final shell with real application and offline components
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force release/setup | Out-Null
+          node scripts/installer-shell/pack-setup.cjs --app-dir release/win-unpacked --components-dir build-tar/windows-components --out "release/setup/ZhiYuanAgent-Setup-$version-win-x64.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Final single-file shell assembly failed' }
+      - name: Exercise actual WebView2 shell install, done, launch and recovery
+        run: node scripts/ci/windows-shell-interactive.mjs
+      - name: Validate shell-installed application and release only the final shell
         shell: pwsh
         run: ./scripts/ci/windows-acceptance-install.ps1
       - name: Upload verified unsigned installer and acceptance evidence
