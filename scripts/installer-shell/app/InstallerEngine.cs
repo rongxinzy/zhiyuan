@@ -733,24 +733,19 @@ public sealed class InstallerEngine
     internal void CreateShortcut(string folder)
     {
         var linkPath = Path.Combine(folder, DisplayName + ".lnk");
-        object? shell = null;
-        object? shortcut = null;
-        var operation = "WScript.Shell.Activate";
+        IShellLinkW? shortcut = null;
+        var operation = "IShellLinkW.Activate";
         try
         {
-            var shellType = Type.GetTypeFromProgID("WScript.Shell")
-                ?? throw new EngineException("无法创建快捷方式");
-            shell = Activator.CreateInstance(shellType)!;
-            operation = "WScript.Shell.CreateShortcut";
-            shortcut = ((dynamic)shell).CreateShortcut(linkPath);
-            operation = "WScript.Shortcut.TargetPath";
-            ((dynamic)shortcut).TargetPath = LaunchPath;
-            operation = "WScript.Shortcut.WorkingDirectory";
-            ((dynamic)shortcut).WorkingDirectory = installDir;
-            operation = "WScript.Shortcut.IconLocation";
-            ((dynamic)shortcut).IconLocation = LaunchPath + ",0";
-            operation = "WScript.Shortcut.Save";
-            ((dynamic)shortcut).Save();
+            shortcut = (IShellLinkW)new ShellLinkComObject();
+            operation = "IShellLinkW.SetPath";
+            shortcut.SetPath(LaunchPath);
+            operation = "IShellLinkW.SetWorkingDirectory";
+            shortcut.SetWorkingDirectory(installDir);
+            operation = "IShellLinkW.SetIconLocation";
+            shortcut.SetIconLocation(LaunchPath, 0);
+            operation = "IPersistFile.Save";
+            ((System.Runtime.InteropServices.ComTypes.IPersistFile)shortcut).Save(linkPath, true);
         }
         catch (Exception ex)
         {
@@ -760,8 +755,6 @@ public sealed class InstallerEngine
         {
             if (shortcut is not null)
                 try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut); } catch { }
-            if (shell is not null)
-                try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); } catch { }
         }
     }
 

@@ -62,14 +62,17 @@ test('native registration failures retain method diagnostics without source or p
   expect(installer).toContain('exception.HResult:X8');
   expect(installer).toContain('new StackTrace(exception, fNeedFileInfo: false)');
   for (const operation of [
-    'WScript.Shell.CreateShortcut',
-    'WScript.Shortcut.TargetPath',
-    'WScript.Shortcut.WorkingDirectory',
-    'WScript.Shortcut.IconLocation',
-    'WScript.Shortcut.Save',
+    'IShellLinkW.Activate',
+    'IShellLinkW.SetPath',
+    'IShellLinkW.SetWorkingDirectory',
+    'IShellLinkW.SetIconLocation',
+    'IPersistFile.Save',
   ]) {
     expect(installer).toContain(`operation = "${operation}"`);
   }
+  expect(installer).not.toContain('WScript.Shell');
+  expect(read('WindowsShellLink.cs')).toContain('000214F9-0000-0000-C000-000000000046');
+  expect(read('WindowsShellLink.cs')).toContain('UnmanagedType.LPWStr');
 });
 
 test('install and uninstall reject foreign directories before stopping any process', () => {
@@ -220,6 +223,7 @@ test.skipIf(!dotnetAvailable)(
         'InstallRegistrationSnapshot.cs',
         'ShellProcessRunner.cs',
         'UninstallerEngine.cs',
+        'WindowsShellLink.cs',
       ];
       fs.writeFileSync(
         path.join(root, 'Contracts.csproj'),
@@ -404,14 +408,22 @@ try {
                 Check(Thread.CurrentThread.GetApartmentState() == ApartmentState.MTA, "shortcut test must match the engine's MTA worker");
                 try { shortcutEngine.CreateShortcut(shortcutFolder); }
                 catch (EngineException ex) { Console.Error.WriteLine(ex.Detail); throw; }
-                dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
-                dynamic link = shell.CreateShortcut(Path.Combine(shortcutFolder, InstallerEngine.DisplayName + ".lnk"));
+                var linkPath = Path.Combine(shortcutFolder, InstallerEngine.DisplayName + ".lnk");
+                Check(File.Exists(linkPath), "shortcut file was not saved");
+                var link = (IShellLinkW)new ShellLinkComObject();
                 try {
-                    Check((string)link.TargetPath == shortcutEngine.LaunchPath, "shortcut lost its Unicode executable path");
-                    Check((string)link.WorkingDirectory == shortcutInstall, "shortcut lost its Unicode working directory");
+                    ((System.Runtime.InteropServices.ComTypes.IPersistFile)link).Load(linkPath, 0);
+                    var target = new System.Text.StringBuilder(32768);
+                    link.GetPath(target, target.Capacity, IntPtr.Zero, 4);
+                    Check(target.ToString() == shortcutEngine.LaunchPath, "shortcut lost its Unicode executable path");
+                    var workingDirectory = new System.Text.StringBuilder(32768);
+                    link.GetWorkingDirectory(workingDirectory, workingDirectory.Capacity);
+                    Check(workingDirectory.ToString() == shortcutInstall, "shortcut lost its Unicode working directory");
+                    var icon = new System.Text.StringBuilder(32768);
+                    link.GetIconLocation(icon, icon.Capacity, out var iconIndex);
+                    Check(icon.ToString() == shortcutEngine.LaunchPath && iconIndex == 0, "shortcut lost its Unicode icon path");
                 } finally {
                     System.Runtime.InteropServices.Marshal.FinalReleaseComObject(link);
-                    System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);
                 }
             }).GetAwaiter().GetResult();
         }
