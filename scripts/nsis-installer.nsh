@@ -45,7 +45,7 @@ Var /GLOBAL zyDeleteRealAppData
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\
     $$roots = @(\"$INSTDIR\", \"$LOCALAPPDATA\ZhiYuanAgent\runtimes\");\
     $$selfPid = $9;\
-    $$isTarget = { param($$p) $$p -and ($$p.StartsWith(($$roots[0].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\") -or $$p.StartsWith(($$roots[1].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\"))) };\
+    $$isTarget = { param($$p) $$p -and ($$p.StartsWith(($$roots[0].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\") -or $$p.StartsWith(($$roots[1].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\")) };\
     $$stopped = 0;\
     foreach ($$proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.ExecutablePath) })) {\
       Stop-Process -Id $$proc.ProcessId -Force -ErrorAction SilentlyContinue;\

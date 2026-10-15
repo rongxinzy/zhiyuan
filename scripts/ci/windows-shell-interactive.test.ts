@@ -175,11 +175,11 @@ describe('final WebView2 shell evidence identity', () => {
 });
 
 describe('real final shell acceptance driver safeguards', () => {
-  it('assembles the real shell before interactive acceptance and keeps delivery success-gated', () => {
+  it('collects independent shell evidence after NSIS failure while keeping delivery success-gated', () => {
     const config = loadYaml(workflow) as {
       jobs: {
         acceptance: {
-          steps: Array<{ name?: string; if?: string; run?: string; uses?: string }>;
+          steps: Array<{ id?: string; name?: string; if?: string; run?: string; uses?: string }>;
         };
       };
     };
@@ -193,7 +193,6 @@ describe('real final shell acceptance driver safeguards', () => {
       'node scripts/installer-shell/pack-setup.cjs',
       './scripts/ci/windows-installer-interactive.ps1',
       './scripts/ci/windows-acceptance-install.ps1 -NativeOnly',
-      'node scripts/ci/windows-shell-interactive.mjs',
     ];
     let previous = -1;
     for (const command of requiredCommands) {
@@ -202,15 +201,57 @@ describe('real final shell acceptance driver safeguards', () => {
       expect(steps[index].if, command).toBeUndefined();
       previous = index;
     }
-    const appSmoke = steps.findIndex(
+    const pack = steps.find(step => step.id === 'pack-shell');
+    expect(pack?.run).toContain('node scripts/installer-shell/pack-setup.cjs');
+    expect(pack?.if).toBeUndefined();
+    const shellUi = steps.findIndex(step => step.id === 'shell-ui');
+    expect(shellUi).toBeGreaterThan(previous);
+    expect(steps[shellUi].run).toBe('node scripts/ci/windows-shell-interactive.mjs');
+    expect(steps[shellUi].if).toBe("${{ !cancelled() && steps.pack-shell.outcome == 'success' }}");
+    const appSmoke = steps.findIndex(step => step.id === 'shell-app-smoke');
+    expect(appSmoke).toBeGreaterThan(shellUi);
+    expect(steps[appSmoke].if).toBe("${{ !cancelled() && steps.shell-ui.outcome == 'success' }}");
+    expect(steps[appSmoke].run).toContain(
+      "$app = Join-Path $env:RUNNER_TEMP 'zhiyuan-shell-acceptance/安装路径/知远.exe'",
+    );
+    expect(steps[appSmoke].run).toContain(
+      'node scripts/ci/windows-app-smoke.mjs --app $app --output acceptance-diagnostics/shell-app-smoke',
+    );
+    expect(steps[appSmoke].run).toContain(
+      "if ($LASTEXITCODE -ne 0) { throw 'Independent shell-installed application smoke failed' }",
+    );
+    const deliveryGate = steps.findIndex(
       step => step.run === './scripts/ci/windows-acceptance-install.ps1',
     );
     const upload = steps.findIndex(step => step.uses === 'actions/upload-artifact@v4');
-    expect(appSmoke).toBeGreaterThan(previous);
-    expect(steps[appSmoke].if).toBeUndefined();
-    expect(upload).toBeGreaterThan(appSmoke);
+    expect(deliveryGate).toBeGreaterThan(appSmoke);
+    expect(steps[deliveryGate].if).toBeUndefined();
+    expect(upload).toBeGreaterThan(deliveryGate);
     expect(steps[upload].if).toBeUndefined();
+    // A failed NSIS or shell step still fails the job; only diagnostic evidence
+    // can continue past it, never the deliverable or successful artifact upload.
     expect(workflow).not.toContain('continue-on-error');
+  });
+
+  it('isolates shell paths from NSIS and finishes exact-process cleanup before starting the shell', () => {
+    const nsis = readFileSync('scripts/ci/windows-installer-interactive.ps1', 'utf8');
+    const form = readFileSync('scripts/installer-shell/app/SetupForm.cs', 'utf8');
+    expect(nsis).toContain("'zhiyuan-interactive-acceptance/安装路径'");
+    expect(delivery).toContain("'zhiyuan-acceptance-installed'");
+    expect(script).toContain("path.join(process.env.RUNNER_TEMP, 'zhiyuan-shell-acceptance')");
+    expect(script).toContain("path.join(sandbox, 'app-data')");
+    expect(script).toContain("path.join(sandbox, 'runtimes')");
+    expect(script).toMatch(/'--install-dir',\s*installRoot/);
+    expect(script).toMatch(/'--runtime-root',\s*runtime/);
+    expect(script).toMatch(/'--app-data-root',\s*appData/);
+    expect(form).toMatch(
+      /GetPreferredInstallDir\(\) => forcedInstallDir \?\?\s*InstallerEngine.FindExistingInstallLocation\(\)/,
+    );
+    expect(nsis).toContain('$_.ExecutablePath -and $_.ExecutablePath -ieq $app');
+    expect(nsis).toContain("-ArgumentList @('/PID', \"$ProcessId\", '/T', '/F')");
+    expect(nsis).toContain('$killer.WaitForExit(10000)');
+    expect(nsis).toMatch(/finally\s*\{[\s\S]*Stop-AcceptanceProcess \$item.ProcessId/);
+    expect(nsis).not.toMatch(/taskkill[^\r\n]*\/IM\b/i);
   });
 
   it('drives real visible UI input and screenshots without synthetic completion shortcuts', () => {

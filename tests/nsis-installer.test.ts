@@ -411,6 +411,9 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(macroBlock).toContain('StartsWith(($$roots[0].TrimEnd');
     expect(macroBlock).toContain('StartsWith(($$roots[1].TrimEnd');
     expect(macroBlock).toContain('OrdinalIgnoreCase');
+    // An extra ')' made PowerShell reject the entire process-stop command.
+    // The Windows acceptance tests also parse and execute this exact macro.
+    expect(macroBlock).not.toContain('OrdinalIgnoreCase\\")))');
     expect(macroBlock).toContain('$$_.ExecutablePath');
     expect(macroBlock).not.toContain('$$_.Path');
     expect(macroBlock).toContain('Stop-Process -Id $$proc.ProcessId -Force');

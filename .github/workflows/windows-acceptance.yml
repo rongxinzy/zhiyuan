@@ -101,6 +101,7 @@ jobs:
           node scripts/installer-shell/build-shell.cjs
           if ($LASTEXITCODE -ne 0) { throw 'WebView2 shell build failed' }
       - name: Pack final shell with real application and offline components
+        id: pack-shell
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -116,7 +117,17 @@ jobs:
         shell: pwsh
         run: ./scripts/ci/windows-acceptance-install.ps1 -NativeOnly
       - name: Exercise actual WebView2 shell install, done, launch and recovery
+        id: shell-ui
+        if: ${{ !cancelled() && steps.pack-shell.outcome == 'success' }}
         run: node scripts/ci/windows-shell-interactive.mjs
+      - name: Exercise shell-installed application independently of NSIS acceptance
+        id: shell-app-smoke
+        if: ${{ !cancelled() && steps.shell-ui.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:RUNNER_TEMP 'zhiyuan-shell-acceptance/安装路径/知远.exe'
+          node scripts/ci/windows-app-smoke.mjs --app $app --output acceptance-diagnostics/shell-app-smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Independent shell-installed application smoke failed' }
       - name: Validate shell-installed application and release only the final shell
         shell: pwsh
         run: ./scripts/ci/windows-acceptance-install.ps1

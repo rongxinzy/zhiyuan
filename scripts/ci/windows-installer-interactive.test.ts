@@ -213,6 +213,32 @@ describe('real interactive NSIS acceptance safeguards', () => {
   );
 
   it.skipIf(process.platform !== 'win32')(
+    'parses production NSIS process helpers and proves real scoped process termination',
+    () => {
+      const result = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          path.join(__dirname, 'windows-installer-process-regression.ps1'),
+          '-InstallerScriptPath',
+          path.resolve('scripts/nsis-installer.nsh'),
+        ],
+        { encoding: 'utf8', timeout: 60_000 },
+      );
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(
+        'PASS: production NSIS commands parse and stop only real owned processes',
+      );
+    },
+    70_000,
+  );
+
+  it.skipIf(process.platform !== 'win32')(
     'parses PowerShell and compiles the native driver before packaging',
     () => {
       const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;

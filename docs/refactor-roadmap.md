@@ -189,6 +189,8 @@
 - [9eb46182 源码 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38680668486) 已全部通过。首轮 Windows 前置回归 235 项通过、4 项失败，实际 .NET 引擎行为 11 项已通过；尚未进入最终壳打包。失败定位为 PowerShell 冷启动诊断预算过短、注册表及清理 marker 的 8.3 / 长路径比较不对称，以及 Windows PowerShell Junction Target 将方括号路径当通配符。修复保留原断言，增加真实短路径与含特殊字符路径回归；junction 通过固定系统命令和子进程环境传递字面路径，取消延迟展开。
 - [3dd10f84 Windows run 38681273694](https://github.com/rongxinzy/zhiyuan/actions/runs/38681273694) 已通过全部前置回归、实际 NSIS 构建、包体 / 资源 / SQLite / WASM 门禁，并再次完成中文首屏 → 进度 → 完成和关闭。其后取消校验错误地把任意已有 .old 目录当作本次取消产生的改动，未记录取消前基线；原应用存活、EXE / ASAR 哈希与注册表检查均已通过。改为记录前后精确备份差分并核对当前目录身份，不能把此结果当作 WebView2 取消缺陷（该步骤尚未执行）。
 - 另修复底层 NSIS 使用 ANSI FileWrite 保存中文备份路径的问题，改用 UTF-16LE BOM 并补真实中文 marker 清理回归；精确清理原则不变。诊断收集只增加真实 native CI 安装目录的精确白名单，避免失败证据被原静默路径限制拒绝。正式壳编译 / 真实 SFX 组装提前到 native UI 验收前，以更早暴露最终壳构建问题，所有 UI、静默、应用专项与 artifact 成功门禁保留。
+- [e1c161cf Windows run 38683704850](https://github.com/rongxinzy/zhiyuan/actions/runs/38683704850) 已实际完成正式 .NET 8 / WebView2 单文件壳编译与真实载荷组装，所有前置回归、包体及原生探针通过。NSIS 首次安装与取消后的目录 File ID / 应用进程 / 字节 / 注册表保护也通过；真实锁冲突重装暴露 StopAppProcesses 内嵌 PowerShell 多余右括号，导致停止进程命令解析失败，现修复并增加从生产宏提取的真实 Windows parser / 进程终止及外目录进程保留回归。该问题属于底层 NSIS，不能归因到尚未运行的 WebView2 UI。
+- 后续将实际壳 UI 与应用 smoke 的运行条件绑定各自上游成功，即便 NSIS 专项失败也可收集独立壳证据；各自使用隔离安装目录。失败状态仍保留，最终交付与 artifact 上传仍要求所有必需门禁成功，禁止 continue-on-error。
 - 当前状态：等待修复后的最终壳 Windows 编译与真实交互验收，尚无成功截图 / artifact；保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
