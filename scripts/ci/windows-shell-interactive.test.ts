@@ -18,11 +18,13 @@ import {
   Cdp,
   clickObserverExpression,
 } from './windows-shell-browser-evidence.mjs';
+import { cancelAfterDetach, readTerminalEvent } from './windows-shell-detached-cancel.mjs';
 
 const script = readFileSync('scripts/ci/windows-shell-interactive.mjs', 'utf8');
 const native = readFileSync('scripts/ci/windows-shell-native.ps1', 'utf8');
 const workflow = readFileSync('.github/workflows/windows-acceptance.yml', 'utf8');
 const delivery = readFileSync('scripts/ci/windows-acceptance-install.ps1', 'utf8');
+const detachedDriver = readFileSync('scripts/ci/windows-shell-detached-cancel.mjs', 'utf8');
 
 function identity() {
   const expected = {
@@ -103,8 +105,10 @@ describe('final WebView2 shell evidence identity', () => {
     ]) {
       expect(() => assertDetachedTransaction({ ...state, ...change }, root)).toThrow();
     }
-    expect(script).toContain("item.label === '正在解包应用程序'");
-    expect(script).toContain('observeDetachedUpgrade(installRoot)');
+    expect(detachedDriver).toContain('observeDetachedUpgrade(installRoot)');
+    expect(detachedDriver).not.toContain('正在解包应用程序');
+    expect(script).toContain('report.detachedUpgrade = await cancelAfterDetach(');
+    expect(script).toContain("cancelInstall: () => click(detached, '#btnCancelProgress')");
     expect(script).toContain(
       'Post-detach rollback did not restore the old application and registration',
     );
@@ -135,6 +139,95 @@ describe('final WebView2 shell evidence identity', () => {
       expect(observed.transaction.BackupDir).toBe(backup);
       expect(observed.previousExeBytes).toBeGreaterThan(0);
       expect(observed.partialFiles).toEqual(['partial-file']);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('arms filesystem cancellation before Install returns and waits for real partial output without phase logs', async () => {
+    const fixture = fs.mkdtempSync(path.join(tmpdir(), 'shell-detach-cancel-'));
+    try {
+      const installRoot = path.join(fixture, 'app');
+      const backup = `${installRoot}.old.${'a'.repeat(32)}`;
+      const eventsLog = path.join(fixture, 'delayed-events.jsonl');
+      const diagnostics: { observed?: { partialFiles: string[] } } = {};
+      let cancelled = false;
+      let releaseStart = () => {};
+      const startFinished = new Promise<void>(resolve => {
+        releaseStart = resolve;
+      });
+      const observation = await cancelAfterDetach({
+        installRoot,
+        eventsLog,
+        diagnostics,
+        timeoutMs: 2000,
+        startInstall: async () => {
+          fs.mkdirSync(path.join(backup, 'resources'), { recursive: true });
+          fs.writeFileSync(path.join(backup, '知远.exe'), 'previous exe');
+          fs.writeFileSync(path.join(backup, 'resources/app.asar'), 'previous asar');
+          fs.mkdirSync(installRoot);
+          fs.writeFileSync(
+            `${installRoot}.setup-state.json`,
+            JSON.stringify({ InstallDir: installRoot, BackupDir: backup, Committed: false }),
+          );
+          await new Promise(resolve => setTimeout(resolve, 75));
+          expect(cancelled).toBe(false); // Journal + empty directory is too early.
+          fs.writeFileSync(path.join(installRoot, 'partial-file'), 'real extraction output');
+          await startFinished; // Models a delayed renderer/host acknowledgement.
+        },
+        cancelInstall: async (observed: { partialFiles: string[] }) => {
+          expect(observed.partialFiles).toEqual(['partial-file']);
+          expect(fs.existsSync(eventsLog)).toBe(false);
+          cancelled = true;
+          releaseStart();
+        },
+      });
+      expect(cancelled).toBe(true);
+      expect(observation.transaction.BackupDir).toBe(backup);
+      expect(diagnostics.observed).toBe(observation);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('stops the armed observer without masking failure to start the real UI', async () => {
+    const diagnostics = {};
+    const original = new Error('Install click failed');
+    await expect(
+      cancelAfterDetach({
+        installRoot: path.join(tmpdir(), 'not-an-actual-shell-install'),
+        eventsLog: path.join(tmpdir(), 'no-shell-events.jsonl'),
+        diagnostics,
+        startInstall: async () => {
+          throw original;
+        },
+        cancelInstall: async () => {
+          throw new Error('Must not cancel before detach');
+        },
+      }),
+    ).rejects.toBe(original);
+  });
+
+  it('reads only bounded terminal tail records, never treating a progress phase as detach evidence', async () => {
+    const fixture = fs.mkdtempSync(path.join(tmpdir(), 'shell-event-tail-'));
+    try {
+      const filename = path.join(fixture, 'events.jsonl');
+      expect(await readTerminalEvent(filename)).toBeNull();
+      fs.writeFileSync(
+        filename,
+        (JSON.stringify({ type: 'progress', percent: 50 }) + '\n').repeat(27000),
+      );
+      fs.appendFileSync(
+        filename,
+        JSON.stringify({ type: 'phase', label: '正在解包应用程序' }) + '\n',
+      );
+      expect(await readTerminalEvent(filename)).toBeNull();
+      fs.appendFileSync(filename, '{"type":"done"}\n{"type":"lifecycle"}\n{"partial":');
+      expect(await readTerminalEvent(filename)).toEqual({ type: 'done' });
+      expect(detachedDriver).toContain('size - 8192');
+      expect(detachedDriver.indexOf('observeDetachedUpgrade(installRoot)')).toBeLessThan(
+        detachedDriver.indexOf('await readTerminalEvent(eventsLog)'),
+      );
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true });
     }

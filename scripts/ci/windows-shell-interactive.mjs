@@ -11,8 +11,9 @@ import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { shellScreenshots, observeDetachedUpgrade } from './windows-shell-evidence.mjs';
+import { shellScreenshots } from './windows-shell-evidence.mjs';
 import { Cdp } from './windows-shell-browser-evidence.mjs';
+import { cancelAfterDetach } from './windows-shell-detached-cancel.mjs';
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -369,6 +370,7 @@ export async function runShellAcceptance() {
       'license-gated install action',
     );
     await click(session, '#btnInstall');
+    if (!captureProgress && !cancelImmediately) return; // The armed filesystem observer checks the real Cancel action.
     await waitFor(
       async () => (await session.cdp.evaluate(snapshotExpression)).page === 'page-progress',
       'real install progress',
@@ -542,32 +544,17 @@ export async function runShellAcceptance() {
     report.checks.cancelledUpgradePreservesData = true;
     report.preservation = { originalInstallation: before, sentinelSha256: sentinelHashes };
 
-    // Observe the actual application-directory transaction before cancellation.
-    // Do not spend time on a native screenshot until after the real Cancel,
-    // because the archive extraction milestone can be short on fast runners.
+    // Arm direct filesystem observation before Install. UI-thread event logs
+    // can lag the background transaction, so no phase message gates Cancel.
     const detached = await start('detached-upgrade');
-    await begin(detached, 'detached-upgrade', false, false);
-    report.detachedUpgrade = await waitFor(
-      async () => {
-        const log = await events(detached);
-        assert(
-          !log.some(item => item.type === 'done' || item.type === 'error'),
-          'Upgrade completed/failed before post-detach cancellation could be observed',
-        );
-        if (!log.some(item => item.type === 'phase' && item.label === '正在解包应用程序'))
-          return false;
-        const observation = await observeDetachedUpgrade(installRoot);
-        return (
-          observation && {
-            ...observation,
-            enginePhase: log.findLast(item => item.type === 'phase'),
-          }
-        );
-      },
-      'real uncommitted detach journal and previous application backup',
-      900_000,
-    );
-    await click(detached, '#btnCancelProgress');
+    report.detachedProbe = {};
+    report.detachedUpgrade = await cancelAfterDetach({
+      installRoot,
+      eventsLog: detached.eventsLog,
+      diagnostics: report.detachedProbe,
+      startInstall: () => begin(detached, 'detached-upgrade', false, false),
+      cancelInstall: () => click(detached, '#btnCancelProgress'),
+    });
     await waitFor(
       async () =>
         (await events(detached)).some(

@@ -30,6 +30,26 @@ test('engine checks extraction and current portable-git sentinel without retired
   expect(form).toContain('public void StartInstall(string installPath)');
 });
 
+test('payload progress is bounded at its source and UI delivery has only one marshal', () => {
+  expect(installer).toContain('if (percent <= lastReportedPercent) return;');
+  expect(installer).toContain(
+    'ReportPayloadProgress(progress, doneBytes, totalBytes, ref lastReportedPercent);',
+  );
+  expect(installer).toContain(
+    'ReportPayloadProgress(progress, totalBytes, totalBytes, ref lastReportedPercent);',
+  );
+  const onEvent = form.slice(
+    form.indexOf('private void OnEngineEvent('),
+    form.indexOf('private void OnWebViewReady('),
+  );
+  expect(onEvent.match(/BeginInvoke\(/g)).toHaveLength(1);
+  expect(onEvent).toContain(
+    'if (InvokeRequired) { BeginInvoke(() => OnEngineEvent(evt)); return; }',
+  );
+  expect(onEvent).toContain('core.PostWebMessageAsJson(json);');
+  expect(form.match(/BeginInvoke\(\(\) => OnEngineEvent\(evt\)\)/g)).toHaveLength(1);
+});
+
 test('mandatory registration finishes before commit and destructive cleanup', () => {
   const run = installer.slice(
     installer.indexOf('public async Task RunAsync'),
@@ -320,6 +340,29 @@ static void UnlinkDirectory(string link) {
 var root = Path.Combine(Path.GetTempPath(), "zy-engine-behavior-" + Guid.NewGuid().ToString("n"));
 Directory.CreateDirectory(root);
 try {
+    var payloadEvents = new List<EngineEvent>();
+    var payloadProgress = new ContractProgress(payloadEvents.Add);
+    var lastPercent = -1;
+    const int reads = 100_000;
+    for (var bytes = 0; bytes <= reads; bytes++)
+        InstallerEngine.ReportPayloadProgress(payloadProgress, bytes, reads, ref lastPercent);
+    InstallerEngine.ReportPayloadProgress(payloadProgress, reads, reads, ref lastPercent);
+    Check(payloadEvents.Count == 101, "payload queued more than one event per visible percentage");
+    Check(payloadEvents.Select(evt => evt.Percent).SequenceEqual(Enumerable.Range(0, 101).Select(value => (int?)value)), "payload percentages were not monotonic and complete");
+    Check(payloadEvents[^1].BytesDone == reads && payloadEvents[^1].BytesTotal == reads, "payload final byte count was lost");
+    foreach (var terminal in new[] { "done", "error" }) {
+        payloadProgress.Report(new EngineEvent(Type: "phase", Label: "ready"));
+        payloadProgress.Report(new EngineEvent(Type: terminal));
+        InstallerEngine.ReportPayloadProgress(payloadProgress, reads / 2, reads, ref lastPercent);
+        Check(payloadEvents[^2].Type == "phase" && payloadEvents[^1].Type == terminal, "stale progress overtook a phase or terminal event");
+    }
+    var emptyEvents = new List<EngineEvent>();
+    var emptyProgress = new ContractProgress(emptyEvents.Add);
+    lastPercent = -1;
+    InstallerEngine.ReportPayloadProgress(emptyProgress, 0, 0, ref lastPercent);
+    Check(emptyEvents.Count == 1 && emptyEvents[0].Percent == 100, "empty payload did not report completion");
+    Console.WriteLine("PASS: 100000 payload reads produce 101 ordered updates and no stale progress after completion");
+
     var install = Path.Combine(root, "app");
     var data = Path.Combine(root, "user-data");
     Directory.CreateDirectory(data);
@@ -519,6 +562,9 @@ try {
     Check(File.ReadAllBytes(destination).SequenceEqual(host), "standalone host copy changed bytes");
     Console.WriteLine("PASS: transaction recovery, retention, path guards and SFX truncation");
 } finally { Directory.Delete(root, recursive: true); }
+sealed class ContractProgress(Action<EngineEvent> report) : IProgress<EngineEvent> {
+    public void Report(EngineEvent value) => report(value);
+}
 `,
       );
       const result = spawnSync(

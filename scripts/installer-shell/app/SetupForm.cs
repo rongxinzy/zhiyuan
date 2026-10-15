@@ -445,6 +445,7 @@ public sealed class SetupForm : Form
 
     private void OnEngineEvent(EngineEvent evt)
     {
+        if (InvokeRequired) { BeginInvoke(() => OnEngineEvent(evt)); return; }
         if (evt.Type == "done") { installState = "done"; lastLaunchPath = evt.LaunchPath; completedUpgrade = evt.IsUpgrade == true; }
         else if (evt.Type == "error") { installState = "error"; }
         var json = evt.ToJson();
@@ -458,22 +459,9 @@ public sealed class SetupForm : Form
         if (core is null) return;
         try
         {
-            if (IsHandleCreated)
-            {
-                BeginInvoke(() =>
-                {
-                    try
-                    {
-                        core.PostWebMessageAsJson(json);
-                    }
-                    catch (Exception postEx)
-                    {
-                        DebugLog($"post to webview failed: {postEx}");
-                    }
-                });
-            }
+            core.PostWebMessageAsJson(json);
         }
-        catch (Exception invokeEx) { DebugLog($"beginInvoke failed: {invokeEx}"); }
+        catch (Exception postEx) { DebugLog($"post to webview failed: {postEx}"); }
     }
 
     private void OnWebViewReady(object? sender, CoreWebView2InitializationCompletedEventArgs e)
@@ -550,7 +538,7 @@ public sealed class SetupForm : Form
         var progress = new InlineProgress(evt =>
         {
             if (evt.Type == "error") errorReported = true;
-            BeginInvoke(() => OnEngineEvent(evt));
+            OnEngineEvent(evt);
         });
         _ = Task.Run(async () =>
         {
@@ -628,7 +616,7 @@ public sealed class SetupForm : Form
         var progress = new InlineProgress(evt =>
         {
             if (evt.Type == "error") errorReported = true;
-            BeginInvoke(() => OnEngineEvent(evt));
+            OnEngineEvent(evt);
         });
         _ = Task.Run(async () =>
         {
