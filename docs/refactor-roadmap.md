@@ -187,6 +187,8 @@
 - 本地验证：安装壳 / SFX / 交互交付 / 共享脚本相关 73 项通过，44 项 Windows / .NET 依赖项在常规云端环境跳过；完整 lint、格式、清洁 build 与生产依赖解析通过。官方 .NET 8 的常规 CLI 受云沙箱 NuGet 命名互斥锁限制；改用该 SDK 已有 Roslyn 直接编译实际引擎与行为 harness，编译 / 运行 exit 0，验证中断升级恢复、首次失败清理、已提交事务保护、用户数据保留、非法路径拒绝和 SFX host 拷贝。完整 WinForms / WebView2 仍必须由 Windows CI 编译验证。
 - 壳接入已推送 [28113494](https://github.com/rongxinzy/zhiyuan/commit/28113494cd63aece05ba350940ea3e36abbd21f7)。[Windows 验收 run 38680167144](https://github.com/rongxinzy/zhiyuan/actions/runs/38680167144) 正在运行；同批 source CI 的双类型、renderer / 历史 / 原生测试已通过，包装契约测试仍假定 dist:win:offline 是内联 NSIS 命令而失败。现将断言改为验证完整首装组装链及 NSIS / signed / enterprise 实际叶子命令的 --publish never，签名 / Magpie 防护不删减，继续重跑。
 - [9eb46182 源码 CI](https://github.com/rongxinzy/zhiyuan/actions/runs/38680668486) 已全部通过。首轮 Windows 前置回归 235 项通过、4 项失败，实际 .NET 引擎行为 11 项已通过；尚未进入最终壳打包。失败定位为 PowerShell 冷启动诊断预算过短、注册表及清理 marker 的 8.3 / 长路径比较不对称，以及 Windows PowerShell Junction Target 将方括号路径当通配符。修复保留原断言，增加真实短路径与含特殊字符路径回归；junction 通过固定系统命令和子进程环境传递字面路径，取消延迟展开。
+- [3dd10f84 Windows run 38681273694](https://github.com/rongxinzy/zhiyuan/actions/runs/38681273694) 已通过全部前置回归、实际 NSIS 构建、包体 / 资源 / SQLite / WASM 门禁，并再次完成中文首屏 → 进度 → 完成和关闭。其后取消校验错误地把任意已有 .old 目录当作本次取消产生的改动，未记录取消前基线；原应用存活、EXE / ASAR 哈希与注册表检查均已通过。改为记录前后精确备份差分并核对当前目录身份，不能把此结果当作 WebView2 取消缺陷（该步骤尚未执行）。
+- 另修复底层 NSIS 使用 ANSI FileWrite 保存中文备份路径的问题，改用 UTF-16LE BOM 并补真实中文 marker 清理回归；精确清理原则不变。诊断收集只增加真实 native CI 安装目录的精确白名单，避免失败证据被原静默路径限制拒绝。正式壳编译 / 真实 SFX 组装提前到 native UI 验收前，以更早暴露最终壳构建问题，所有 UI、静默、应用专项与 artifact 成功门禁保留。
 - 当前状态：等待修复后的最终壳 Windows 编译与真实交互验收，尚无成功截图 / artifact；保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收

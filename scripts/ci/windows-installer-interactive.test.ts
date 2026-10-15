@@ -75,6 +75,36 @@ describe('real interactive NSIS acceptance safeguards', () => {
     expect(script).toContain('$report.checks.lockedDirectoryRetry = $true');
   });
 
+  it('compares real directory identities and backup differences across cancellation', () => {
+    expect(helper).toContain('GetFileInformationByHandle(directory, out information)');
+    expect(helper).toContain('CreateFile(path, 0, 7, IntPtr.Zero, 3, 0x02200000');
+    expect(helper).toContain('allowMissing && (error == 2 || error == 3)');
+    expect(script).toContain('$report.cancelDirectoryBefore = Get-InstallDirectorySnapshot');
+    expect(script).toContain('$report.cancelDirectoryAfter = Get-InstallDirectorySnapshot');
+    expect(script).toContain(
+      'Assert-CancelDirectoryPreserved $report.cancelDirectoryBefore $report.cancelDirectoryAfter',
+    );
+    expect(script).toContain('$Before.identity -ne $After.identity');
+    expect(script).toContain('$_.identity -eq $backup.identity');
+    expect(script).toContain('Cancelling setup created or replaced an installation backup:');
+    expect(script).not.toContain("Where-Object Name -like '安装路径.old.*'");
+    expect(script.indexOf('$report.cancelDirectoryBefore =')).toBeLessThan(
+      script.indexOf('$process = Start-Installer -Language 1033'),
+    );
+    const regression = readFileSync(
+      path.join(__dirname, 'windows-installer-interactive-regression.ps1'),
+      'utf8',
+    );
+    for (const assertion of [
+      'A newly created backup was accepted after cancellation',
+      'A replacement backup with the same name was accepted',
+      'A missing installed directory was accepted',
+      'A replacement installed directory with identical bytes was accepted',
+    ]) {
+      expect(regression).toContain(assertion);
+    }
+  });
+
   it('retains hash-bound NSIS interactive proof before its separate silent regression', () => {
     for (const check of [
       'freshInstall',
@@ -175,6 +205,9 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(
         'PASS: registration and repeated process cleanup regressions',
+      );
+      expect(result.stdout).toContain(
+        'PASS: real directory identities and cancellation backup differences',
       );
     },
   );

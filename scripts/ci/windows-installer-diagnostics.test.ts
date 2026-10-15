@@ -25,6 +25,13 @@ test('collects only allowlisted installer files without profile enumeration or e
   expect(script).not.toMatch(/Get-ChildItem|-Recurse|Get-ItemProperty|GetEnvironmentVariables/);
   expect(script).not.toMatch(/\$env:\w+\s*=/);
   expect(script).toContain("'zhiyuan-acceptance-installed'");
+  expect(script).toContain("'zhiyuan-interactive-acceptance/安装路径'");
+  expect(script).toContain('$ownedInstallRoots -inotcontains $InstallRoot');
+  expect(script).not.toContain('zhiyuan-shell-acceptance');
+});
+
+test('preserves UTF-8 source encoding for the native Windows PowerShell caller', () => {
+  expect(fs.readFileSync(scriptPath).subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
 });
 
 test('bounds reads and requires fresh files plus the latest owned run marker', () => {
@@ -37,16 +44,16 @@ test('bounds reads and requires fresh files plus the latest owned run marker', (
   expect(script).toContain('if ($ownedRunFound)');
 });
 
-function createFixture() {
+function createFixture(relativeInstallRoot = 'zhiyuan-acceptance-installed') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zhiyuan-installer-diagnostics-'));
   temporaryDirectories.push(root);
-  const installRoot = path.join(root, 'zhiyuan-acceptance-installed');
+  const installRoot = path.join(root, relativeInstallRoot);
   const profile = path.join(root, 'profile');
   const logRoot = path.join(profile, 'ZhiYuanAgent');
   const timing = path.join(logRoot, 'install-timing.log');
   const state = path.join(logRoot, 'runtimes', 'component-switch-state.txt');
   fs.mkdirSync(path.dirname(state), { recursive: true });
-  fs.mkdirSync(installRoot);
+  fs.mkdirSync(installRoot, { recursive: true });
   const marker = `phase=run-start tick_ms=123 mode=silent instdir=${installRoot}`;
   const startedAt = new Date(Date.now() - 60_000).toISOString();
   return { root, installRoot, profile, logRoot, timing, state, marker, startedAt };
@@ -55,12 +62,15 @@ function createFixture() {
 function runCollector(
   fixture: ReturnType<typeof createFixture>,
   installRoot = fixture.installRoot,
+  executable = 'pwsh',
 ) {
   const result = spawnSync(
-    'pwsh',
+    executable,
     [
       '-NoProfile',
       '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
       '-File',
       scriptPath,
       '-ProjectRoot',
@@ -99,6 +109,29 @@ afterEach(() => {
 describe.skipIf(process.platform !== 'win32')(
   'Windows installer diagnostics fixtures (no installation)',
   () => {
+    test.each(['pwsh', 'powershell.exe'])(
+      'collects the exact native interactive install with its Chinese path using %s',
+      executable => {
+        const fixture = createFixture('zhiyuan-interactive-acceptance/安装路径');
+        fs.writeFileSync(fixture.timing, `${fixture.marker}\nphase=interactive-cancel\n`);
+        fs.writeFileSync(path.join(fixture.installRoot, '知远.exe'), 'fixture executable');
+        fs.writeFileSync(fixture.state, 'portable-git|False\r\n');
+        const { result, files } = runCollector(fixture, fixture.installRoot, executable);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(files.find(file => file.name.startsWith('installer-timing-'))?.text).toBe(
+          `${fixture.marker}\nphase=interactive-cancel\n`,
+        );
+        const summary = JSON.parse(
+          files.find(file => file.name === 'installer-summary.json')!.text,
+        );
+        expect(summary.ownedRunFound).toBe(true);
+        expect(summary.files[0].exists).toBe(true);
+        expect(summary.files[0].path).toContain('安装路径');
+        expect(summary.files[0].path).toContain('知远.exe');
+      },
+    );
+
     test('exports only the latest owned run and its matching tick and protocol state', () => {
       const fixture = createFixture();
       fs.writeFileSync(
@@ -156,13 +189,37 @@ describe.skipIf(process.platform !== 'win32')(
       expect(files.map(file => file.text).join('\n')).not.toContain('PRIVATE_TEXT');
     });
 
-    test('rejects an install directory outside the exact acceptance directory', () => {
+    test.each([
+      'other',
+      'zhiyuan-acceptance-installed-extra',
+      'zhiyuan-acceptance-installed/child',
+      'zhiyuan-interactive-acceptance',
+      'zhiyuan-interactive-acceptance/安装路径-extra',
+      'zhiyuan-interactive-acceptance/安装路径/child',
+      'zhiyuan-interactive-acceptance/../other',
+      'zhiyuan-shell-acceptance/安装路径',
+    ])('rejects a directory outside the exact caller allowlist: %s', relativeInstallRoot => {
       const fixture = createFixture();
-      const { result, files } = runCollector(fixture, path.join(fixture.root, 'other'));
+      const { result, files } = runCollector(fixture, path.join(fixture.root, relativeInstallRoot));
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain('CI-owned');
       expect(files).toHaveLength(0);
+    });
+
+    test('rejects an allowlisted native install redirected through a junction', () => {
+      const fixture = createFixture('zhiyuan-interactive-acceptance/安装路径');
+      const privateRoot = path.join(fixture.root, 'private-install');
+      fs.mkdirSync(privateRoot);
+      fs.writeFileSync(path.join(privateRoot, '知远.exe'), 'PRIVATE_TEXT');
+      fs.rmdirSync(fixture.installRoot);
+      fs.symlinkSync(privateRoot, fixture.installRoot, 'junction');
+      const { result, files } = runCollector(fixture);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('without directory links');
+      expect(files).toHaveLength(0);
+      expect(fs.readFileSync(path.join(privateRoot, '知远.exe'), 'utf8')).toBe('PRIVATE_TEXT');
     });
   },
 );

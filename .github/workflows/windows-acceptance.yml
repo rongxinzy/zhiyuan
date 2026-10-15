@@ -94,14 +94,6 @@ jobs:
         run: node scripts/ci/windows-acceptance-resources.cjs verify-package release/win-unpacked
       - name: Execute packaged native SQLite and WASM probes
         run: node scripts/ci/windows-acceptance-resources.cjs probe-runtime release/win-unpacked
-      - name: Exercise actual NSIS install, finish, launch, cancel and recovery
-        # Windows PowerShell provides the OS-native System.Drawing assembly.
-        # Unavailable interactive desktop/screenshots fail the gate, never skip it.
-        shell: powershell
-        run: ./scripts/ci/windows-installer-interactive.ps1
-      - name: Preserve underlying NSIS silent-install regression
-        shell: pwsh
-        run: ./scripts/ci/windows-acceptance-install.ps1 -NativeOnly
       - name: Build official .NET 8 single-file WebView2 shell
         shell: pwsh
         run: |
@@ -115,6 +107,14 @@ jobs:
           New-Item -ItemType Directory -Force release/setup | Out-Null
           node scripts/installer-shell/pack-setup.cjs --app-dir release/win-unpacked --components-dir build-tar/windows-components --out "release/setup/ZhiYuanAgent-Setup-$version-win-x64.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Final single-file shell assembly failed' }
+      - name: Exercise actual NSIS install, finish, launch, cancel and recovery
+        # Windows PowerShell provides the OS-native System.Drawing assembly.
+        # Unavailable interactive desktop/screenshots fail the gate, never skip it.
+        shell: powershell
+        run: ./scripts/ci/windows-installer-interactive.ps1
+      - name: Preserve underlying NSIS silent-install regression
+        shell: pwsh
+        run: ./scripts/ci/windows-acceptance-install.ps1 -NativeOnly
       - name: Exercise actual WebView2 shell install, done, launch and recovery
         run: node scripts/ci/windows-shell-interactive.mjs
       - name: Validate shell-installed application and release only the final shell

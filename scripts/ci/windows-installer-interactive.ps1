@@ -242,6 +242,40 @@ function Get-RegistrationSnapshot {
   @($entries | Sort-Object { $_.path }) | ConvertTo-Json -Depth 8 -Compress
 }
 
+function Get-InstallDirectorySnapshot {
+  $prefix = (Split-Path $installRoot -Leaf) + '.old.'
+  $backups = foreach ($directory in @(Get-ChildItem -LiteralPath (Split-Path $installRoot) -Directory -Force)) {
+    if (-not $directory.Name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+    # A previously detached backup may disappear during its asynchronous
+    # cleanup. Only missing-path errors are allowed; access failures still fail.
+    $identity = [ZhiYuan.Acceptance.InstallerUi]::DirectoryIdentity($directory.FullName, $true)
+    if ($identity) { [pscustomobject]@{ path = $directory.FullName; identity = $identity } }
+  }
+  [pscustomobject]@{
+    path = [IO.Path]::GetFullPath($installRoot)
+    identity = [ZhiYuan.Acceptance.InstallerUi]::DirectoryIdentity($installRoot, $true)
+    backups = @($backups | Sort-Object path)
+  }
+}
+
+function Assert-CancelDirectoryPreserved {
+  param($Before, $After)
+  if (-not $Before.identity -or $Before.identity -ne $After.identity) {
+    throw 'Cancelling setup detached the existing installation (directory identity changed or disappeared)'
+  }
+  foreach ($backup in $After.backups) {
+    $previous = @($Before.backups | Where-Object {
+      $_.path.Equals($backup.path, [StringComparison]::OrdinalIgnoreCase) -and $_.identity -eq $backup.identity
+    })
+    if ($previous.Count -ne 1) {
+      throw "Cancelling setup created or replaced an installation backup: $($backup.path)"
+    }
+  }
+  # Old backup removal is normal background cleanup, not cancellation damage.
+  # An unchanged installed-directory file ID and no new backup objects prove
+  # cancellation did not detach/replace it, even if its bytes were identical.
+}
+
 function Stop-AcceptanceProcess {
   param([int]$ProcessId)
   # A previous /T may already have removed this PID. Start-Process keeps a
@@ -278,6 +312,8 @@ try {
   $asarHash = (Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash
   $registryBefore = Get-RegistrationSnapshot
   if (-not $registryBefore) { throw 'No installation registration found to verify cancellation safety' }
+  $report.cancelDirectoryBefore = Get-InstallDirectorySnapshot
+  if (-not $report.cancelDirectoryBefore.identity) { throw 'The existing installation directory is missing before cancellation' }
   $process = Start-Installer -Language 1033
   Save-Page 'existing-install-before-cancel'
   [ZhiYuan.Acceptance.InstallerUi]::Click((Get-Button -Id 2).Handle)
@@ -294,6 +330,8 @@ try {
     }
   } 'cancellation or its real confirmation dialog'
   Wait-InstallerExit $process -Cancelled
+  $report.cancelDirectoryAfter = Get-InstallDirectorySnapshot
+  Assert-CancelDirectoryPreserved $report.cancelDirectoryBefore $report.cancelDirectoryAfter
   $runningApp.Refresh()
   if ($runningApp.HasExited) { throw 'Opening/cancelling setup terminated the existing application' }
   if ((Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne $exeHash -or
@@ -301,9 +339,6 @@ try {
     throw 'Cancelling setup changed the existing installation bytes'
   }
   if ((Get-RegistrationSnapshot) -ne $registryBefore) { throw 'Cancelling setup changed the existing installation registration' }
-  if (@(Get-ChildItem -LiteralPath (Split-Path $installRoot) -Directory | Where-Object Name -like '安装路径.old.*').Count) {
-    throw 'Cancelling setup detached the existing installation'
-  }
   $report.checks.cancelPreservesRunningInstallation = $true
 
   # Reproduce a genuine sharing violation, with the handle owned by this

@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($DriverPath, [ref]$null, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-foreach ($name in @('Get-RegistrationSnapshot', 'Stop-AcceptanceProcess')) {
+foreach ($name in @('Get-RegistrationSnapshot', 'Get-InstallDirectorySnapshot', 'Assert-CancelDirectoryPreserved', 'Stop-AcceptanceProcess')) {
   $definition = $ast.Find({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -19,7 +19,13 @@ $id = 'zhiyuan-driver-test-' + [guid]::NewGuid().ToString()
 $installRoot = Join-Path $env:TEMP $id
 $installKey = "HKCU:/Software/$id"
 $uninstallKey = "HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/$id"
+$oldBackup = "$installRoot.old.1"
+$newBackup = "$installRoot.old.2"
+$heldBackup = "$installRoot.cancel-test-held-backup"
+$detachedRoot = "$installRoot.cancel-test-detached"
 $sleeper = $null
+Add-Type -AssemblyName System.Drawing
+Add-Type -Path (Join-Path (Split-Path $DriverPath) 'windows-installer-ui.cs') -ReferencedAssemblies System,System.Core,System.Drawing
 Add-Type -TypeDefinition @'
 using System.Runtime.InteropServices;
 using System.Text;
@@ -84,6 +90,59 @@ try {
   }
   if (-not $rejected) { throw 'A mismatched installation location was accepted' }
 
+  # Fresh NSIS may have already detached its empty pre-created target. Its
+  # asynchronous cleanup must not be mistaken for cancellation damage.
+  New-Item -ItemType Directory -Path $oldBackup | Out-Null
+  $directoryBefore = Get-InstallDirectorySnapshot
+  if (-not $directoryBefore.identity -or $directoryBefore.backups.Count -ne 1) {
+    throw 'Directory baseline did not include the real installed object and old backup'
+  }
+  Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot)
+  Remove-Item -LiteralPath $oldBackup -Force
+  Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot)
+  if ($null -ne [ZhiYuan.Acceptance.InstallerUi]::DirectoryIdentity($oldBackup, $true)) {
+    throw 'A removed asynchronous backup still has a directory identity'
+  }
+
+  New-Item -ItemType Directory -Path $newBackup | Out-Null
+  $rejected = $false
+  try { Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot) } catch {
+    if ($_.Exception.Message -notlike 'Cancelling setup created or replaced an installation backup:*') { throw }
+    $rejected = $true
+  }
+  if (-not $rejected) { throw 'A newly created backup was accepted after cancellation' }
+
+  # A name-only comparison would miss a different backup at the same path.
+  $directoryBefore = Get-InstallDirectorySnapshot
+  Move-Item -LiteralPath $newBackup -Destination $heldBackup
+  New-Item -ItemType Directory -Path $newBackup | Out-Null
+  $rejected = $false
+  try { Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot) } catch {
+    if ($_.Exception.Message -notlike 'Cancelling setup created or replaced an installation backup:*') { throw }
+    $rejected = $true
+  }
+  if (-not $rejected) { throw 'A replacement backup with the same name was accepted' }
+
+  $directoryBefore = Get-InstallDirectorySnapshot
+  Move-Item -LiteralPath $installRoot -Destination $detachedRoot
+  $rejected = $false
+  try { Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot) } catch {
+    if ($_.Exception.Message -notlike 'Cancelling setup detached the existing installation*') { throw }
+    $rejected = $true
+  }
+  if (-not $rejected) { throw 'A missing installed directory was accepted' }
+  New-Item -ItemType Directory -Path $installRoot | Out-Null
+  Copy-Item -LiteralPath (Join-Path $detachedRoot 'Uninstall acceptance fixture.exe') -Destination $uninstaller
+  $rejected = $false
+  try { Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot) } catch {
+    if ($_.Exception.Message -notlike 'Cancelling setup detached the existing installation*') { throw }
+    $rejected = $true
+  }
+  if (-not $rejected) { throw 'A replacement installed directory with identical bytes was accepted' }
+  Remove-Item -LiteralPath $installRoot -Recurse -Force
+  Move-Item -LiteralPath $detachedRoot -Destination $installRoot
+  Assert-CancelDirectoryPreserved $directoryBefore (Get-InstallDirectorySnapshot)
+
   $sleeper = Start-Process -FilePath "$PSHOME/powershell.exe" -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30') -WindowStyle Hidden -PassThru
   Stop-AcceptanceProcess $sleeper.Id
   if (-not $sleeper.WaitForExit(10000)) { throw 'Acceptance cleanup did not stop the real test process' }
@@ -91,8 +150,9 @@ try {
   # cleanup of an already-exited PID must not mask the original test failure.
   Stop-AcceptanceProcess $sleeper.Id
   Write-Output 'PASS: registration and repeated process cleanup regressions'
+  Write-Output 'PASS: real directory identities and cancellation backup differences'
 } finally {
   if ($null -ne $sleeper -and -not $sleeper.HasExited) { Stop-Process -Id $sleeper.Id -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $installKey,$uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $installRoot,$oldBackup,$newBackup,$heldBackup,$detachedRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

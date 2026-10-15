@@ -180,7 +180,9 @@ Var /GLOBAL zyDeleteRealAppData
         Quit
       ${EndIf}
       FileOpen $8 "$APPDATA\ZhiYuanAgent\old-install-path.txt" w
-      FileWrite $8 "$3"
+      ; FileWrite converts Unicode paths to the system ANSI codepage. Keep the
+      ; exact transaction path on non-Chinese Windows; PowerShell detects BOM.
+      FileWriteUTF16LE /BOM $8 "$3"
       FileClose $8
       StrCpy $3 "result=detached path=$3"
     ${Else}

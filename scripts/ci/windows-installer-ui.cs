@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace ZhiYuan.Acceptance {
   public sealed class WindowInfo {
@@ -28,6 +29,15 @@ namespace ZhiYuan.Acceptance {
     [StructLayout(LayoutKind.Sequential)] private struct Rect {
       public int Left, Top, Right, Bottom;
     }
+    [StructLayout(LayoutKind.Sequential)] private struct FileInformation {
+      public uint Attributes;
+      public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime, LastAccessTime, LastWriteTime;
+      public uint VolumeSerialNumber, FileSizeHigh, FileSizeLow, NumberOfLinks, FileIndexHigh, FileIndexLow;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(SafeFileHandle file, out FileInformation information);
     private delegate bool EnumProc(IntPtr window, IntPtr state);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc callback, IntPtr state);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr state);
@@ -56,6 +66,26 @@ namespace ZhiYuan.Acceptance {
       // This changes only the harness coordinate system, never the installer's
       // DPI. Report the actual installer DPI; do not claim simulated coverage.
       SetThreadDpiAwarenessContext(new IntPtr(-4));
+    }
+
+    public static string DirectoryIdentity(string path, bool allowMissing) {
+      // Identify the real filesystem object, not its name, timestamp or bytes.
+      // Share read/write/delete and close immediately, so this observation does
+      // not prevent an actual installer rename or background backup cleanup.
+      // BACKUP_SEMANTICS | OPEN_REPARSE_POINT avoids following a substituted link.
+      using (var directory = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
+        if (directory.IsInvalid) {
+          var error = Marshal.GetLastWin32Error();
+          if (allowMissing && (error == 2 || error == 3)) return null;
+          throw new Win32Exception(error, "Cannot identify directory: " + path);
+        }
+        FileInformation information;
+        if (!GetFileInformationByHandle(directory, out information)) throw new Win32Exception();
+        if ((information.Attributes & 0x10) == 0 || (information.Attributes & 0x400) != 0)
+          throw new InvalidOperationException("Expected a real directory, not a file or reparse point: " + path);
+        return information.VolumeSerialNumber.ToString("X8") + ":" +
+          information.FileIndexHigh.ToString("X8") + information.FileIndexLow.ToString("X8");
+      }
     }
 
     private static WindowInfo Inspect(IntPtr window) {

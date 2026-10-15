@@ -2,6 +2,7 @@ import fs, { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { load as loadYaml } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import {
   assertDetachedTransaction,
@@ -174,6 +175,44 @@ describe('final WebView2 shell evidence identity', () => {
 });
 
 describe('real final shell acceptance driver safeguards', () => {
+  it('assembles the real shell before interactive acceptance and keeps delivery success-gated', () => {
+    const config = loadYaml(workflow) as {
+      jobs: {
+        acceptance: {
+          steps: Array<{ name?: string; if?: string; run?: string; uses?: string }>;
+        };
+      };
+    };
+    const { steps } = config.jobs.acceptance;
+    const requiredCommands = [
+      'electron-builder --win nsis',
+      './scripts/ci/windows-installer-size-smoke.ps1',
+      'node scripts/ci/windows-acceptance-resources.cjs verify-package release/win-unpacked',
+      'node scripts/ci/windows-acceptance-resources.cjs probe-runtime release/win-unpacked',
+      'node scripts/installer-shell/build-shell.cjs',
+      'node scripts/installer-shell/pack-setup.cjs',
+      './scripts/ci/windows-installer-interactive.ps1',
+      './scripts/ci/windows-acceptance-install.ps1 -NativeOnly',
+      'node scripts/ci/windows-shell-interactive.mjs',
+    ];
+    let previous = -1;
+    for (const command of requiredCommands) {
+      const index = steps.findIndex(step => step.run?.includes(command));
+      expect(index, command).toBeGreaterThan(previous);
+      expect(steps[index].if, command).toBeUndefined();
+      previous = index;
+    }
+    const appSmoke = steps.findIndex(
+      step => step.run === './scripts/ci/windows-acceptance-install.ps1',
+    );
+    const upload = steps.findIndex(step => step.uses === 'actions/upload-artifact@v4');
+    expect(appSmoke).toBeGreaterThan(previous);
+    expect(steps[appSmoke].if).toBeUndefined();
+    expect(upload).toBeGreaterThan(appSmoke);
+    expect(steps[upload].if).toBeUndefined();
+    expect(workflow).not.toContain('continue-on-error');
+  });
+
   it('drives real visible UI input and screenshots without synthetic completion shortcuts', () => {
     expect(script).toContain("'Input.dispatchMouseEvent'");
     expect(script).toContain("'Page.captureScreenshot'");

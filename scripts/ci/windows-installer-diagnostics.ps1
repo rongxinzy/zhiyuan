@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$ProjectRoot,
   [Parameter(Mandatory = $true)][string]$InstallRoot,
@@ -12,12 +12,25 @@ function Get-NormalizedPath([string]$Path) {
   return [IO.Path]::GetFullPath($Path).TrimEnd([char[]]'\/')
 }
 
-# This collector is only for the acceptance job's explicitly owned install.
-if (-not $env:RUNNER_TEMP -or
-    (Get-NormalizedPath $InstallRoot) -ine (Get-NormalizedPath (Join-Path $env:RUNNER_TEMP 'zhiyuan-acceptance-installed'))) {
-  throw 'Installer diagnostics require the CI-owned RUNNER_TEMP/zhiyuan-acceptance-installed directory.'
+# This collector is only for the two NSIS acceptance callers' exact installs.
+# Do not accept a prefix, arbitrary descendants, or every path under RUNNER_TEMP.
+if (-not $env:RUNNER_TEMP) {
+  throw 'Installer diagnostics require an exact CI-owned acceptance directory under RUNNER_TEMP.'
 }
 $InstallRoot = Get-NormalizedPath $InstallRoot
+$ownedInstallRoots = @(
+  'zhiyuan-acceptance-installed',
+  'zhiyuan-interactive-acceptance/安装路径'
+) | ForEach-Object { Get-NormalizedPath (Join-Path $env:RUNNER_TEMP $_) }
+if ($ownedInstallRoots -inotcontains $InstallRoot) {
+  throw 'Installer diagnostics require an exact CI-owned acceptance directory under RUNNER_TEMP.'
+}
+# An allowlisted spelling must not redirect the file probes through a junction.
+for ($directory = [IO.DirectoryInfo]::new($InstallRoot); $null -ne $directory; $directory = $directory.Parent) {
+  if ($directory.Exists -and ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw 'Installer diagnostics require a physical CI-owned acceptance directory without directory links.'
+  }
+}
 $startedUtc = $StartedAt.ToUniversalTime()
 $outputRoot = Join-Path $ProjectRoot 'acceptance-diagnostics'
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null

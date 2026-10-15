@@ -143,6 +143,21 @@ describe.skipIf(process.platform !== 'win32')('post-install cleanup on Windows',
     expect(fs.existsSync(data.markerPath)).toBe(false);
   });
 
+  test('reads NSIS UTF-16 BOM markers without losing Chinese installation paths', async () => {
+    const data = fixture();
+    data.installDir = path.join(data.root, '安装路径 [保留] & app');
+    writeSentinel(data.installDir);
+    const backup = `${data.installDir}.old.123456`;
+    writeSentinel(backup);
+    const preserved = writeSentinel(`${data.installDir}.old.manual`);
+    fs.writeFileSync(data.markerPath, '\ufeff' + backup, 'utf16le');
+    const result = runCleanup(data, { legacy: true });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    await expectRemoved(backup);
+    expect(fs.readFileSync(preserved, 'utf8')).toBe('user-owned data');
+    expect(fs.existsSync(data.markerPath)).toBe(false);
+  });
+
   test('recognizes normalized marker spellings as the same exact backup', async () => {
     const data = fixture();
     const backup = `${data.installDir}.old.${backupId}`;

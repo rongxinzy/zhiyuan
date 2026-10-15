@@ -232,6 +232,15 @@ describe('NSIS offline resources and installer lifecycle', () => {
     ]);
   });
 
+  test('writes exact non-ASCII backup paths with a Unicode BOM', () => {
+    const script = fs.readFileSync(installerScriptPath, 'utf8');
+    const marker = script.slice(
+      script.indexOf('FileOpen $8 "$APPDATA\\ZhiYuanAgent\\old-install-path.txt" w'),
+    );
+    expect(marker.slice(0, 400)).toContain('FileWriteUTF16LE /BOM $8 "$3"');
+    expect(marker.slice(0, 400)).not.toContain('FileWrite $8 "$3"');
+  });
+
   test('does not show a blocking failure dialog during silent installs', () => {
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
     const failureBlock = installerScript.slice(
