@@ -23,7 +23,7 @@ module.exports = {
   nsis: {
     ...base.nsis,
     artifactName: 'ZhiYuan-Agent-Acceptance-${version}-${arch}.${ext}',
-    runAfterFinish: false,
+    runAfterFinish: true,
     deleteAppDataOnUninstall: false,
   },
 };

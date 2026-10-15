@@ -2,18 +2,10 @@
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
 
-; Fully custom-drawn installer UI (palette, drawing helpers, page functions
-; and string table). The theme file carries the include guard. electron-builder
-; compiles this file from its own NSIS staging directory (the header prepends
-; it ahead of installer.nsi), so relative sibling includes would resolve
-; against that staging directory and fail; PROJECT_DIR (always passed via -D)
-; anchors them to the repository. The relative fallback serves direct local
-; makensis runs from this script's directory.
-; These two globals must be declared before the UI includes: ZYHeroLeave reads
-; $installLocalInference and the PrepareExistingInstallForExtraction insertion
-; expands $preparedInstallRoot while zy-pages.nsh is still being processed.
+; Native, DPI-scaled setup pages and translated strings. PROJECT_DIR anchors
+; includes because electron-builder compiles from its NSIS staging directory.
+; Prepare state is needed before zy-pages.nsh expands the page-leave macro.
 !ifndef BUILD_UNINSTALLER
-Var /GLOBAL installLocalInference
 Var /GLOBAL preparedInstallRoot
 !endif
 ; Used by customUnInstall in the uninstaller pass to mirror uninstaller.nsh's
@@ -53,15 +45,15 @@ Var /GLOBAL zyDeleteRealAppData
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\
     $$roots = @(\"$INSTDIR\", \"$LOCALAPPDATA\ZhiYuanAgent\runtimes\");\
     $$selfPid = $9;\
-    $$isTarget = { param($$p) $$p -and ($$p.StartsWith(($$roots[0].TrimEnd([char]0x27) + [char]0x27), \"CurrentCultureIgnoreCase\") -or $$p.StartsWith(($$roots[1].TrimEnd([char]0x27) + [char]0x27), \"CurrentCultureIgnoreCase\"))) };\
+    $$isTarget = { param($$p) $$p -and ($$p.StartsWith(($$roots[0].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\") -or $$p.StartsWith(($$roots[1].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\"))) };\
     $$stopped = 0;\
-    foreach ($$proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.Path) })) {\
+    foreach ($$proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.ExecutablePath) })) {\
       Stop-Process -Id $$proc.ProcessId -Force -ErrorAction SilentlyContinue;\
       $$stopped += 1;\
     };\
     $$remaining = @();\
     for ($$i = 0; $$i -lt 20; $$i++) {\
-      $$remaining = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.Path) });\
+      $$remaining = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.ExecutablePath) });\
       if ($$remaining.Count -eq 0) { break };\
       Start-Sleep -Milliseconds 500;\
     };\
@@ -74,7 +66,7 @@ Var /GLOBAL zyDeleteRealAppData
 ; detach this distinguishes "app still running" from "directory held by
 ; another program" — electron-builder reports both as "cannot be closed".
 !macro CountInstallDirProcesses RESULT
-  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "$$root = (\"$INSTDIR\".TrimEnd([char]0x27) + [char]0x27); $$c = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.StartsWith($$root, \"CurrentCultureIgnoreCase\") }).Count; if ($$c -gt 200) { $$c = 200 }; exit $$c"'
+  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "$$root = (\"$INSTDIR\".TrimEnd([char]0x5c) + [char]0x5c); $$c = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$root, \"OrdinalIgnoreCase\") }).Count; if ($$c -gt 200) { $$c = 200 }; exit $$c"'
   Pop ${RESULT}
   ; Discard the captured stdout without clobbering ${RESULT}: the only caller
   ; passes $R0, and popping stdout into $R0 would overwrite the count.
@@ -277,9 +269,7 @@ Var /GLOBAL zyDeleteRealAppData
 ; electron-builder compiles the uninstaller before the installer. Its assisted
 ; template does not insert installation pages while BUILD_UNINSTALLER is set,
 ; so keep the page state and callbacks out of that compilation pass.
-; ($installLocalInference/$preparedInstallRoot are declared above the UI
-; includes, where ZYHeroLeave and the PrepareExistingInstallForExtraction
-; insertion can see them.)
+; $preparedInstallRoot is declared before the UI includes.
 !ifndef BUILD_UNINSTALLER
 
 
@@ -305,6 +295,8 @@ Var /GLOBAL zyDeleteRealAppData
 
 !macro customHeader
   ManifestDPIAware true
+  SetFont "Microsoft YaHei UI" 11
+  BrandingText " "
   ; The application and immutable runtime cache are per-user. Elevated helper
   ; processes are used only for the VC++ runtime installer below.
   RequestExecutionLevel user
@@ -436,6 +428,14 @@ Var /GLOBAL zyDeleteRealAppData
 !macroend
 
 !macro customInit
+  ; Explicit locale is useful for deployment and the interactive CI matrix.
+  ; Accept only bundled locales; an invalid value keeps the system language.
+  ${GetParameters} $R0
+  ${GetOptions} $R0 "/LANGUAGE=" $R1
+  ${If} $R1 == "2052"
+  ${OrIf} $R1 == "1033"
+    StrCpy $LANGUAGE $R1
+  ${EndIf}
   SetDetailsPrint textonly
   CreateDirectory "$APPDATA\ZhiYuanAgent"
   ; Stage the branded UI bitmaps (and license text) the wizard pages load.
@@ -705,15 +705,8 @@ Var /GLOBAL zyDeleteRealAppData
       MessageBox MB_OK|MB_ICONEXCLAMATION "Microsoft Visual C++ Runtime 未能自动安装。知远仍会完成安装，但部分本地组件可能暂时不可用。"
   VcRuntimeReady:
 
-  ; Local inference remains optional. The user chose on the custom options page
-  ; whether to prepare it; download, verification, extraction, cancellation and
-  ; retry happen in-app.
+  ; Retire the obsolete installer opt-in; runtime setup belongs in the app.
   Delete "$APPDATA\ZhiYuanAgent\pending-local-inference-install"
-  ${If} $installLocalInference == 1
-    FileOpen $2 "$APPDATA\ZhiYuanAgent\pending-local-inference-install" w
-    FileWrite $2 "$R1"
-    FileClose $2
-  ${EndIf}
 
   ; Cleanup begins only after core application and runtime links are ready, so
   ; it no longer competes with resource expansion on slow disks.
@@ -745,7 +738,7 @@ Var /GLOBAL zyDeleteRealAppData
   Delete "$APPDATA\ZhiYuanAgent\install-start-tick.txt"
   InstallTimingDone:
   DetailPrint "Installation complete"
-  ; Final phase: fills the bar to 100% and swaps in the complete artwork.
+  ; Status only. Page navigation waits for the native section-completion transition.
   !insertmacro ZY_ProgressPhase DONE "$(ZY_PHASE_DONE)"
 !macroend
 

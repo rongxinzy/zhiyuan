@@ -27,6 +27,7 @@
 Name "ZhiYuan Agent Installer UI Preview"
 RequestExecutionLevel user
 ManifestDPIAware true
+SetFont "Microsoft YaHei UI" 11
 ShowInstDetails show
 BrandingText " "
 
@@ -39,7 +40,6 @@ BrandingText " "
 ; Declared by scripts/nsis-installer.nsh in the production build; the hero
 ; leave callback stores the checkbox state here (installer pass only).
 !ifndef BUILD_UNINSTALLER
-Var /GLOBAL installLocalInference
 !endif
 
 ; electron-builder generates this LogicLib condition from the "updated"

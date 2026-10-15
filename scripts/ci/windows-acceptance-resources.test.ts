@@ -215,7 +215,7 @@ test('acceptance overlay disables signing and publishing while retaining icons a
   assert.equal(config.win.signtoolOptions, null);
   assert.equal(config.win.azureSignOptions, null);
   assert.deepEqual(config.win.target, [{ target: 'nsis', arch: ['x64'] }]);
-  assert.equal(config.nsis.runAfterFinish, false);
+  assert.equal(config.nsis.runAfterFinish, true);
   assert.equal(config.nsis.deleteAppDataOnUninstall, false);
   assert.equal(config.beforePack, './scripts/ci/windows-acceptance-resources.cjs');
   assert.equal(config.afterPack, config.beforePack);

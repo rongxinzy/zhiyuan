@@ -15,6 +15,8 @@ on:
       - 'scripts/electron-builder-hooks.cjs'
       - 'scripts/installer-ui/**'
       - 'scripts/installer/**'
+      - 'scripts/nsis-installer.nsh'
+      - 'tests/nsis-installer.test.ts'
       - 'src/main/libs/agentEngine/durable/nativeExecution*'
       - 'scripts/ci/windows-installer-*'
 
@@ -47,7 +49,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run apply:patches
       - name: Verify acceptance safeguards
-        run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts scripts/magpie-archive.test.ts scripts/native-package-hygiene.test.ts scripts/installer/validate-offline-components.test.ts scripts/ci/windows-installer-diagnostics.test.ts scripts/setup-mingit.test.ts src/renderer/components/cowork/CoworkView.modelGate.test.tsx --maxWorkers=1
+        run: bun x --no-install vitest run scripts/ci/windows-app-smoke.test.ts scripts/ci/windows-acceptance-install.test.ts scripts/ci/windows-acceptance-resources.test.ts scripts/ci/windows-installer-interactive.test.ts scripts/ci/windows-installer-size-smoke.test.ts tests/nsis-installer.test.ts scripts/magpie-archive.test.ts scripts/native-package-hygiene.test.ts scripts/installer/validate-offline-components.test.ts scripts/ci/windows-installer-diagnostics.test.ts scripts/setup-mingit.test.ts src/renderer/components/cowork/CoworkView.modelGate.test.tsx --maxWorkers=1
       - name: Record isolated Windows PowerShell startup evidence
         run: node scripts/ci/windows-powershell-startup.mjs --output acceptance-diagnostics/powershell-startup
       - name: Download official Electron for packaging
@@ -80,10 +82,18 @@ jobs:
         run: node scripts/ci/windows-acceptance-resources.cjs verify-inputs
       - name: Build unsigned NSIS acceptance installer
         run: bun x --no-install electron-builder --win nsis --x64 --config electron-builder.windows-acceptance.cjs --publish never
+      - name: Enforce Windows installer size budgets
+        shell: pwsh
+        run: ./scripts/ci/windows-installer-size-smoke.ps1
       - name: Verify packaged resources and record hashes
         run: node scripts/ci/windows-acceptance-resources.cjs verify-package release/win-unpacked
       - name: Execute packaged native SQLite and WASM probes
         run: node scripts/ci/windows-acceptance-resources.cjs probe-runtime release/win-unpacked
+      - name: Exercise actual NSIS install, finish, launch, cancel and recovery
+        # Windows PowerShell provides the OS-native System.Drawing assembly.
+        # Unavailable interactive desktop/screenshots fail the gate, never skip it.
+        shell: powershell
+        run: ./scripts/ci/windows-installer-interactive.ps1
       - name: Install and validate the actual application
         shell: pwsh
         run: ./scripts/ci/windows-acceptance-install.ps1

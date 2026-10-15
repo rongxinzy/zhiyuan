@@ -251,37 +251,28 @@ describe('NSIS offline resource and local inference flow', () => {
     expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(15);
   });
 
-  test('records optional local inference intent via an options checkbox instead of a popup', () => {
+  test('keeps retired local inference options out of setup', () => {
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
-    const themeScript = fs.readFileSync(path.resolve('scripts/installer-ui/zy-pages.nsh'), 'utf8');
-
-    expect(installerScript).toContain('pending-local-inference-install');
-    expect(installerScript).toContain('!ifndef BUILD_UNINSTALLER');
-    expect(installerScript).toContain('Var /GLOBAL installLocalInference');
-    expect(installerScript.indexOf('!ifndef BUILD_UNINSTALLER')).toBeLessThan(
-      installerScript.indexOf('Var /GLOBAL installLocalInference'),
+    const pages = fs.readFileSync(path.resolve('scripts/installer-ui/zy-pages.nsh'), 'utf8');
+    for (const removed of [
+      'installLocalInference',
+      'heroInference',
+      'ZY_UI_LOCAL_INFERENCE',
+      '16-621',
+    ]) {
+      expect(installerScript + pages).not.toContain(removed);
+    }
+    expect(installerScript).toContain(
+      'Delete "$APPDATA\\ZhiYuanAgent\\pending-local-inference-install"',
     );
-    expect(installerScript).not.toContain('MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2');
-    expect(installerScript).not.toContain('install-llamacpp-backend-nsis.cjs');
-    expect(installerScript).not.toContain('llamacpp-backends\\manifest.json');
-
-    // The hero page hosts the checkbox; leaving it commits the install and
-    // runs the destructive pre-extraction steps. Layout positions come from
-    // the ZY_HERO_* constants in zy-theme.nsh.
-    expect(themeScript).toContain(
-      '${NSD_CreateCheckbox} ${ZY_ROW_X} ${ZY_HERO_INFER_Y} ${ZY_HERO_INFER_W} ${ZY_HERO_INFER_H} "$(ZY_UI_LOCAL_INFERENCE)"',
+    expect(installerScript).not.toMatch(/FileOpen.*pending-local-inference-install/);
+    const leave = pages.slice(
+      pages.indexOf('Function ZYHeroLeave'),
+      pages.indexOf('FunctionEnd', pages.indexOf('Function ZYHeroLeave')),
     );
-    expect(themeScript).toContain('Function ZYHeroCreate');
-    expect(themeScript).toContain('Function ZYHeroLeave');
-    const heroLeaveBlock = themeScript.slice(
-      themeScript.indexOf('Function ZYHeroLeave'),
-      themeScript.indexOf('FunctionEnd', themeScript.indexOf('Function ZYHeroLeave')),
-    );
-    expect(heroLeaveBlock).toContain('${NSD_GetState} $heroInference $installLocalInference');
-    expect(heroLeaveBlock).toContain(
-      '!insertmacro PrepareExistingInstallForExtraction INTERACTIVE',
-    );
-    expect(installerScript).toContain('Page custom ZYHeroCreate ZYHeroLeave');
+    expect(leave).toContain('${NSD_GetState} $heroLicense $0');
+    expect(leave).toContain('Abort');
+    expect(leave).toContain('!insertmacro PrepareExistingInstallForExtraction INTERACTIVE');
   });
 
   test('does not request or manage Microsoft Defender exclusions', () => {
@@ -393,10 +384,12 @@ describe('NSIS offline resource and local inference flow', () => {
     expect(macroBlock).toContain('$LOCALAPPDATA\\ZhiYuanAgent\\runtimes');
     // The prefix root is normalized with a trailing separator so sibling
     // directories that merely share a name prefix cannot match.
-    expect(macroBlock).toContain('TrimEnd([char]0x27) + [char]0x27');
+    expect(macroBlock).toContain('TrimEnd([char]0x5c) + [char]0x5c');
     expect(macroBlock).toContain('StartsWith(($$roots[0].TrimEnd');
     expect(macroBlock).toContain('StartsWith(($$roots[1].TrimEnd');
-    expect(macroBlock).toContain('CurrentCultureIgnoreCase');
+    expect(macroBlock).toContain('OrdinalIgnoreCase');
+    expect(macroBlock).toContain('$$_.ExecutablePath');
+    expect(macroBlock).not.toContain('$$_.Path');
     expect(macroBlock).toContain('Stop-Process -Id $$proc.ProcessId -Force');
     // An in-place uninstaller runs from $INSTDIR and must not kill itself.
     expect(macroBlock).toContain('GetCurrentProcessId');
@@ -632,7 +625,11 @@ describe('NSIS visual assets', () => {
       DONE: 'zy-done.bmp',
       LICENSE: 'license.txt',
     };
-    expect([...referenced].sort()).toEqual(Object.keys(fileByKey).sort());
+    expect([...referenced]).toEqual(['LICENSE']);
+    // Old generated assets remain available to archived previews; live pages
+    // must not draw any of them over the wizard or its native controls.
+    expect(pagesScript).not.toContain('NSD_CreateBitmap');
+    expect(themeScript).not.toContain('CreateWindowEx');
     for (const [key, file] of Object.entries(fileByKey)) {
       expect(fs.existsSync(path.join(assetDir, file)), `${key} -> ${file}`).toBe(true);
       if (key !== 'LICENSE') {
@@ -686,6 +683,61 @@ describe('NSIS custom installer UI wiring', () => {
     expect(installerScript).toContain('!macro customUninstallPage');
   });
 
+  test('uses native completion transition and never leaves Next hidden', () => {
+    const progress = pagesScript.slice(
+      pagesScript.indexOf('Function ZYProgressShow'),
+      pagesScript.indexOf('FunctionEnd', pagesScript.indexOf('Function ZYProgressShow')),
+    );
+    expect(progress).toContain('SetAutoClose true');
+    expect(progress).toContain('GetDlgItem $0 $HWNDPARENT 1');
+    expect(progress).toContain('ShowWindow $0 ${SW_SHOW}');
+    expect(pagesScript).not.toContain('ZY_HideWizardButtons');
+    expect(pagesScript + themeScript).not.toContain('CreateWindowEx');
+    expect(pagesScript + themeScript).not.toContain('NSD_CreateBitmap');
+    expect(pagesScript + themeScript).not.toContain('ZY_InstFilesFinished');
+    // The bundled MUI2 has PRE/SHOW/LEAVE only. An invented FINISH define
+    // compiles silently but never runs, recreating the dead-end installation.
+    expect(installerScript).not.toContain('MUI_PAGE_CUSTOMFUNCTION_FINISH');
+    const preview = fs.readFileSync(path.resolve('scripts/installer-ui/preview.nsi'), 'utf8');
+    expect(preview).toContain('Page custom ZYHeroCreate ZYHeroLeave');
+    expect(preview).toContain('!insertmacro MUI_PAGE_INSTFILES');
+    expect(preview).toContain('Page custom ZYFinishCreate ZYFinishLeave');
+  });
+
+  test('offers independent Close and explicit launch without automatic startup', () => {
+    const finish = pagesScript.slice(
+      pagesScript.indexOf('Function ZYFinishCreate'),
+      pagesScript.indexOf('FunctionEnd', pagesScript.indexOf('Function ZYFinishCreate')),
+    );
+    expect(finish).toContain('StrCpy $zyLaunchApp "0"');
+    expect(finish).toContain('GetDlgItem $0 $HWNDPARENT 1');
+    expect(finish).toContain('STR:$(ZY_UI_FINISH)');
+    expect(finish).toContain('ShowWindow $0 ${SW_SHOW}');
+    expect(finish).toContain('EnableWindow $0 1');
+    expect(finish).toContain('${NSD_OnClick} $0 ZYFinishLaunchClick');
+    const leave = pagesScript.slice(
+      pagesScript.indexOf('Function ZYFinishLeave'),
+      pagesScript.indexOf('FunctionEnd', pagesScript.indexOf('Function ZYFinishLeave')),
+    );
+    expect(leave).toContain('${If} $zyLaunchApp == "1"');
+    expect(leave.indexOf('StrCpy $zyLaunchApp "0"')).toBeLessThan(
+      leave.indexOf('${StdUtils.ExecShellAsUser}'),
+    );
+    expect(leave).toContain('$(ZY_UI_LAUNCH_FAILED)');
+    expect(leave).toContain('Abort');
+    expect(leave).toContain('"--updated"');
+  });
+
+  test('uses readable native font, wrapping paths and selectable Chinese/English', () => {
+    expect(installerScript).toContain('SetFont "Microsoft YaHei UI" 11');
+    expect(installerScript).toContain('${GetOptions} $R0 "/LANGUAGE=" $R1');
+    expect(installerScript).toContain('StrCpy $LANGUAGE $R1');
+    expect(pagesScript.match(/\$\{ES_MULTILINE\}/g)).toHaveLength(2);
+    expect(pagesScript.match(/\$\{ES_READONLY\}/g)).toHaveLength(2);
+    expect(pagesScript).not.toContain('ZY_HERO_WORDMARK');
+    expect(themeScript).not.toContain('Sleep');
+  });
+
   test('declares one progress phase per customInstall stage boundary', () => {
     expect(installerScript.match(/!insertmacro ZY_ProgressPhase /g)).toHaveLength(10);
     for (const phase of [
@@ -709,7 +761,8 @@ describe('NSIS custom installer UI wiring', () => {
       themeScript.indexOf('!macroend', themeScript.indexOf('!macro ZY_ProgressPhase TOKEN TEXT')),
     );
     expect(phaseMacro).toContain('${IfNot} ${Silent}');
-    expect(phaseMacro).toContain('ShowWindow $zyComplete ${SW_SHOW}');
+    expect(phaseMacro).toContain('SendMessage $zyPhaseLabel ${WM_SETTEXT}');
+    expect(phaseMacro).not.toMatch(/Sleep|ZY_ClickWizardNext|ShowWindow|PBM_SETPOS/);
   });
 
   test('keeps UI code out of the silent execution paths', () => {

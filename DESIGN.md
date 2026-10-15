@@ -100,6 +100,10 @@ UI 实现前先查现成组件，并参考 `shadcn`、`ai-elements`、`rongxinai
 - 代码与终端：`"SF Mono", "Fira Code", Menlo, Monaco, Consolas, monospace`。
 - 字体栈通过主题角色提供，不在组件中设置 `font-family`，不新增网络字体文件。其他主题的标题可使用 `style-font-heading`，正文与操作控件保持统一。
 
+### Windows 原生安装向导
+
+Windows NSIS 安装器使用系统向导与原生控件，不加载 Electron 的主题/CSS。遵循同一信息层级：单一页标题、安装位置与许可、真实进度与详情、明确的启动/关闭终点；禁止拼贴位图背景、重复字标或覆盖原生导航按钮。安装器字体用 Windows 自带 Microsoft YaHei UI，正文 11pt（原生整点字号，96 DPI 约 14.7px），标题 12pt/600；布局全部使用随字体/DPI 缩放的 dialog units。路径为可选择、换行的只读多行文本。系统颜色、高对比度、焦点与键盘行为由 Windows 控件负责，不另造安装器外观设置。运行中的进度由 NSIS 维护，只有全部安装节成功后才进入完成页，失败必须留在可读错误状态。
+
 ### 六档字号
 
 | 角色 | 刻度映射 | 字号 / 行高目标 | 场景 |
