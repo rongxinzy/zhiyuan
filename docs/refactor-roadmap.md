@@ -196,6 +196,7 @@
 - [e8526586 前置回归](https://github.com/rongxinzy/zhiyuan/actions/runs/38685807388) 260 项通过，新增进程测试把 PowerShell 首次模块初始化的 CLIXML progress 当 stderr 错误而失败，已修测试区分；不删除实际 parser、停止进程及外目录保留断言。安全追加批次需再次完整 Windows 验收，不沿用此前部分成功标记为 ready。
 - [e9136d82 Windows 前置回归](https://github.com/rongxinzy/zhiyuan/actions/runs/38687927249) 275 项通过，新增目录归属 / C# 恢复边界实际测试已通过；剩余两个 fixture 问题为 PowerShell 5.1 Start-Process 返回对象的 ExitCode 未可靠保留，以及“外部 resources”夹具实际放在应用树内部。分别改用直接 Process 句柄取得真实退出码、将目标放在真实外部同级目录并加位置前置断言；保留进程与外部链接保护原断言。
 - [412b425c Windows run 38688890115](https://github.com/rongxinzy/zhiyuan/actions/runs/38688890115) 全部前置安全回归通过；正式 NSIS 卸载器编译发现新增安全提示定义被 installer-only customHeader 条件排除，触发 Slovak 语言表警告并被 -WX 正确阻断。共享提示移至公共字符串表，新增直接包含完整生产 NSIS、使用 electron-builder 真实 26 语言生成器的安装 / 卸载双编译前置回归；本地真实双 pass -WX 已通过，不关闭警告或缩减语言。
+- 1807cdfc 的新编译前置在 Windows 发现探针将绝对路径统一转为正斜杠，NSIS include 未找到文件；其余 277 项通过。探针改用平台原生 path.join，并补 Windows / POSIX 渲染单测及 Linux 实际 26 语言双 pass -WX；生产安全逻辑未变。
 - 当前状态：等待修复后的最终壳 Windows 编译与真实交互验收，尚无成功截图 / artifact；保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收

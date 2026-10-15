@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const scriptPath = path.join(__dirname, 'windows-installer-interactive.ps1');
@@ -9,6 +10,16 @@ const script = readFileSync(scriptPath, 'utf8');
 const helper = readFileSync(helperPath, 'utf8');
 const workflow = readFileSync('.github/workflows/windows-acceptance.yml', 'utf8');
 const delivery = readFileSync('scripts/ci/windows-acceptance-install.ps1', 'utf8');
+const { createProbeSource } = createRequire(import.meta.url)(
+  '../installer-ui/verify-native-languages.cjs',
+) as {
+  createProbeSource: (
+    root: string,
+    output: string,
+    languages: string,
+    paths: Pick<typeof path, 'join'>,
+  ) => string;
+};
 
 describe('real interactive NSIS acceptance safeguards', () => {
   it('drives visible real controls and never advances the completed progress page itself', () => {
@@ -266,6 +277,20 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(result.status, result.stderr).toBe(0);
     },
   );
+
+  it('renders native Windows and POSIX compiler file paths without rewriting separators', () => {
+    for (const [root, output, paths] of [
+      [String.raw`D:\a\知远 repo\zhiyuan`, String.raw`C:\Users\runner\Temp\probe`, path.win32],
+      ['/workspace/知远 repo/zhiyuan', '/tmp/probe', path.posix],
+    ] as const) {
+      const source = createProbeSource(root, output, '!insertmacro addLangs', paths);
+      expect(source).toContain(`!define PROJECT_DIR "${root}"`);
+      expect(source).toContain(`!include "${paths.join(root, 'scripts', 'nsis-installer.nsh')}"`);
+      expect(source).toContain(`OutFile "${paths.join(output, 'probe.exe')}"`);
+      expect(source).toContain(`WriteUninstaller "${paths.join(output, 'uninstaller.exe')}"`);
+      expect(source).toContain('"${NSISDIR}\\Contrib\\Graphics\\Wizard\\nsis3-metro.bmp"');
+    }
+  });
 
   it.skipIf(process.platform !== 'win32' && !process.env.ELECTRON_BUILDER_NSIS_DIR)(
     'compiles real installer and uninstaller hooks with every configured NSIS language',

@@ -11,21 +11,10 @@ const {
 const { getMakeNsisPath } = require('app-builder-lib/out/toolsets/windows');
 const config = require('../../electron-builder.windows-acceptance.cjs');
 
-async function main() {
-  const root = path.resolve(__dirname, '../..').replaceAll('\\', '/');
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'zhiyuan-language-compile-'));
-  const output = temporary.replaceAll('\\', '/');
-  const languages = new LangConfigurator(config.nsis);
-  let languageMacro = '';
-  createAddLangsMacro(
-    {
-      macro: (name, lines) => {
-        languageMacro = `!macro ${name}\n${lines.join('\n')}\n!macroend`;
-      },
-    },
-    languages,
-  );
-  const source = `Unicode true
+function createProbeSource(root, output, languageMacro, paths = path) {
+  // Host file paths must retain the compiler platform's separators. In
+  // particular, Windows makensis cannot resolve our POSIX-normalized include.
+  return `Unicode true
 !include "MUI2.nsh"
 !define PROJECT_DIR "${root}"
 !define APP_GUID "language-compile-probe"
@@ -33,14 +22,14 @@ async function main() {
 !define APP_FILENAME "language-compile-probe"
 !define PRODUCT_FILENAME "language-compile-probe"
 !define allowToChangeInstallationDirectory
-!include "${root}/scripts/nsis-installer.nsh"
+!include "${paths.join(root, 'scripts', 'nsis-installer.nsh')}"
 Name "ZhiYuan native language compile probe"
-OutFile "${output}/probe.exe"
+OutFile "${paths.join(output, 'probe.exe')}"
 RequestExecutionLevel user
 ; The probe needs no generated artwork or application payload. Keep real
 ; page callbacks and all safety hooks; use the compiler's stock finish art.
 !undef MUI_UNWELCOMEFINISHPAGE_BITMAP
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "\${NSISDIR}/Contrib/Graphics/Wizard/nsis3-metro.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "\${NSISDIR}\\Contrib\\Graphics\\Wizard\\nsis3-metro.bmp"
 ${languageMacro}
 !ifdef BUILD_UNINSTALLER
 !insertmacro customUnWelcomePage
@@ -68,7 +57,7 @@ Section "un.Uninstall"
 !insertmacro customUnInstall
 SectionEnd
 Section "writer"
-WriteUninstaller "${output}/uninstaller.exe"
+WriteUninstaller "${paths.join(output, 'uninstaller.exe')}"
 SectionEnd
 !else
 Section "install"
@@ -77,6 +66,22 @@ Section "install"
 SectionEnd
 !endif
 `;
+}
+
+async function main() {
+  const root = path.resolve(__dirname, '../..');
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'zhiyuan-language-compile-'));
+  const languages = new LangConfigurator(config.nsis);
+  let languageMacro = '';
+  createAddLangsMacro(
+    {
+      macro: (name, lines) => {
+        languageMacro = `!macro ${name}\n${lines.join('\n')}\n!macroend`;
+      },
+    },
+    languages,
+  );
+  const source = createProbeSource(root, temporary, languageMacro);
   try {
     const filename = path.join(temporary, 'probe.nsi');
     fs.writeFileSync(filename, source, 'utf8');
@@ -107,7 +112,10 @@ SectionEnd
   }
 }
 
-main().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+module.exports = { createProbeSource };
+if (require.main === module) {
+  main().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
