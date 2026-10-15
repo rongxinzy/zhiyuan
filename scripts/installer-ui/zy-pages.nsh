@@ -62,6 +62,15 @@ Var /GLOBAL zyPhaseLabel
 !endif
 !macroend
 
+; Shared process/root checks run in both compiler passes, including the
+; early silent-uninstaller hook. Keep their strings outside the install-only
+; customHeader macro so every bundled language exists in the uninstaller.
+!insertmacro ZY_LangString ZY_UNSAFE_INSTALL_ROOT "请选择空目录或已有的知远安装目录，不能选择系统、个人数据或目录链接。未修改已有文件。" "請選擇空目錄或已有的知遠安裝目錄，不能選擇系統、個人資料或目錄連結。未修改已有檔案。" "Choose an empty folder or an existing ZhiYuan installation. System folders, personal data and directory links are protected. Existing files were not changed."
+!insertmacro ZY_LangString ZY_APP_UNCLOSABLE \
+  "检测到知远进程仍在运行，且无法自动关闭。$\r$\n$\r$\n可能是以管理员身份运行的。请手动退出知远（右键点击任务栏托盘图标并选择退出），然后点击“重试”。" \
+  "偵測到知遠處理程序仍在執行，且無法自動關閉。$\r$\n$\r$\n可能是以系統管理員身分執行的。請手動結束知遠（在工作列通知區域圖示上按一下右鍵並選擇結束），然後按一下「重試」。" \
+  "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
+
 !insertmacro ZY_LangString ZY_UI_TITLE \
   "准备安装" \
   "準備安裝" \

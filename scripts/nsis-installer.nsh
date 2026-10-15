@@ -314,7 +314,6 @@ Var /GLOBAL preparedInstallRoot
 !macroend
 
 !macro customHeader
-  !insertmacro ZY_LangString ZY_UNSAFE_INSTALL_ROOT "请选择空目录或已有的知远安装目录，不能选择系统、个人数据或目录链接。未修改已有文件。" "請選擇空目錄或已有的知遠安裝目錄，不能選擇系統、個人資料或目錄連結。未修改已有檔案。" "Choose an empty folder or an existing ZhiYuan installation. System folders, personal data and directory links are protected. Existing files were not changed."
   ManifestDPIAware true
   SetFont "Microsoft YaHei UI" 11
   BrandingText " "
@@ -337,32 +336,6 @@ Var /GLOBAL preparedInstallRoot
   ; The build loads every bundled NSIS language, and makensis promotes an
   ; unset-per-language LangString (warning 6040) to an error, so every
   ; bundled language gets an entry; untranslated ones fall back to English.
-  LangString ZY_APP_UNCLOSABLE 2052 "检测到知远进程仍在运行，且无法自动关闭。$\r$\n$\r$\n可能是以管理员身份运行的。请手动退出知远（右键点击任务栏托盘图标并选择退出），然后点击“重试”。"
-  LangString ZY_APP_UNCLOSABLE 1028 "偵測到知遠處理程序仍在執行，且無法自動關閉。$\r$\n$\r$\n可能是以系統管理員身分執行的。請手動結束知遠（在工作列通知區域圖示上按一下右鍵並選擇結束），然後按一下「重試」。"
-  LangString ZY_APP_UNCLOSABLE 1033 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1031 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1036 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 3082 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1041 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1042 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1040 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1043 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1030 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1053 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1044 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1035 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1049 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 2070 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1046 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1045 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1058 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1029 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1051 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1038 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1025 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1055 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1054 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
-  LangString ZY_APP_UNCLOSABLE 1066 "ZhiYuan is still running and could not be closed automatically.$\r$\n$\r$\nIt may have been started with administrator rights. Exit ZhiYuan manually (right-click its system tray icon and choose Exit), then click Retry."
   LangString ZY_DIR_OCCUPIED 2052 "无法更新安装目录，目录正被其他程序占用。$\r$\n$\r$\n未检测到正在运行的知远进程。最常见的原因是文件资源管理器正在浏览该目录：$\r$\n$INSTDIR$\r$\n$\r$\n请关闭占用该目录的窗口或程序，然后点击“重试”。"
   LangString ZY_DIR_OCCUPIED 1028 "無法更新安裝目錄，目錄正被其他程式佔用。$\r$\n$\r$\n未偵測到正在執行的知遠處理程序。最常見的原因是檔案總管正在瀏覽該目錄：$\r$\n$INSTDIR$\r$\n$\r$\n請關閉佔用該目錄的視窗或程式，然後按一下「重試」。"
   LangString ZY_DIR_OCCUPIED 1033 "The installation directory cannot be updated because it is in use by another program.$\r$\n$\r$\nNo running ZhiYuan process was detected. The most common cause is a File Explorer window browsing this directory:$\r$\n$INSTDIR$\r$\n$\r$\nClose the window or program using this directory, then click Retry."

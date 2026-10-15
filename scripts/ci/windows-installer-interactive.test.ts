@@ -266,4 +266,24 @@ describe('real interactive NSIS acceptance safeguards', () => {
       expect(result.status, result.stderr).toBe(0);
     },
   );
+
+  it.skipIf(process.platform !== 'win32' && !process.env.ELECTRON_BUILDER_NSIS_DIR)(
+    'compiles real installer and uninstaller hooks with every configured NSIS language',
+    () => {
+      const result = spawnSync(
+        process.execPath,
+        ['scripts/installer-ui/verify-native-languages.cjs'],
+        {
+          encoding: 'utf8',
+          timeout: 180_000,
+        },
+      );
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stdout).toMatch(
+        /PASS: production installer and uninstaller compile with all \d+ configured languages and -WX/,
+      );
+    },
+    190_000,
+  );
 });

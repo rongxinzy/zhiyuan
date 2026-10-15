@@ -537,10 +537,16 @@ describe('NSIS offline resources and installer lifecycle', () => {
       '1054',
       '1066',
     ];
-    for (const message of ['ZY_APP_UNCLOSABLE', 'ZY_DIR_OCCUPIED']) {
-      for (const lcid of bundledLcids) {
-        expect(installerScript).toContain(`LangString ${message} ${lcid} `);
-      }
+    for (const lcid of bundledLcids) {
+      expect(installerScript).toContain(`LangString ZY_DIR_OCCUPIED ${lcid} `);
+    }
+    const pages = fs.readFileSync('scripts/installer-ui/zy-pages.nsh', 'utf8');
+    for (const message of ['ZY_APP_UNCLOSABLE', 'ZY_UNSAFE_INSTALL_ROOT']) {
+      expect(pages).toContain(`!insertmacro ZY_LangString ${message} `);
+      expect(pages.indexOf(`!insertmacro ZY_LangString ${message} `)).toBeLessThan(
+        pages.indexOf('Function ZYHeroCreate'),
+      );
+      expect(installerScript).not.toContain(`!insertmacro ZY_LangString ${message} `);
     }
 
     // The detached previous version is unregistered so electron-builder skips
