@@ -367,16 +367,16 @@ try {
   # The only moved file is this runner's freshly installed executable.
   Move-Item -LiteralPath $app -Destination $launchBackup
   [ZhiYuan.Acceptance.InstallerUi]::Click((Get-Button -Label '^(启动知远智能体|啟動知遠智能體|Launch ZhiYuan Agent)$').Handle)
+  $launchFailurePattern = '\A' + [regex]::Escape('The app could not be started. Retry, or close setup and use the Start menu.') + '\z'
   $launchError = Wait-Until {
     foreach ($window in (Get-InstallerWindows)) {
       if ($window.Handle -eq $script:wizard.Handle) { continue }
-      $ok = Get-Button -Id 1 -Window $window.Handle
-      $message = @(Get-Controls $window.Handle | Where-Object Text -match 'The app could not be started')
-      if ($ok -and $ok.Enabled -and $message.Count) { return $window }
+      $ok = [ZhiYuan.Acceptance.InstallerUi]::FindDialogAcknowledgement($window.Handle, $script:wizard.ProcessId, $script:wizard.Text, $launchFailurePattern, $script:wizard.Handle)
+      if ($ok) { return $window }
     }
   } 'real failed-launch error dialog'
   Save-Page 'finish-launch-error' $launchError.Handle
-  [ZhiYuan.Acceptance.InstallerUi]::Click((Get-Button -Id 1 -Window $launchError.Handle).Handle)
+  [ZhiYuan.Acceptance.InstallerUi]::ClickDialogAcknowledgement($launchError.Handle, $script:wizard.ProcessId, $script:wizard.Text, $launchFailurePattern, $script:wizard.Handle)
   $null = Wait-Until {
     $launch = Get-Button -Label '^Launch ZhiYuan Agent$'
     $close = Get-Button -Id 1 -Label '^Close$'

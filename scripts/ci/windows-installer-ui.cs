@@ -7,11 +7,13 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
 
 namespace ZhiYuan.Acceptance {
   public sealed class WindowInfo {
     public long Handle;
+    public long OwnerHandle;
     public int ProcessId;
     public int ControlId;
     public string ClassName;
@@ -48,6 +50,7 @@ namespace ZhiYuan.Acceptance {
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern int MapWindowPoints(IntPtr from, IntPtr to, ref Rect rect, uint points);
     [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
@@ -98,7 +101,7 @@ namespace ZhiYuan.Acceptance {
       Rect bounds;
       if (!GetWindowRect(window, out bounds)) throw new Win32Exception();
       return new WindowInfo {
-        Handle = window.ToInt64(), ProcessId = (int)processId,
+        Handle = window.ToInt64(), OwnerHandle = GetWindow(window, 4).ToInt64(), ProcessId = (int)processId,
         ControlId = GetDlgCtrlID(window), ClassName = className.ToString(),
         Text = text.ToString(), Visible = IsWindowVisible(window),
         Enabled = IsWindowEnabled(window), Left = bounds.Left, Top = bounds.Top,
@@ -127,6 +130,43 @@ namespace ZhiYuan.Acceptance {
 
     public static int Checked(long handle) {
       return SendMessage(new IntPtr(handle), 0x00F0, IntPtr.Zero, IntPtr.Zero).ToInt32();
+    }
+
+    public static WindowInfo FindDialogAcknowledgement(long dialog, int expectedProcessId,
+        string expectedTitle, string expectedBodyPattern, long expectedOwner) {
+      var info = Inspect(new IntPtr(dialog));
+      if (!info.Visible || !info.Enabled || info.ClassName != "#32770" ||
+          info.ProcessId != expectedProcessId || info.Text != expectedTitle) return null;
+      if (expectedOwner != 0) {
+        if (info.OwnerHandle != expectedOwner) return null;
+        var owner = Inspect(new IntPtr(expectedOwner));
+        if (owner.ProcessId != expectedProcessId || !owner.Visible || owner.Enabled) return null;
+      }
+      var buttons = new List<WindowInfo>();
+      bool hasExpectedBody = false;
+      foreach (var control in Controls(dialog)) {
+        if (!control.Visible) continue;
+        if (control.ClassName == "Button") buttons.Add(control);
+        if (control.ClassName == "Static" && Regex.IsMatch(control.Text, expectedBodyPattern,
+            RegexOptions.CultureInvariant)) hasExpectedBody = true;
+      }
+      if (!hasExpectedBody || buttons.Count != 1 || !buttons[0].Enabled) return null;
+      var label = Regex.Replace(buttons[0].Text.Replace("&", ""), @"\s*\([A-Za-z]\)", "").Trim();
+      // MB_OK may expose IDCANCEL (2), not IDOK (1), on the actual Windows
+      // dialog. Its one visible acknowledgement action is the semantic proof.
+      if (!String.Equals(label, "OK", StringComparison.OrdinalIgnoreCase) &&
+          label != "\u786e\u5b9a" && label != "\u78ba\u5b9a") return null;
+      return buttons[0];
+    }
+
+    public static void ClickDialogAcknowledgement(long dialog, int expectedProcessId,
+        string expectedTitle, string expectedBodyPattern, long expectedOwner) {
+      // Re-inspect the same HWND immediately before clicking. A screenshot or
+      // a previously discovered button is not authority to click another dialog.
+      var button = FindDialogAcknowledgement(dialog, expectedProcessId, expectedTitle,
+        expectedBodyPattern, expectedOwner);
+      if (button == null) throw new InvalidOperationException("Expected unique acknowledgement dialog is no longer available");
+      Click(button.Handle);
     }
 
     public static void Click(long handle) {

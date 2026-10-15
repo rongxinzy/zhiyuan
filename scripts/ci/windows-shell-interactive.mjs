@@ -467,9 +467,13 @@ export async function runShellAcceptance() {
       );
     }, 'explicit missing-WebView2 native failure prompt');
     assert.match(dialog.controls.map(control => control.Text).join('\n'), /Microsoft|微软/);
-    const missingPage = await native('inspect', {
+    const expectedDialog = {
       TargetProcessId: missing.child.pid,
       WindowClass: '#32770',
+      WindowHandle: dialog.window.Handle,
+    };
+    const missingPage = await native('inspect', {
+      ...expectedDialog,
       Screenshot: path.join(evidence, 'missing-webview2.png'),
     });
     await writeFile(
@@ -482,9 +486,10 @@ export async function runShellAcceptance() {
       'Missing WebView2 cannot claim success',
     );
     await native('inspect', {
-      TargetProcessId: missing.child.pid,
-      WindowClass: '#32770',
-      ClickControlId: 1,
+      ...expectedDialog,
+      ExpectedWindowTitle: 'ZhiYuan Agent Setup',
+      AcknowledgeBodyPattern:
+        '(?s)Microsoft Edge WebView2 Runtime is required.*https://developer[.]microsoft[.]com/microsoft-edge/webview2/',
     });
     await waitExit(missing, true);
     assert.equal(missing.child.exitCode, 1, 'Missing WebView2 must exit with failure');

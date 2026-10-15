@@ -290,6 +290,33 @@ describe('real final shell acceptance driver safeguards', () => {
     expect(script).not.toMatch(/\b(?:Set-MpPreference|Add-MpPreference|Defender)\b/);
   });
 
+  it('acknowledges the exact missing-runtime dialog by semantic OK instead of a numeric control ID', () => {
+    expect(native).not.toContain('ClickControlId');
+    expect(script).not.toContain('ClickControlId');
+    expect(script).toContain('WindowHandle: dialog.window.Handle');
+    expect(script).toContain("ExpectedWindowTitle: 'ZhiYuan Agent Setup'");
+    expect(script).toContain(
+      'Microsoft Edge WebView2 Runtime is required.*https://developer[.]microsoft[.]com/microsoft-edge/webview2/',
+    );
+    expect(native).toContain('$_.Handle -eq $WindowHandle');
+    expect(native).toContain("$WindowClass -ne '#32770'");
+    expect(native).toContain('$TargetProcessId -le 0');
+    expect(native).toContain('$windows.Count -ne 1');
+    expect(native).toContain('InstallerUi]::ClickDialogAcknowledgement(');
+    expect(native).toContain(
+      '$window.Handle, $TargetProcessId, $ExpectedWindowTitle, $AcknowledgeBodyPattern, 0)',
+    );
+    const capture = script.indexOf("Screenshot: path.join(evidence, 'missing-webview2.png')");
+    const acknowledge = script.indexOf('AcknowledgeBodyPattern:');
+    const exit = script.indexOf('await waitExit(missing, true)');
+    expect(capture).toBeGreaterThan(0);
+    expect(acknowledge).toBeGreaterThan(capture);
+    expect(exit).toBeGreaterThan(acknowledge);
+    expect(script.indexOf("const fresh = await start('fresh')")).toBeGreaterThan(exit);
+    expect(script).toContain('assert.equal(missing.child.exitCode, 1');
+    expect(script).toContain("item.type === 'webview2-error'");
+  });
+
   it('builds the official shell around real packaged input and delivers only that final artifact', () => {
     expect(workflow).toContain('actions/setup-dotnet@v4');
     expect(workflow).toContain("dotnet-version: '8.0.x'");

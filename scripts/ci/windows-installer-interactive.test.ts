@@ -164,7 +164,38 @@ describe('real interactive NSIS acceptance safeguards', () => {
       /finally\s*\{[\s\S]*Move-Item -LiteralPath \$launchBackup -Destination \$app/,
     );
     expect(script).toContain('$report.checks.launchFailureRecovery = $true');
+    expect(script).toContain(
+      '::FindDialogAcknowledgement($window.Handle, $script:wizard.ProcessId',
+    );
+    expect(script).toContain(
+      '::ClickDialogAcknowledgement($launchError.Handle, $script:wizard.ProcessId',
+    );
+    expect(script).not.toContain('Get-Button -Id 1 -Window $launchError.Handle');
+    expect(helper).toContain('info.OwnerHandle != expectedOwner');
+    expect(helper).toContain('buttons.Count != 1 || !buttons[0].Enabled');
   });
+
+  it.skipIf(process.platform !== 'win32')(
+    'recognizes and clicks real single-OK modal HWNDs independent of numeric control IDs',
+    () => {
+      const result = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          path.join(__dirname, 'windows-installer-dialog-regression.ps1'),
+        ],
+        { encoding: 'utf8', timeout: 30_000 },
+      );
+      expect(result.error, result.stderr).toBeUndefined();
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stdout).toContain('PASS: real modal OK dialogs with control IDs 1 and 2');
+    },
+    35_000,
+  );
 
   it('reads the actual separate NSIS registration keys and preserves original failures during cleanup', () => {
     expect(script).toContain("$value.PSObject.Properties['UninstallString']");
