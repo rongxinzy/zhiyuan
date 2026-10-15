@@ -110,6 +110,26 @@ test('install and uninstall reject foreign directories before stopping any proce
   expect(ownership).not.toMatch(/Directory\.(Move|Delete)|File\.(Write|Delete)/);
 });
 
+test('process shutdown waits for the exact matched handles within a cancellable total budget', () => {
+  for (const engine of [installer, uninstaller]) {
+    const stop = engine.slice(
+      engine.indexOf('private async Task StepStopAppProcesses('),
+      engine.indexOf('private IEnumerable<Process> FindInstallRootProcesses()'),
+    );
+    expect(stop).toContain('CancellationTokenSource.CreateLinkedTokenSource(ct)');
+    expect(stop).toContain('deadline.CancelAfter(TimeSpan.FromSeconds(10))');
+    expect(stop).toContain('proc.WaitForExitAsync(deadline.Token)');
+    expect(stop).toContain('finally { foreach (var proc in targets) proc.Dispose(); }');
+    expect(stop).toContain('when (!ct.IsCancellationRequested)');
+    expect(engine).toContain('try { _ = proc.Handle; path = proc.MainModule?.FileName; }');
+    expect(stop.indexOf('proc.WaitForExitAsync')).toBeGreaterThan(stop.indexOf('proc.Kill()'));
+    expect(stop).not.toContain('entireProcessTree');
+  }
+  expect(installer).toContain(
+    'throw new EngineException(message, $"running={running}\\n{DescribeFailure(ex)}")',
+  );
+});
+
 test('system folders protect descendants while Program Files only protects its root', () => {
   expect(transaction).toContain(
     'var protectsDescendants = folder is Environment.SpecialFolder.Windows',
@@ -578,6 +598,58 @@ try {
     Check(File.ReadAllText(Path.Combine(foreignBackup, "uninstall.exe")) == "not-owned", "foreign backup was modified");
     Console.WriteLine("PASS: physical ownership, link rejection, interrupted empty/partial installs and component-junction rollback");
     if (OperatingSystem.IsWindows()) {
+        // Use only the runner's own Windows binary, copied into isolated roots.
+        // Loopback ping remains alive until the real production stop method
+        // terminates it; a sibling-root instance must not be touched.
+        var systemPing = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "PING.EXE");
+        var outsideRoot = Path.Combine(root, "outside-process");
+        Directory.CreateDirectory(outsideRoot);
+        var outsideExe = Path.Combine(outsideRoot, "ping.exe");
+        File.Copy(systemPing, outsideExe);
+        System.Diagnostics.Process StartPing(string executable) => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+            FileName = executable, Arguments = "-t 127.0.0.1", WorkingDirectory = root,
+            UseShellExecute = false, CreateNoWindow = true,
+        }) ?? throw new Exception("Could not start the Windows process fixture");
+        void StopFixture(System.Diagnostics.Process process) {
+            if (process.HasExited) return;
+            process.Kill();
+            Check(process.WaitForExit(10000), "Process fixture cleanup timed out");
+        }
+        using var outsideProcess = StartPing(outsideExe);
+        try {
+            Check(!outsideProcess.WaitForExit(100), "External fixture exited before the test");
+            foreach (var uninstall in new[] { false, true }) {
+                var stopRoot = Path.Combine(root, uninstall ? "停止 卸载" : "停止 安装");
+                WriteOwnedApp(stopRoot, "placeholder");
+                var targetExe = Path.Combine(stopRoot, InstallerEngine.AppExeName);
+                File.Copy(systemPing, targetExe, overwrite: true);
+                using var targetProcess = StartPing(targetExe);
+                try {
+                    Check(!targetProcess.WaitForExit(100), "Owned fixture exited before the test");
+                    object stopEngine = uninstall
+                        ? new UninstallerEngine(stopRoot, runtime, data, null, new ContractProgress(_ => {}))
+                        : new InstallerEngine(null, stopRoot, runtime, data, false, new ContractProgress(_ => {}));
+                    var stopMethod = stopEngine.GetType().GetMethod("StepStopAppProcesses", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                        ?? throw new Exception("Production process-stop method is missing");
+                    using var cancelledStop = new CancellationTokenSource();
+                    cancelledStop.Cancel();
+                    var stopCancelled = false;
+                    try { ((Task)stopMethod.Invoke(stopEngine, new object[] { cancelledStop.Token })!).GetAwaiter().GetResult(); }
+                    catch (OperationCanceledException) { stopCancelled = true; }
+                    Check(stopCancelled && !targetProcess.HasExited, "Pre-cancelled stop killed an app or ignored cancellation");
+                    ((Task)stopMethod.Invoke(stopEngine, new object[] { CancellationToken.None })!).GetAwaiter().GetResult();
+                    Check(targetProcess.HasExited, "Stop returned before the matched process handle signalled exit");
+                    Check(!outsideProcess.HasExited, "Stop killed a process outside its owned roots");
+                    var stoppedTransaction = new InstallDirectoryTransaction(stopRoot);
+                    stoppedTransaction.Begin();
+                    Check(!Directory.Exists(stopRoot) && Directory.Exists(stoppedTransaction.BackupDir), "Immediate rename after stop failed");
+                    stoppedTransaction.Rollback();
+                    Check(File.Exists(targetExe), "Stopped installation could not be restored");
+                } finally { StopFixture(targetProcess); }
+            }
+        } finally { StopFixture(outsideProcess); }
+        Console.WriteLine("PASS: actual Windows install/uninstall stop waits for exit before rename, preserves sibling processes and honors cancellation");
+
         // Match SetupForm's Task.Run apartment and the real Unicode install
         // path, without modifying the user's registry, Desktop or Start Menu.
         var shortcutInstall = Path.Combine(root, "安装 路径");

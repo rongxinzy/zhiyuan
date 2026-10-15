@@ -177,18 +177,26 @@ Var /GLOBAL preparedInstallRoot
       System::Call 'kernel32::GetTickCount()i .r4'
       StrCpy $3 "$INSTDIR.old.$4"
       ClearErrors
-      Rename "$INSTDIR" "$3"
-      ${If} ${Errors}
-        ; A failed rename is a sharing violation, not a running app. Report the
-        ; actual cause instead of electron-builder's blanket "cannot be closed".
+      ; Rename uses MoveFile internally, but does not preserve GetLastError.
+      ; Use the same no-overwrite Unicode operation and capture its error in
+      ; the same System call, before process counting or logging can replace it.
+      System::Call 'kernel32::MoveFileW(w "$INSTDIR", w "$3") i .r2 ?e'
+      Pop $R5
+      ${If} $2 == 0
+        DetailPrint "[Installer] Detach failed: win32=$R5 source=$INSTDIR destination=$3"
+        !insertmacro OpenTimingLogForAppend $8
+        FileWrite $8 "phase=old-install-detach-failed win32=$R5$\r$\n"
+        FileClose $8
+        ; Running=0 alone does not diagnose a sharing violation. Preserve the
+        ; native error in the real dialog as well as the installation log.
         !insertmacro CountInstallDirProcesses $R0
         ${If} $R0 > 0
           DetailPrint "[Installer] Detach blocked by $R0 running app processes"
           !insertmacro StopAppProcesses
-          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_APP_UNCLOSABLE)" /SD IDCANCEL IDRETRY OldInstallDetachRetry_${TOKEN}
+          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_APP_UNCLOSABLE)$\r$\n$\r$\nWindows error: $R5" /SD IDCANCEL IDRETRY OldInstallDetachRetry_${TOKEN}
         ${Else}
           DetailPrint "[Installer] Detach blocked: install directory is in use by another program"
-          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_DIR_OCCUPIED)" /SD IDCANCEL IDRETRY OldInstallDetachRetry_${TOKEN}
+          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_DIR_OCCUPIED)$\r$\n$\r$\nWindows error: $R5" /SD IDCANCEL IDRETRY OldInstallDetachRetry_${TOKEN}
         ${EndIf}
         StrCpy $3 "result=detach-aborted processes=$R0"
         !insertmacro OpenTimingLogForAppend $8

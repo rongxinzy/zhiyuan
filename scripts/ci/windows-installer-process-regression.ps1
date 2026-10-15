@@ -89,9 +89,9 @@ function Invoke-BoundedHelper {
 }
 
 function Invoke-ProductionHelper {
-  param([string]$Name, [string]$Mode, [int]$ExcludedProcessId)
+  param([string]$Name, [string]$Mode, [int]$ExcludedProcessId, [string]$TargetInstallRoot = $installRoot)
   $path = Get-ProductionHelper $Name $Mode
-  $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $path + '" -Mode ' + $Mode + ' -InstallDir "' + $installRoot + '" -RuntimeRoot "' + $runtimeRoot + '" -SelfPid ' + $ExcludedProcessId
+  $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $path + '" -Mode ' + $Mode + ' -InstallDir "' + $TargetInstallRoot + '" -RuntimeRoot "' + $runtimeRoot + '" -SelfPid ' + $ExcludedProcessId
   $result = Invoke-BoundedHelper $Name $arguments
   Assert-NoErrorStream $result.errorOutput "$Name (pid=$($result.processId), exit=$($result.exitCode), stdout=$($result.output))"
   return $result
@@ -138,7 +138,21 @@ try {
     $options = New-Object System.CodeDom.Compiler.CompilerParameters
     $options.GenerateExecutable = $true
     $options.OutputAssembly = $executable
-    $compiled = $compiler.CompileAssemblyFromSource($options, 'public static class AcceptanceSleeper { public static void Main() { System.Threading.Thread.Sleep(60000); } }')
+    $compiled = $compiler.CompileAssemblyFromSource($options, @'
+public static class AcceptanceSleeper {
+  public static void Main(string[] args) {
+    if (args.Length == 0) {
+      System.Threading.Thread.Sleep(60000);
+      return;
+    }
+    using (var held = System.IO.File.Open(args[0], System.IO.FileMode.OpenOrCreate,
+        System.IO.FileAccess.ReadWrite, System.IO.FileShare.None)) {
+      System.IO.File.WriteAllText(args[1], "ready");
+      System.Threading.Thread.Sleep(60000);
+    }
+  }
+}
+'@)
     if ($compiled.Errors.HasErrors) { throw ($compiled.Errors | Out-String) }
   } finally { $compiler.Dispose() }
   $paths = @($executable, (Join-Path $installRoot 'sidecar.exe'), (Join-Path $runtimeRoot 'runtime.exe'), (Join-Path $installRoot 'uninstaller.exe'), (Join-Path $siblingRoot 'app.exe'))
@@ -167,12 +181,76 @@ try {
   $countWithoutSelf = Invoke-ProductionHelper 'CountInstallDirProcesses' 'count' $excluded
   if ($countWithoutSelf.exitCode -ne 0) { throw "The process counter did not exclude the current uninstaller: $(Format-ProcessFailure $countWithoutSelf)" }
   Write-Output 'PASS: production NSIS commands parse and stop only real owned processes'
+
+  # A separate owned root proves that successful stop means the filesystem is
+  # ready for NSIS's very next operation, rather than only absent from CIM.
+  # Keep this caller's real process handle open across the rename. Process
+  # object lifetime must not be confused with the child's live file handles.
+  $lockedRoot = Join-Path $fixture ('Locked [' + [char]0x5b89 + [char]0x88c5 + '] $literal `tick $(never)')
+  $lockedSiblingRoot = "$lockedRoot-other"
+  $detachedRoot = "$lockedRoot.detached"
+  [IO.Directory]::CreateDirectory($lockedRoot) | Out-Null
+  [IO.Directory]::CreateDirectory($lockedSiblingRoot) | Out-Null
+  $lockerPath = Join-Path $lockedRoot 'app.exe'
+  $lockedSiblingPath = Join-Path $lockedSiblingRoot 'app.exe'
+  $heldFile = Join-Path $lockedRoot 'held-file.bin'
+  $readyFile = Join-Path $fixture 'locked-child-ready.txt'
+  Copy-Item -LiteralPath $executable -Destination $lockerPath
+  Copy-Item -LiteralPath $executable -Destination $lockedSiblingPath
+  $lockedSibling = Start-Process -FilePath $lockedSiblingPath -WindowStyle Hidden -PassThru
+  $processes += $lockedSibling
+  $locker = Start-Process -FilePath $lockerPath -ArgumentList ('"' + $heldFile + '" "' + $readyFile + '"') -WindowStyle Hidden -PassThru
+  $processes += $locker
+  $retainedHandle = $locker.Handle
+  if ($retainedHandle -eq [IntPtr]::Zero) { throw 'The caller did not retain the locked child process handle' }
+  $readyDeadline = (Get-Date).AddSeconds(10)
+  while (-not [IO.File]::Exists($readyFile)) {
+    $locker.Refresh()
+    if ($locker.HasExited) { throw 'The lock fixture exited before holding its file' }
+    if ((Get-Date) -ge $readyDeadline) { throw 'The lock fixture did not signal its real open file handle' }
+    Start-Sleep -Milliseconds 50
+  }
+  if ([IO.File]::ReadAllText($readyFile) -cne 'ready') { throw 'The lock fixture readiness marker is invalid' }
+  $renameBlocked = $false
+  try { [IO.Directory]::Move($lockedRoot, $detachedRoot) } catch {
+    # Static .NET calls can wrap the filesystem exception in a PowerShell
+    # MethodInvocationException. Only real native access/sharing errors count.
+    $failure = $_.Exception.GetBaseException()
+    $nativeCode = $failure.HResult -band 0xffff
+    if (($failure -isnot [IO.IOException] -and $failure -isnot [UnauthorizedAccessException]) -or
+        $nativeCode -notin @(5, 32, 33)) { throw }
+    $renameBlocked = $true
+  }
+  if (-not $renameBlocked -or -not [IO.Directory]::Exists($lockedRoot) -or [IO.Directory]::Exists($detachedRoot)) {
+    throw 'The running fixture did not produce a genuine blocked directory rename'
+  }
+  $released = Invoke-ProductionHelper 'StopAppProcesses' 'stop' $PID $lockedRoot
+  if ($released.exitCode -ne 0 -or $released.output -notmatch 'stopped=1 remaining=0') {
+    throw "Production helper did not stop the file-lock owner: $(Format-ProcessFailure $released)"
+  }
+  # No polling, WaitForExit or retry here: the production stop owns the wait.
+  [IO.Directory]::Move($lockedRoot, $detachedRoot)
+  $locker.Refresh()
+  if (-not $locker.HasExited -or $locker.Handle -ne $retainedHandle) {
+    throw 'The child was not terminated while its caller-owned process handle remained open'
+  }
+  if ([IO.Directory]::Exists($lockedRoot) -or -not [IO.File]::Exists((Join-Path $detachedRoot 'held-file.bin'))) {
+    throw 'The released installation directory was not immediately detached with its contents'
+  }
+  foreach ($process in $processes[3..4]) {
+    $process.Refresh()
+    if ($process.HasExited) { throw 'Scoped lock-owner cleanup killed an excluded or outside-prefix process' }
+  }
+  $lockedSibling.Refresh()
+  if ($lockedSibling.HasExited) { throw 'Scoped lock-owner cleanup killed the similarly named sibling installation' }
+  Write-Output 'PASS: production process stop releases file locks before returning with caller handles retained'
 } finally {
   foreach ($process in $processes) {
     if (-not $process.HasExited) {
       Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
       $null = $process.WaitForExit(5000)
     }
+    $process.Dispose()
   }
   if (Test-Path -LiteralPath $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }

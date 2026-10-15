@@ -270,7 +270,7 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(installerScript).not.toMatch(
       /^\s*FileOpen \$\d+ "\$APPDATA\\ZhiYuanAgent\\install-timing\.log" a$/m,
     );
-    expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(14);
+    expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(15);
   });
 
   test('keeps retired local inference options out of setup', () => {
@@ -402,7 +402,10 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(helper).toContain('TrimEnd([char]0x5c) + [char]0x5c');
     expect(helper).toContain('OrdinalIgnoreCase');
     expect(helper).toContain('$_.ExecutablePath');
-    expect(helper).toContain('Stop-Process -Id $process.ProcessId -Force');
+    expect(helper).toContain('$null = $process.Handle');
+    expect(helper).toContain('$process.Kill()');
+    expect(helper).toContain('$process.WaitForExit($remainingMs)');
+    expect(helper).toContain('$process.Dispose()');
     expect(macroBlock).toContain('-File "$PLUGINSDIR\\manage-install-processes.ps1"');
     expect(macroBlock).not.toContain('-Command');
     // An in-place uninstaller runs from $INSTDIR and must not kill itself.
@@ -495,7 +498,7 @@ describe('NSIS offline resources and installer lifecycle', () => {
       'MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_APP_UNCLOSABLE)"',
     );
     expect(installerScript).toContain(
-      'MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_DIR_OCCUPIED)"',
+      'MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_DIR_OCCUPIED)$\\r$\\n$\\r$\\nWindows error: $R5"',
     );
     // Cancelling must leave the installer outright; Abort inside a page-leave
     // callback would only cancel the page change.
@@ -505,6 +508,9 @@ describe('NSIS offline resources and installer lifecycle', () => {
       installerScript.indexOf('!insertmacro ForgetOldInstallRegistry', detachStart),
     );
     expect(detachBlock).toContain('Quit');
+    expect(detachBlock).toContain('kernel32::MoveFileW(w "$INSTDIR", w "$3") i .r2 ?e');
+    expect(detachBlock).toContain('Pop $R5');
+    expect(detachBlock).toContain('phase=old-install-detach-failed win32=$R5');
 
     // Messages ship an entry for every bundled NSIS language: zh-CN and
     // zh-TW translated, the rest on English fallback (makensis promotes an

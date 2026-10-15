@@ -12,7 +12,11 @@ import {
   shellChecks,
   shellScreenshots,
 } from './windows-shell-evidence.mjs';
-import { assertVisibleActions, captureFailurePages } from './windows-shell-interactive.mjs';
+import {
+  assertVisibleActions,
+  captureFailurePages,
+  snapshotExpression,
+} from './windows-shell-interactive.mjs';
 import {
   browserObservation,
   Cdp,
@@ -29,6 +33,24 @@ const native = readFileSync('scripts/ci/windows-shell-native.ps1', 'utf8');
 const workflow = readFileSync('.github/workflows/windows-acceptance.yml', 'utf8');
 const delivery = readFileSync('scripts/ci/windows-acceptance-install.ps1', 'utf8');
 const detachedDriver = readFileSync('scripts/ci/windows-shell-detached-cancel.mjs', 'utf8');
+
+it('waits for a loading document instead of failing before its body exists', () => {
+  const dom = new JSDOM('', { runScripts: 'outside-only' });
+  Object.defineProperty(dom.window, 'chrome', { value: { webview: {} } });
+  dom.window.document.documentElement.remove();
+  const loading = dom.window.eval(snapshotExpression);
+  expect(loading.hosted).toBe(false);
+  expect(loading.page).toBeUndefined();
+  expect(loading.actions.every(action => action.visible === false)).toBe(true);
+  dom.window.document.write(
+    '<html lang="zh-CN"><body class="shell"><main class="page active" id="page-hero"></main></body></html>',
+  );
+  const ready = dom.window.eval(snapshotExpression);
+  expect(ready.hosted).toBe(true);
+  expect(ready.page).toBe('page-hero');
+  expect(ready.language).toBe('zh-CN');
+  dom.window.close();
+});
 
 function identity() {
   const expected = {

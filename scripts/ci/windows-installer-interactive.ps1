@@ -147,6 +147,14 @@ function Begin-Installation {
 function Wait-ForProgressAndFinish {
   param([string]$Name)
   $null = Wait-Until {
+    if ($Name -eq 'recovery') {
+      $blocked = Get-RecoveryRetryDialog
+      if ($blocked) {
+        Save-Page 'recovery-retry-failed' $blocked.Handle
+        $body = (Get-Controls $blocked.Handle | Where-Object { $_.Visible -and $_.ClassName -eq 'Static' } | ForEach-Object Text) -join ' '
+        throw "Native installation retry remained blocked (dialog=$($blocked.Handle)): $body"
+      }
+    }
     Get-Controls | Where-Object { $_.ClassName -eq 'msctls_progress32' -and $_.Visible }
   } 'real native installation progress' $TimeoutSeconds
   Save-Page "$Name-progress"
@@ -171,6 +179,16 @@ function Wait-ForProgressAndFinish {
       $close.Top -lt ($launch.Top + $launch.Height) -and
       $launch.Top -lt ($close.Top + $close.Height)) { throw 'Finish actions overlap' }
   Save-Page "$Name-finish"
+}
+
+function Get-RecoveryRetryDialog {
+  foreach ($window in (Get-InstallerWindows)) {
+    if ($window.ProcessId -ne $script:wizard.ProcessId -or $window.OwnerHandle -ne $script:wizard.Handle -or
+        $window.Text -ne $script:wizard.Text -or -not $window.Enabled) { continue }
+    $retry = Get-Button -Id 4 -Label '^Retry$' -Window $window.Handle
+    $cancel = Get-Button -Id 2 -Label '^Cancel$' -Window $window.Handle
+    if ($retry -and $retry.Enabled -and $cancel -and $cancel.Enabled) { return $window }
+  }
 }
 
 function Wait-InstallerExit {
@@ -349,21 +367,20 @@ try {
   $fileLock = [IO.File]::Open($app, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
   $process = Start-Installer -Language 1033
   Begin-Installation 'recovery'
-  $retryDialog = Wait-Until {
-    foreach ($window in (Get-InstallerWindows)) {
-      if ($window.Handle -eq $script:wizard.Handle) { continue }
-      $retry = Get-Button -Id 4 -Window $window.Handle
-      $cancel = Get-Button -Id 2 -Window $window.Handle
-      if ($retry -and $retry.Enabled -and $cancel -and $cancel.Enabled) { return $window }
-    }
-  } 'recoverable locked-directory Retry/Cancel dialog' 120
+  $retryDialog = Wait-Until { Get-RecoveryRetryDialog } 'recoverable locked-directory Retry/Cancel dialog' 120
   Save-Page 'recovery-locked-directory' $retryDialog.Handle
   if (-not (Test-Path -LiteralPath $app)) { throw 'Failed detach removed the existing executable' }
   $runningApp.Refresh()
   if (-not $runningApp.HasExited) { throw 'Committed reinstall did not stop the existing application before retry' }
   $fileLock.Dispose()
   $fileLock = $null
-  [ZhiYuan.Acceptance.InstallerUi]::Click((Get-Button -Id 4 -Window $retryDialog.Handle).Handle)
+  $retry = Get-Button -Id 4 -Label '^Retry$' -Window $retryDialog.Handle
+  $report.actions += [ZhiYuan.Acceptance.InstallerUi]::ClickActiveDialogButton($retryDialog.Handle, $retry.Handle)
+  # Observe this exact popup closing before checking for progress or a newly
+  # created error popup. Never repeatedly click Retry or wait 900s behind one.
+  $null = Wait-Until {
+    if (-not @(Get-InstallerWindows | Where-Object Handle -eq $retryDialog.Handle).Count) { return $true }
+  } 'the clicked Retry dialog to close' 10
   Wait-ForProgressAndFinish 'recovery'
   $report.checks.lockedDirectoryRetry = $true
   # Exercise the real launch failure path without a test-only installer hook.

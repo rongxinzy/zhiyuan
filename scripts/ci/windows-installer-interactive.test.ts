@@ -79,11 +79,14 @@ describe('real interactive NSIS acceptance safeguards', () => {
       '$fileLock.Dispose()',
       script.indexOf("Save-Page 'recovery-locked-directory'"),
     );
-    const retry = script.indexOf('::Click((Get-Button -Id 4');
+    const retry = script.indexOf('::ClickActiveDialogButton($retryDialog.Handle, $retry.Handle)');
     expect(release).toBeGreaterThan(0);
     expect(release).toBeLessThan(retry);
     expect(script).toContain("Wait-ForProgressAndFinish 'recovery'");
     expect(script).toContain('$report.checks.lockedDirectoryRetry = $true');
+    expect(script).toContain("Save-Page 'recovery-retry-failed' $blocked.Handle");
+    expect(script).toContain('Native installation retry remained blocked');
+    expect(script).toContain("'the clicked Retry dialog to close' 10");
   });
 
   it('compares real directory identities and backup differences across cancellation', () => {
@@ -299,6 +302,9 @@ describe('real interactive NSIS acceptance safeguards', () => {
       );
       expect(result.stdout).toContain(
         'PASS: production NSIS commands parse and stop only real owned processes',
+      );
+      expect(result.stdout).toContain(
+        'PASS: production process stop releases file locks before returning with caller handles retained',
       );
     },
     70_000,

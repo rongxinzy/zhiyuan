@@ -90,12 +90,12 @@ async function availablePort() {
 
 // Read-only DOM evidence. No showPage(), simulated engine messages, preview
 // freeze parameter, host-object invocations or JavaScript .click() are used.
-const snapshotExpression = `(() => {
+export const snapshotExpression = `(() => {
   const selectors = ['#licenseCheck', '#btnInstall', '#btnCancelHero', '#btnCancelProgress',
     '#btnDone', '#btnLaunch', '#btnRetry', '.win-btn.close'];
   return {
-    hosted: !!window.chrome?.webview && document.body.classList.contains('shell'),
-    url: location.href, language: document.documentElement.lang, userAgent: navigator.userAgent,
+    hosted: !!window.chrome?.webview && !!document.body?.classList.contains('shell'),
+    url: location.href, language: document.documentElement?.lang, userAgent: navigator.userAgent,
     page: document.querySelector('.page.active')?.id,
     width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
     installPath: document.querySelector('#installPath')?.textContent,
