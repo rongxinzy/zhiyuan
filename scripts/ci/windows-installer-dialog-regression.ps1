@@ -51,7 +51,9 @@ foreach ($id in @(1, 2)) {
     } finally { [ZhiYuan.Acceptance.DialogFixture]::RemoveButton($duplicate) }
     [ZhiYuan.Acceptance.InstallerUi]::ClickDialogAcknowledgement($dialog.Handle, $PID, $title, $pattern, $fixture.Owner)
     if (-not $fixture.WaitForExit(5000)) { throw "Real BM_CLICK did not close OK dialog with control ID $id" }
-    if ($fixture.Result -ne $id) { throw "Unexpected native dialog result $($fixture.Result), expected $id" }
+    # MessageBox(MB_OK) returns its semantic IDOK result (1). GetDlgCtrlID
+    # describes the child control and can be 2 without changing that result.
+    if ($fixture.Result -ne 1) { throw "Unexpected native MB_OK dialog result $($fixture.Result), expected IDOK (1)" }
   } finally { $fixture.Dispose() }
 }
 Write-Output 'PASS: real modal OK dialogs with control IDs 1 and 2 preserve process, owner, body and unique-action checks'

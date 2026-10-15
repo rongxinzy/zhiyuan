@@ -198,6 +198,7 @@
 - [412b425c Windows run 38688890115](https://github.com/rongxinzy/zhiyuan/actions/runs/38688890115) 全部前置安全回归通过；正式 NSIS 卸载器编译发现新增安全提示定义被 installer-only customHeader 条件排除，触发 Slovak 语言表警告并被 -WX 正确阻断。共享提示移至公共字符串表，新增直接包含完整生产 NSIS、使用 electron-builder 真实 26 语言生成器的安装 / 卸载双编译前置回归；本地真实双 pass -WX 已通过，不关闭警告或缩减语言。
 - 1807cdfc 的新编译前置在 Windows 发现探针将绝对路径统一转为正斜杠，NSIS include 未找到文件；其余 277 项通过。探针改用平台原生 path.join，并补 Windows / POSIX 渲染单测及 Linux 实际 26 语言双 pass -WX；生产安全逻辑未变。
 - [6921d9bc Windows run 38692363285](https://github.com/rongxinzy/zhiyuan/actions/runs/38692363285) 前置安全回归、26 语言安装 / 卸载编译、包体检查及最终 WebView2 单文件壳组装通过；真实 NSIS 首次安装、取消保护、锁冲突提示与重试至完成已通过。剩余点击驱动将原生单一 OK 固定为 ID 1，而真实弹窗为 ID 2，导致启动失败恢复与缺 WebView2 提示确认停住；现按同一 PID / HWND、标题、正文和唯一可见启用的语义确认按钮匹配，NSIS 额外验证模态 owner，并增加真实 Win32 双 ID / 错误窗口拒绝回归，不放宽退出与恢复要求。
+- 2249ad4e 的 Windows 前置回归 280 项通过；新真实对话框 fixture 已识别并点击关闭两种控件 ID，但错误要求 MessageBox 返回值等于改写后的控件 ID。改为验证 MB_OK 的语义返回 IDOK，保留真实控件 ID 1 / 2、模态归属及拒绝错误窗口全部断言。
 - 当前状态：最终壳已实际编译组装，缺 WebView2 明确提示已截图；正常安装至完成及启动仍待修复后完整 Windows 交互验收，尚无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
