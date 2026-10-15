@@ -8,37 +8,56 @@ $source = Get-Content -LiteralPath $InstallerScriptPath -Raw -Encoding UTF8
 # CIM reports long executable paths; TEMP on hosted Windows may use RUNNER~1.
 $tempRoot = [IO.Path]::GetFullPath((Get-Item -LiteralPath $env:TEMP).FullName)
 $fixture = Join-Path $tempRoot ('zhiyuan-process-test-' + [guid]::NewGuid().ToString())
-$installRoot = Join-Path $fixture ('Install ' + [char]0x5b89 + [char]0x88c5)
+$installRoot = Join-Path $fixture ('Install [' + [char]0x5b89 + [char]0x88c5 + '] $literal `tick $(never)')
 $localRoot = Join-Path $fixture 'LocalAppData'
 $runtimeRoot = Join-Path $localRoot 'ZhiYuanAgent/runtimes'
 $siblingRoot = "$installRoot-other"
 $processes = @()
 
-function Get-EmbeddedCommand {
-  param([string]$Name, [int]$ExcludedProcessId)
+function Get-ProductionHelper {
+  param([string]$Name, [string]$Mode)
   $macro = [regex]::Match($source, "(?s)!macro $Name\b(.*?)!macroend").Groups[1].Value
-  $match = [regex]::Match($macro, '(?s)nsExec::ExecTo(?:Log|Stack)\s+''powershell -NoProfile -NonInteractive -Command "(.*)"''')
-  if (-not $match.Success) { throw "Cannot extract the production $Name command" }
-  $command = $match.Groups[1].Value -replace '\\\r?\n\s*', ' '
-  $command = $command.Replace('\"', '"').Replace('$$', '$')
-  $command = $command.Replace('$INSTDIR', $installRoot).Replace('$LOCALAPPDATA', $localRoot).Replace('$9', "$ExcludedProcessId")
+  if (-not $macro.Contains('-File "$PLUGINSDIR\manage-install-processes.ps1"') -or
+      $macro -notmatch ('-Mode\s+' + [regex]::Escape($Mode) + '(?:\s|[\x22\x27])') -or
+      -not $macro.Contains('-InstallDir "$INSTDIR"') -or
+      -not $macro.Contains('-RuntimeRoot "$LOCALAPPDATA\ZhiYuanAgent\runtimes"') -or
+      -not $macro.Contains('-SelfPid $9') -or $macro -match '-Command\b') {
+    throw "Production $Name must pass literal paths to the shared -File helper"
+  }
+  $helper = Join-Path (Split-Path $InstallerScriptPath) 'installer/manage-install-processes.ps1'
   $parseErrors = $null
-  $null = [System.Management.Automation.Language.Parser]::ParseInput($command, [ref]$null, [ref]$parseErrors)
+  $null = [System.Management.Automation.Language.Parser]::ParseFile($helper, [ref]$null, [ref]$parseErrors)
   if ($parseErrors.Count) { throw "Production $Name has invalid PowerShell: $($parseErrors | Out-String)" }
-  return $command
+  return $helper
 }
 
-function Invoke-EmbeddedCommand {
-  param([string]$Name, [int]$ExcludedProcessId)
-  $command = Get-EmbeddedCommand $Name $ExcludedProcessId
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+function Assert-NoErrorStream {
+  param([string]$Text, [string]$Name)
+  if ([string]::IsNullOrWhiteSpace($Text)) { return }
+  # Windows PowerShell serializes first-use module progress to stderr. Ignore
+  # only actual CLIXML progress records; plain stderr and error records fail.
+  if ($Text -match '^#< CLIXML\s*') {
+    try {
+      [xml]$xml = $Text -replace '^#< CLIXML\s*', ''
+      $records = @($xml.DocumentElement.ChildNodes | Where-Object NodeType -eq Element)
+      if ($xml.DocumentElement.LocalName -eq 'Objs' -and $records.Count -gt 0 -and
+          @($records | Where-Object { $_.GetAttribute('S') -ne 'progress' }).Count -eq 0) { return }
+    } catch { }
+  }
+  throw "Production $Name failed: $Text"
+}
+
+function Invoke-ProductionHelper {
+  param([string]$Name, [string]$Mode, [int]$ExcludedProcessId)
+  $path = Get-ProductionHelper $Name $Mode
   $stdout = Join-Path $fixture "$Name.out"
   $stderr = Join-Path $fixture "$Name.err"
-  $helper = Start-Process -FilePath "$PSHOME/powershell.exe" -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+  $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $path + '" -Mode ' + $Mode + ' -InstallDir "' + $installRoot + '" -RuntimeRoot "' + $runtimeRoot + '" -SelfPid ' + $ExcludedProcessId
+  $helper = Start-Process -FilePath "$PSHOME/powershell.exe" -ArgumentList $arguments -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
   try {
     if (-not $helper.WaitForExit(20000)) { throw "Production $Name timed out" }
     $errors = Get-Content -LiteralPath $stderr -Raw
-    if ($errors) { throw "Production $Name failed: $errors" }
+    Assert-NoErrorStream $errors $Name
     [pscustomobject]@{ exitCode = $helper.ExitCode; output = (Get-Content -LiteralPath $stdout -Raw) }
   } finally {
     if (-not $helper.HasExited) { Stop-Process -Id $helper.Id -Force -ErrorAction SilentlyContinue }
@@ -46,10 +65,17 @@ function Invoke-EmbeddedCommand {
 }
 
 try {
-  # Parse before creating processes, including the formerly unmatched ')'.
-  $null = Get-EmbeddedCommand 'StopAppProcesses' $PID
-  $null = Get-EmbeddedCommand 'CountInstallDirProcesses' $PID
-  New-Item -ItemType Directory -Path $installRoot,$runtimeRoot,$siblingRoot -Force | Out-Null
+  $null = Get-ProductionHelper 'StopAppProcesses' 'stop'
+  $null = Get-ProductionHelper 'CountInstallDirProcesses' 'count'
+  Assert-NoErrorStream '#< CLIXML
+<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress"><MS><S N="Activity">Preparing modules for first use</S></MS></Obj></Objs>' 'progress fixture'
+  foreach ($errorFixture in @('real native stderr', '#< CLIXML
+<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="error">real error</S></Objs>')) {
+    $rejected = $false
+    try { Assert-NoErrorStream $errorFixture 'error fixture' } catch { $rejected = $true }
+    if (-not $rejected) { throw 'A real error stream was ignored as progress' }
+  }
+  foreach ($directory in @($installRoot,$runtimeRoot,$siblingRoot)) { [IO.Directory]::CreateDirectory($directory) | Out-Null }
   $executable = Join-Path $installRoot 'app.exe'
   # Compile without loading the output into this harness, which would retain
   # an assembly file handle and interfere with the real process-only cleanup.
@@ -68,9 +94,11 @@ try {
     $processes += Start-Process -FilePath $path -WindowStyle Hidden -PassThru
   }
   $excluded = $processes[3].Id
-  $countBefore = Invoke-EmbeddedCommand 'CountInstallDirProcesses' $excluded
+  $countBefore = Invoke-ProductionHelper 'CountInstallDirProcesses' 'count' $PID
   if ($countBefore.exitCode -ne 3) { throw "Expected three real processes under the Unicode install root, got $($countBefore.exitCode)" }
-  $stopped = Invoke-EmbeddedCommand 'StopAppProcesses' $excluded
+  $countBeforeWithoutSelf = Invoke-ProductionHelper 'CountInstallDirProcesses' 'count' $excluded
+  if ($countBeforeWithoutSelf.exitCode -ne 2) { throw 'The process counter included the current uninstaller before stopping' }
+  $stopped = Invoke-ProductionHelper 'StopAppProcesses' 'stop' $excluded
   if ($stopped.exitCode -ne 0 -or $stopped.output -notmatch 'stopped=3 remaining=0') {
     throw "Production process stop did not report success: exit=$($stopped.exitCode) output=$($stopped.output)"
   }
@@ -81,8 +109,10 @@ try {
     $process.Refresh()
     if ($process.HasExited) { throw 'Production helper killed the excluded installer or similarly named sibling installation' }
   }
-  $countAfter = Invoke-EmbeddedCommand 'CountInstallDirProcesses' $excluded
+  $countAfter = Invoke-ProductionHelper 'CountInstallDirProcesses' 'count' $PID
   if ($countAfter.exitCode -ne 1) { throw 'The process counter did not retain the excluded installer at its actual path' }
+  $countWithoutSelf = Invoke-ProductionHelper 'CountInstallDirProcesses' 'count' $excluded
+  if ($countWithoutSelf.exitCode -ne 0) { throw 'The process counter did not exclude the current uninstaller' }
   Write-Output 'PASS: production NSIS commands parse and stop only real owned processes'
 } finally {
   foreach ($process in $processes) {

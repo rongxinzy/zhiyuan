@@ -8,13 +8,6 @@
 !ifndef BUILD_UNINSTALLER
 Var /GLOBAL preparedInstallRoot
 !endif
-; Used by customUnInstall in the uninstaller pass to mirror uninstaller.nsh's
-; delete-app-data decision for the real userData directory. Uninstaller pass
-; only: in the installer pass the variable would be unused and -WX promotes
-; makensis warning 6001 to an error.
-!ifdef BUILD_UNINSTALLER
-Var /GLOBAL zyDeleteRealAppData
-!endif
 
 ; ---------------------------------------------------------------------------
 ; Macros consumed by the UI includes below. NSIS macros must be defined
@@ -34,6 +27,39 @@ Var /GLOBAL zyDeleteRealAppData
 !define /ifndef INSTALL_REGISTRY_KEY "Software\${APP_GUID}"
 !define /ifndef UNINSTALL_REGISTRY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}"
 
+; This must be usable before customUnInit: electron-builder checks running
+; processes earlier in un.onInit for silent uninstall. Stage from every entry
+; instead of trusting a previous page or a particular initialization order.
+!macro AssertOwnedInstallRoot MODE
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File /oname=validate-install-root.ps1 "${PROJECT_DIR}\scripts\installer\validate-install-root.ps1"
+  File /oname=manage-install-processes.ps1 "${PROJECT_DIR}\scripts\installer\manage-install-processes.ps1"
+  Push $R6
+  Push $R7
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\validate-install-root.ps1" -InstallDir "$INSTDIR" -RuntimeRoot "$LOCALAPPDATA\ZhiYuanAgent\runtimes" -AppDataRoot "$APPDATA\ZhiYuanAgent" -Mode ${MODE}'
+  Pop $R6
+  Pop $R7
+  ${If} $R6 != "0"
+    DetailPrint "[Installer] Installation directory rejected: $R7"
+    ${IfNot} ${Silent}
+      MessageBox MB_OK|MB_ICONSTOP "$(ZY_UNSAFE_INSTALL_ROOT)"
+    ${EndIf}
+    SetErrorLevel 87
+    Quit
+  ${EndIf}
+  Pop $R7
+  Pop $R6
+!macroend
+
+!macro AssertOwnedInstallRootForBuild
+  !ifdef BUILD_UNINSTALLER
+    !insertmacro AssertOwnedInstallRoot uninstall
+  !else
+    !insertmacro AssertOwnedInstallRoot install
+  !endif
+!macroend
+
 ; electron-builder's CHECK_APP_RUNNING treats any process whose image path
 ; starts with $INSTDIR as "app still running". Helper processes such as
 ; llama-server and git survive a force-killed main process, so kill by
@@ -41,24 +67,17 @@ Var /GLOBAL zyDeleteRealAppData
 ; orphaned sidecars keep the "cannot be closed" retry dialog up forever.
 ; The caller itself is excluded: an in-place uninstaller runs from $INSTDIR.
 !macro StopAppProcesses
+  !insertmacro AssertOwnedInstallRootForBuild
   System::Call 'kernel32::GetCurrentProcessId()i .r9'
-  nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\
-    $$roots = @(\"$INSTDIR\", \"$LOCALAPPDATA\ZhiYuanAgent\runtimes\");\
-    $$selfPid = $9;\
-    $$isTarget = { param($$p) $$p -and ($$p.StartsWith(($$roots[0].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\") -or $$p.StartsWith(($$roots[1].TrimEnd([char]0x5c) + [char]0x5c), \"OrdinalIgnoreCase\")) };\
-    $$stopped = 0;\
-    foreach ($$proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.ExecutablePath) })) {\
-      Stop-Process -Id $$proc.ProcessId -Force -ErrorAction SilentlyContinue;\
-      $$stopped += 1;\
-    };\
-    $$remaining = @();\
-    for ($$i = 0; $$i -lt 20; $$i++) {\
-      $$remaining = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ProcessId -ne $$selfPid -and (& $$isTarget $$_.ExecutablePath) });\
-      if ($$remaining.Count -eq 0) { break };\
-      Start-Sleep -Milliseconds 500;\
-    };\
-    Write-Output \"stopped=$$stopped remaining=$$($$remaining.Count)\""'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\manage-install-processes.ps1" -Mode stop -InstallDir "$INSTDIR" -RuntimeRoot "$LOCALAPPDATA\ZhiYuanAgent\runtimes" -SelfPid $9'
   Pop $0
+  ${If} $0 != "0"
+    ${IfNot} ${Silent}
+      MessageBox MB_OK|MB_ICONSTOP "$(ZY_APP_UNCLOSABLE)"
+    ${EndIf}
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
 !macroend
 
 ; Counts processes whose image path starts with $INSTDIR (the count is the
@@ -66,11 +85,26 @@ Var /GLOBAL zyDeleteRealAppData
 ; detach this distinguishes "app still running" from "directory held by
 ; another program" — electron-builder reports both as "cannot be closed".
 !macro CountInstallDirProcesses RESULT
-  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "$$root = (\"$INSTDIR\".TrimEnd([char]0x5c) + [char]0x5c); $$c = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$root, \"OrdinalIgnoreCase\") }).Count; if ($$c -gt 200) { $$c = 200 }; exit $$c"'
+  !insertmacro AssertOwnedInstallRootForBuild
+  System::Call 'kernel32::GetCurrentProcessId()i .r9'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\manage-install-processes.ps1" -Mode count -InstallDir "$INSTDIR" -RuntimeRoot "$LOCALAPPDATA\ZhiYuanAgent\runtimes" -SelfPid $9'
   Pop ${RESULT}
   ; Discard the captured stdout without clobbering ${RESULT}: the only caller
   ; passes $R0, and popping stdout into $R0 would overwrite the count.
   Pop $R8
+!macroend
+
+; Replace the template's unvalidated path-prefix kill, including its early
+; silent-uninstaller entry. Keep a real retry path if an owned process resists.
+!macro customCheckAppRunning
+  OwnedAppProcessRetry:
+  !insertmacro StopAppProcesses
+  !insertmacro CountInstallDirProcesses $R0
+  ${If} $R0 != "0"
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(ZY_APP_UNCLOSABLE)" /SD IDCANCEL IDRETRY OwnedAppProcessRetry
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
 !macroend
 
 ; electron-builder's uninstallOldVersion launches the previous uninstaller and
@@ -82,29 +116,25 @@ Var /GLOBAL zyDeleteRealAppData
 ; uninstallOldVersion returns early; only entries pointing at $INSTDIR are
 ; touched, an installation in a different directory keeps its entry and is
 ; removed by electron-builder as usual.
-!macro ForgetOldInstallRegistry TOKEN
-  ReadRegStr $R7 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
-  StrCmp $R7 "" ForgetOldInstallRegistry_Do_${TOKEN}
-  StrCmp $R7 $INSTDIR ForgetOldInstallRegistry_Do_${TOKEN} ForgetOldInstallRegistry_Done_${TOKEN}
-  ForgetOldInstallRegistry_Do_${TOKEN}:
-    SetRegView 64
-    DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY}"
-    DeleteRegKey HKCU "${INSTALL_REGISTRY_KEY}"
-    DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY}"
-    DeleteRegKey HKLM "${INSTALL_REGISTRY_KEY}"
-    SetRegView 32
-    DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY}"
-    DeleteRegKey HKCU "${INSTALL_REGISTRY_KEY}"
-    DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY}"
-    DeleteRegKey HKLM "${INSTALL_REGISTRY_KEY}"
-    SetRegView 64
+!macro ForgetOwnedInstallRegistration HIVE VIEW TOKEN
+  SetRegView ${VIEW}
+  ReadRegStr $R7 ${HIVE} "${INSTALL_REGISTRY_KEY}" InstallLocation
+  ; Missing or different-location registration is not owned by this detach.
+  StrCmp $R7 $INSTDIR 0 ForgetOwnedInstallRegistration_Done_${TOKEN}_${HIVE}_${VIEW}
+    DeleteRegKey ${HIVE} "${UNINSTALL_REGISTRY_KEY}"
+    DeleteRegKey ${HIVE} "${INSTALL_REGISTRY_KEY}"
     !ifdef UNINSTALL_REGISTRY_KEY_2
-      SetRegView 32
-      DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY_2}"
-      DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY_2}"
-      SetRegView 64
+      DeleteRegKey ${HIVE} "${UNINSTALL_REGISTRY_KEY_2}"
     !endif
-  ForgetOldInstallRegistry_Done_${TOKEN}:
+  ForgetOwnedInstallRegistration_Done_${TOKEN}_${HIVE}_${VIEW}:
+!macroend
+
+!macro ForgetOldInstallRegistry TOKEN
+  !insertmacro ForgetOwnedInstallRegistration HKCU 64 ${TOKEN}
+  !insertmacro ForgetOwnedInstallRegistration HKCU 32 ${TOKEN}
+  !insertmacro ForgetOwnedInstallRegistration HKLM 64 ${TOKEN}
+  !insertmacro ForgetOwnedInstallRegistration HKLM 32 ${TOKEN}
+  SetRegView 64
 !macroend
 
 !ifndef BUILD_UNINSTALLER
@@ -124,21 +154,9 @@ Var /GLOBAL zyDeleteRealAppData
 ; remembered so returning to the directory page and leaving again only
 ; re-runs the steps when the target directory actually changed.
 !macro PrepareExistingInstallForExtraction TOKEN
+  !insertmacro AssertOwnedInstallRoot install
   ${If} $preparedInstallRoot != $INSTDIR
     StrCpy $preparedInstallRoot $INSTDIR
-
-    ; The custom hero page lets the user type or browse any directory, and
-    ; silent updates carry whatever /D installed into last time. Refuse the
-    ; destructive steps below for roots too shallow to be an application
-    ; directory: at "C:\" the prefix match would target every process on the
-    ; machine and the detach rename would hit a drive root.
-    StrLen $R8 $INSTDIR
-    ${If} $R8 < 6
-      DetailPrint "[Installer] Install root '$INSTDIR' is too shallow; skipping process stop and detach"
-      !insertmacro OpenTimingLogForAppend $8
-      FileWrite $8 "phase=prepare-skipped reason=shallow-root path=$INSTDIR$\r$\n"
-      FileClose $8
-    ${Else}
 
     DetailPrint "[Installer] Stopping running 知远 processes"
     System::Call 'kernel32::GetTickCount()i .r7'
@@ -154,6 +172,7 @@ Var /GLOBAL zyDeleteRealAppData
     DetailPrint "[Installer] Detaching previous application version"
     System::Call 'kernel32::GetTickCount()i .r7'
     OldInstallDetachRetry_${TOKEN}:
+    !insertmacro AssertOwnedInstallRoot install
     ${If} ${FileExists} "$INSTDIR\*.*"
       System::Call 'kernel32::GetTickCount()i .r4'
       StrCpy $3 "$INSTDIR.old.$4"
@@ -197,7 +216,6 @@ Var /GLOBAL zyDeleteRealAppData
     ; registration so electron-builder skips the redundant legacy uninstaller
     ; whose exit code 2 would surface as a bogus "cannot be closed" dialog.
     !insertmacro ForgetOldInstallRegistry ${TOKEN}
-    ${EndIf}
   ${EndIf}
 !macroend
 !endif
@@ -296,6 +314,7 @@ Var /GLOBAL zyDeleteRealAppData
 !macroend
 
 !macro customHeader
+  !insertmacro ZY_LangString ZY_UNSAFE_INSTALL_ROOT "请选择空目录或已有的知远安装目录，不能选择系统、个人数据或目录链接。未修改已有文件。" "請選擇空目錄或已有的知遠安裝目錄，不能選擇系統、個人資料或目錄連結。未修改已有檔案。" "Choose an empty folder or an existing ZhiYuan installation. System folders, personal data and directory links are protected. Existing files were not changed."
   ManifestDPIAware true
   SetFont "Microsoft YaHei UI" 11
   BrandingText " "
@@ -731,6 +750,7 @@ Var /GLOBAL zyDeleteRealAppData
 ; detach this distinguishes "app still running" from "directory held by
 ; another program" — electron-builder reports both as "cannot be closed".
 !macro customUnInit
+  !insertmacro AssertOwnedInstallRoot uninstall
   ; The uninstaller confirmation page uses the same branded background art.
   !insertmacro ZY_StageUiAssets
   ; This is a fresh uninstaller process with a fresh $PLUGINSDIR: the shared
@@ -739,11 +759,14 @@ Var /GLOBAL zyDeleteRealAppData
   ; component junctions and the runtime cache would be left behind.
   SetOutPath "$PLUGINSDIR"
   File /oname=uninstall-cleanup.ps1 "${PROJECT_DIR}\scripts\installer\uninstall-cleanup.ps1"
-  DetailPrint "[Uninstaller] Stopping running 知远 processes"
-  !insertmacro StopAppProcesses
+  ; Process termination occurs only at the guarded CHECK_APP_RUNNING entry,
+  ; not while opening the uninstaller confirmation page.
 !macroend
 
 !macro customUnInstall
+  ; Revalidate immediately before shared cleanup and the template's RMDir and
+  ; registration removal. Opening a wizard never grants later path ownership.
+  !insertmacro AssertOwnedInstallRoot uninstall
   ; Remove component junctions and detach application-owned immutable data.
   ; User data and models remain under userData. Deleting the
   ; expanded runtime tree synchronously can take longer than the uninstaller
@@ -755,35 +778,13 @@ Var /GLOBAL zyDeleteRealAppData
   SetOutPath "$TEMP"
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\uninstall-cleanup.ps1" -InstallDir "$INSTDIR" -RuntimeRoot "$LOCALAPPDATA\ZhiYuanAgent\runtimes"'
   Pop $0
+  ${If} $0 != "0"
+    DetailPrint "[Uninstaller] Safe cleanup failed; preserving installation and registration"
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
 
-  ; electron-builder's DELETE_APP_DATA list only covers $APPDATA\<product
-  ; name> variants; the app's real userData directory is %APPDATA%\ZhiYuanAgent
-  ; (APP_DATA_DIR_NAME — sessions and memory projection). The
-  ; WebView2 shell uninstaller removes that same tree, so mirror the exact
-  ; delete-app-data decision uninstaller.nsh makes and remove it too. The
-  ; decision has to be recomputed here: customUnInstall runs before
-  ; uninstaller.nsh declares its own $isDeleteAppData variable.
-  StrCpy $zyDeleteRealAppData "0"
-  ClearErrors
-  ${GetParameters} $R0
-  ${GetOptions} $R0 "--delete-app-data" $R1
-  ${if} ${Errors}
-    !ifdef DELETE_APP_DATA_ON_UNINSTALL
-      ${ifNot} ${isUpdated}
-        StrCpy $zyDeleteRealAppData "1"
-      ${endif}
-    !endif
-  ${else}
-    StrCpy $zyDeleteRealAppData "1"
-  ${endif}
-  ${if} $zyDeleteRealAppData == "1"
-    ${if} $installMode == "all"
-      SetShellVarContext current
-    ${endif}
-    RMDir /r "$APPDATA\ZhiYuanAgent"
-    ${if} $installMode == "all"
-      SetShellVarContext all
-    ${endif}
-  ${endif}
+  ; The real userData directory is always retained, including legacy
+  ; --delete-app-data requests. It is not an installation cleanup target.
 
 !macroend

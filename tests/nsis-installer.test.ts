@@ -172,7 +172,8 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(uninstallCleanupScript).toContain('current.next');
     expect(uninstallCleanupScript).toContain('current.previous');
     expect(uninstallCleanupScript).toContain('.uninstall.');
-    expect(uninstallCleanupScript).toContain('cmd /d /c rd /s /q');
+    expect(uninstallCleanupScript).toContain('Remove-TreeWithoutFollowingLinks');
+    expect(uninstallCleanupScript).not.toContain('$env:COMSPEC');
     for (const moved of [
       '$$ErrorActionPreference = \\"Stop\\"',
       'Set-StrictMode -Version Latest',
@@ -269,7 +270,7 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(installerScript).not.toMatch(
       /^\s*FileOpen \$\d+ "\$APPDATA\\ZhiYuanAgent\\install-timing\.log" a$/m,
     );
-    expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(15);
+    expect(installerScript.match(/!insertmacro OpenTimingLogForAppend \$[28]/g)).toHaveLength(14);
   });
 
   test('keeps retired local inference options out of setup', () => {
@@ -333,9 +334,8 @@ describe('NSIS offline resources and installer lifecycle', () => {
       prepareStart,
       installerScript.indexOf('!macroend', prepareStart),
     );
-    expect(prepareBlock).toContain('StrLen $R8 $INSTDIR');
-    expect(prepareBlock).toContain('skipping process stop and detach');
-    expect(prepareBlock).toContain('reason=shallow-root');
+    expect(prepareBlock).toContain('!insertmacro AssertOwnedInstallRoot install');
+    expect(prepareBlock).not.toContain('StrLen $R8 $INSTDIR');
 
     // Mirror electron-builder's stock behavior: a browsed folder becomes the
     // parent unless it already ends with the product directory.
@@ -346,25 +346,17 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(browseBlock).toContain('StrCpy $INSTDIR "$INSTDIR\\${APP_FILENAME}"');
   });
 
-  test('uninstall removes the real userData directory with the app-data decision', () => {
+  test('uninstall preserves real userData even for legacy delete-app-data requests', () => {
     const installerScript = fs.readFileSync(installerScriptPath, 'utf8');
 
-    // electron-builder's app-data list only covers product-name variants; the
-    // real userData (%APPDATA%\ZhiYuanAgent) must go through the same
-    // delete-app-data decision as the WebView2 shell uninstaller.
     const unInstallStart = installerScript.indexOf('!macro customUnInstall\n');
     const unInstallBlock = installerScript.slice(
       unInstallStart,
       installerScript.indexOf('!macroend', unInstallStart),
     );
-    expect(unInstallBlock).toContain('RMDir /r "$APPDATA\\ZhiYuanAgent"');
+    expect(installerScript).not.toContain('RMDir /r "$APPDATA\\ZhiYuanAgent"');
     expect(unInstallBlock).toContain('--delete-app-data');
-    expect(unInstallBlock).toContain('DELETE_APP_DATA_ON_UNINSTALL');
-    // The decision is recomputed because customUnInstall runs before
-    // uninstaller.nsh declares its own $isDeleteAppData variable, and the
-    // macro must not rely on customUnInstallSection (file scope, where
-    // runtime instructions are invalid).
-    expect(installerScript).toContain('Var /GLOBAL zyDeleteRealAppData');
+    expect(installerScript).not.toContain('zyDeleteRealAppData');
     expect(installerScript).not.toContain('customUnInstallSection');
   });
 
@@ -402,24 +394,20 @@ describe('NSIS offline resources and installer lifecycle', () => {
       macroStart,
       installerScript.indexOf('!macroend', macroStart),
     );
-    expect(macroBlock).toContain('Get-CimInstance Win32_Process');
-    expect(macroBlock).toContain('$$roots = @(\\"$INSTDIR\\"');
+    expect(macroBlock).toContain('!insertmacro AssertOwnedInstallRootForBuild');
+    expect(macroBlock).toContain('-InstallDir "$INSTDIR"');
     expect(macroBlock).toContain('$LOCALAPPDATA\\ZhiYuanAgent\\runtimes');
-    // The prefix root is normalized with a trailing separator so sibling
-    // directories that merely share a name prefix cannot match.
-    expect(macroBlock).toContain('TrimEnd([char]0x5c) + [char]0x5c');
-    expect(macroBlock).toContain('StartsWith(($$roots[0].TrimEnd');
-    expect(macroBlock).toContain('StartsWith(($$roots[1].TrimEnd');
-    expect(macroBlock).toContain('OrdinalIgnoreCase');
-    // An extra ')' made PowerShell reject the entire process-stop command.
-    // The Windows acceptance tests also parse and execute this exact macro.
-    expect(macroBlock).not.toContain('OrdinalIgnoreCase\\")))');
-    expect(macroBlock).toContain('$$_.ExecutablePath');
-    expect(macroBlock).not.toContain('$$_.Path');
-    expect(macroBlock).toContain('Stop-Process -Id $$proc.ProcessId -Force');
+    const helper = fs.readFileSync('scripts/installer/manage-install-processes.ps1', 'utf8');
+    expect(helper).toContain('Get-CimInstance Win32_Process');
+    expect(helper).toContain('TrimEnd([char]0x5c) + [char]0x5c');
+    expect(helper).toContain('OrdinalIgnoreCase');
+    expect(helper).toContain('$_.ExecutablePath');
+    expect(helper).toContain('Stop-Process -Id $process.ProcessId -Force');
+    expect(macroBlock).toContain('-File "$PLUGINSDIR\\manage-install-processes.ps1"');
+    expect(macroBlock).not.toContain('-Command');
     // An in-place uninstaller runs from $INSTDIR and must not kill itself.
     expect(macroBlock).toContain('GetCurrentProcessId');
-    expect(macroBlock).toContain('$$_.ProcessId -ne $$selfPid');
+    expect(helper).toContain('$_.ProcessId -ne $SelfPid');
 
     const customInitBlock = installerScript.slice(
       installerScript.indexOf('!macro customInit'),
@@ -440,7 +428,8 @@ describe('NSIS offline resources and installer lifecycle', () => {
       installerScript.indexOf('!macro customUnInit'),
       installerScript.indexOf('!macroend', installerScript.indexOf('!macro customUnInit')),
     );
-    expect(customUnInitBlock).toContain('!insertmacro StopAppProcesses');
+    expect(customUnInitBlock).toContain('!insertmacro AssertOwnedInstallRoot uninstall');
+    expect(customUnInitBlock).not.toContain('!insertmacro StopAppProcesses');
     // The interactive page leave callback lives in the UI include; it must run
     // the same committed-work macro.
     const pagesScript = fs.readFileSync(path.resolve('scripts/installer-ui/zy-pages.nsh'), 'utf8');
@@ -559,7 +548,10 @@ describe('NSIS offline resources and installer lifecycle', () => {
     // any uninstaller it still launches must not abort the installation.
     expect(installerScript).toContain('!macro ForgetOldInstallRegistry');
     expect(installerScript).toContain('!insertmacro ForgetOldInstallRegistry');
-    expect(installerScript).toContain('DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY}"');
+    expect(installerScript).toContain('DeleteRegKey ${HIVE} "${UNINSTALL_REGISTRY_KEY}"');
+    expect(installerScript).toContain(
+      'ReadRegStr $R7 ${HIVE} "${INSTALL_REGISTRY_KEY}" InstallLocation',
+    );
     expect(installerScript).toContain('!macro customUnInstallCheck');
     expect(installerScript).toContain('!macro customUnInstallCheckCurrentUser');
   });
@@ -583,12 +575,14 @@ describe('NSIS offline resources and installer lifecycle', () => {
     expect(uninstallBlock.indexOf('SetOutPath "$TEMP"')).toBeLessThan(
       uninstallBlock.indexOf("nsExec::ExecToLog 'powershell"),
     );
-    // Detach semantics moved into the shared script: rename the live cache to
-    // a .uninstall.<tick> name and hand it to a background recursive delete.
+    // Reclaim only verified current-component versions, preserving unknown
+    // data and retired caches rather than scanning historical backup names.
     expect(uninstallCleanupScript).toContain('.uninstall.');
     expect(uninstallCleanupScript).toContain('Rename-Item');
-    expect(uninstallCleanupScript).toContain('start "" /b cmd /d /c rd /s /q');
-    expect(uninstallCleanupScript).toContain('runtime-packs');
+    expect(uninstallCleanupScript).toContain("Join-Path $RuntimeRoot 'portable-git'");
+    expect(uninstallCleanupScript).toContain('Remove-TreeWithoutFollowingLinks');
+    expect(uninstallCleanupScript).not.toContain('$env:COMSPEC');
+    expect(uninstallCleanupScript).not.toContain('.uninstall.*');
     expect(uninstallCleanupScript).not.toContain(
       'Remove-Item -LiteralPath $RuntimeRoot -Recurse -Force',
     );

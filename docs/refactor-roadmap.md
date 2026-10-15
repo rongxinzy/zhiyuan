@@ -191,6 +191,9 @@
 - 另修复底层 NSIS 使用 ANSI FileWrite 保存中文备份路径的问题，改用 UTF-16LE BOM 并补真实中文 marker 清理回归；精确清理原则不变。诊断收集只增加真实 native CI 安装目录的精确白名单，避免失败证据被原静默路径限制拒绝。正式壳编译 / 真实 SFX 组装提前到 native UI 验收前，以更早暴露最终壳构建问题，所有 UI、静默、应用专项与 artifact 成功门禁保留。
 - [e1c161cf Windows run 38683704850](https://github.com/rongxinzy/zhiyuan/actions/runs/38683704850) 已实际完成正式 .NET 8 / WebView2 单文件壳编译与真实载荷组装，所有前置回归、包体及原生探针通过。NSIS 首次安装与取消后的目录 File ID / 应用进程 / 字节 / 注册表保护也通过；真实锁冲突重装暴露 StopAppProcesses 内嵌 PowerShell 多余右括号，导致停止进程命令解析失败，现修复并增加从生产宏提取的真实 Windows parser / 进程终止及外目录进程保留回归。该问题属于底层 NSIS，不能归因到尚未运行的 WebView2 UI。
 - 后续将实际壳 UI 与应用 smoke 的运行条件绑定各自上游成功，即便 NSIS 专项失败也可收集独立壳证据；各自使用隔离安装目录。失败状态仍保留，最终交付与 artifact 上传仍要求所有必需门禁成功，禁止 continue-on-error。
+- 数据边界追加审查发现 NSIS 原来仅检查路径长度，不能阻止误选个人或系统目录。现改共享只读目录归属校验，覆盖安装 / 卸载每次停止进程前、重试重命名前，以及 electron-builder 早于 customUnInit 的 stock hook；非空目录必须有物理应用及 ASAR 身份，拒绝系统树 / 个人根 / 用户数据与缓存重叠及目录链接。WebView2 同步完整身份和系统树拒绝边界，合法 Program Files 子目录继续允许。
+- 共享卸载清理只回收当前 portable-git 契约中有匹配完成记录的精确版本，保留未知组件、历史手工备份与 retired runtime-packs；先无跟随解除应用树链接，失败不允许 NSIS 模板继续递归删除。注册表仅清理当前 hive / view 中安装位置精确匹配的记录；删除本仓历史 --delete-app-data 真实用户目录删除实现。
+- [e8526586 前置回归](https://github.com/rongxinzy/zhiyuan/actions/runs/38685807388) 260 项通过，新增进程测试把 PowerShell 首次模块初始化的 CLIXML progress 当 stderr 错误而失败，已修测试区分；不删除实际 parser、停止进程及外目录保留断言。安全追加批次需再次完整 Windows 验收，不沿用此前部分成功标记为 ready。
 - 当前状态：等待修复后的最终壳 Windows 编译与真实交互验收，尚无成功截图 / artifact；保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收

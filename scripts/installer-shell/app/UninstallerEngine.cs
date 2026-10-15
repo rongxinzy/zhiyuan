@@ -46,11 +46,6 @@ public sealed class UninstallerEngine
     {
         try
         {
-            if (!Directory.Exists(installDir))
-            {
-                progress.Report(new EngineEvent(Type: "done", InstallDir: installDir));
-                return;
-            }
             ValidateInstallOwnership();
             await StepStopAppProcesses(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -147,15 +142,14 @@ public sealed class UninstallerEngine
 
     private void ValidateInstallOwnership()
     {
-        if (!File.Exists(Path.Combine(installDir, InstallerEngine.AppExeName)) &&
-            !File.Exists(Path.Combine(installDir, "uninstall.exe")))
-            throw new EngineException("所选目录不是知远安装目录，未删除任何文件。");
+        InstallDirectoryTransaction.ValidateInstalledApplication(installDir);
     }
 
     /// <summary>The shared cleanup script staged next to the app by the
     /// installer: removes resources junctions, then atomically detaches the
-    /// offline runtime caches and reclaims them in the background. NSIS ignores
-    /// its exit code; this side matches that forgiving shape.</summary>
+    /// offline runtime caches and reclaims them in the background. This shell
+    /// tolerates an unsuccessful cache cleanup and may leave caches behind;
+    /// its own application-tree removal never follows junctions.</summary>
     private async Task StepCleanupRuntimeCaches(CancellationToken ct)
     {
         if (skipCleanup.Contains("runtime"))

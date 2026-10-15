@@ -1,71 +1,137 @@
-# Shared uninstall cleanup: component junction removal plus offline runtime
-# cache detach/reclamation. Verbatim extraction of the inline PowerShell/cmd
-# spans that used to live in scripts/nsis-installer.nsh !macro customUnInstall
-# ("Remove component junctions..." through the legacy runtime-packs detach);
-# behavior is intentionally unchanged. Both uninstallers orchestrate via this
-# script.
+# Shared uninstall cleanup. Reclaim only current-contract component versions
+# with matching completion records. Unknown/retired data and previous detached
+# backups remain untouched. Both uninstallers pass their owned install root;
+# the shell passes its already-detached application directory.
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [Parameter(Mandatory = $true)][string]$RuntimeRoot
 )
 
-# The original inline spans ran with PowerShell defaults (no Stop/StrictMode)
-# and the NSIS caller ignored their exit codes; keep that forgiving shape.
+$ErrorActionPreference = 'Stop'
 
-# Detach resource junctions before recursive cleanup so deletion never follows
-# a link into an external runtime cache.
-$resources = Join-Path $InstallDir 'resources'
-Get-ChildItem -LiteralPath $resources -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
-  if (($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-    [IO.Directory]::Delete($_.FullName)
-  }
-}
-
-# Drop current/current.next/current.previous pointer junctions under every
-# runtime cache directory (verbatim from the NSIS inline span).
-if (Test-Path -LiteralPath $RuntimeRoot) {
-  Get-ChildItem -LiteralPath $RuntimeRoot -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
-    foreach ($pointerName in @('current', 'current.next', 'current.previous')) {
-      $pointer = Join-Path $_.FullName $pointerName
-      if (Test-Path -LiteralPath $pointer) {
-        $pointerItem = Get-Item -LiteralPath $pointer -Force
-        if (($pointerItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [IO.Directory]::Delete($pointer) }
-      }
+function Assert-PhysicalDirectoryPath([string]$Path) {
+  for ($directory = [IO.DirectoryInfo]::new($Path); $null -ne $directory; $directory = $directory.Parent) {
+    if ($directory.Exists -and ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      throw "Unsafe uninstall cleanup directory link: $($directory.FullName)"
     }
   }
 }
 
-# Reclaim previously detached runtime caches (verbatim from the NSIS inline
-# span: stale runtimes.uninstall.* sweep, then detach the live cache and hand
-# it to a background recursive delete).
-$runtimeUninstallGlob = 'for /d %D in ("' + $RuntimeRoot + '.uninstall.*") do @start "" /b cmd /d /c rd /s /q "%~fD"'
-& "$env:COMSPEC" /c $runtimeUninstallGlob | Out-Null
-if (Test-Path -LiteralPath $RuntimeRoot) {
-  if (@(Get-ChildItem -LiteralPath $RuntimeRoot -Force -ErrorAction SilentlyContinue).Count -gt 0) {
-    $detachedRuntime = $RuntimeRoot + '.uninstall.' + [Environment]::TickCount
-    Rename-Item -LiteralPath $RuntimeRoot -NewName (Split-Path $detachedRuntime -Leaf) -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $detachedRuntime) {
-      & "$env:COMSPEC" /c ('start "" /b cmd /d /c rd /s /q "' + $detachedRuntime + '"') | Out-Null
+function Remove-ApplicationLinks([string]$Path) {
+  $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName) }
+    else { [IO.File]::Delete($item.FullName) }
+    return
+  }
+  if ($item.PSIsContainer) {
+    foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction Stop)) {
+      Remove-ApplicationLinks $child.FullName
     }
+  }
+}
+
+# Validate every parent before detaching any pointer or component directory.
+$componentRoot = Join-Path $RuntimeRoot 'portable-git'
+Assert-PhysicalDirectoryPath $InstallDir
+Assert-PhysicalDirectoryPath $componentRoot
+
+# Enumerate only the known component's immediate versions, never arbitrary
+# runtime component roots. A hash-shaped folder alone is not owned data.
+$versions = @()
+foreach ($version in @(Get-ChildItem -LiteralPath $componentRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+  if ($version.Name -cnotmatch '^[0-9a-f]{64}\z' -or
+      ($version.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+  $complete = Join-Path $version.FullName '.complete'
+  if (-not (Test-Path -LiteralPath $complete -PathType Leaf)) { continue }
+  $completeItem = Get-Item -LiteralPath $complete -Force
+  if ($completeItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+  $completion = Get-Content -LiteralPath $complete -Raw
+  if (-not $completion -or ($completion -split '\|', 2)[0] -cne $version.Name) { continue }
+  $versions += $version.FullName
+}
+
+# NSIS recursively deletes the application after this script. Strip links
+# anywhere inside the validated application tree first, including links outside
+# resources. Never enumerate a link target. Scan/unlink errors must propagate
+# so the caller cannot continue with an unsafe recursive application removal.
+if (Test-Path -LiteralPath $InstallDir -PathType Container) {
+  Remove-ApplicationLinks $InstallDir
+}
+$pointers = @()
+foreach ($pointerName in @('current', 'current.next', 'current.previous')) {
+  $pointers += Join-Path $componentRoot $pointerName
+}
+foreach ($pointer in $pointers) {
+  if (Test-Path -LiteralPath $pointer) {
+    $pointerItem = Get-Item -LiteralPath $pointer -Force
+    if ($pointerItem.PSIsContainer -and ($pointerItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      [IO.Directory]::Delete($pointer)
+    }
+  }
+}
+
+# Detach each verified version to a unique path before asynchronous deletion.
+# A reinstall can immediately create the original content-addressed directory.
+$detached = @()
+foreach ($version in $versions) {
+  Assert-PhysicalDirectoryPath $version
+  $target = $version + '.uninstall.' + [Guid]::NewGuid().ToString('n')
+  Rename-Item -LiteralPath $version -NewName ([IO.Path]::GetFileName($target))
+  $detached += $target
+}
+
+$cleanupScript = @'
+$ErrorActionPreference = 'Stop'
+function Assert-PhysicalDirectoryPath([string]$Path) {
+  for ($directory = [IO.DirectoryInfo]::new($Path); $null -ne $directory; $directory = $directory.Parent) {
+    if ($directory.Exists -and ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      throw 'Uninstall cleanup path became a directory link; preserving it'
+    }
+  }
+}
+function Remove-TreeWithoutFollowingLinks([string]$Path) {
+  $item = Get-Item -LiteralPath $Path -Force
+  if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName) }
+    else { [IO.File]::Delete($item.FullName) }
+    return
+  }
+  if ($item.PSIsContainer) {
+    foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force)) {
+      Remove-TreeWithoutFollowingLinks $child.FullName
+    }
+    [IO.Directory]::Delete($item.FullName)
   } else {
-    Remove-Item -LiteralPath $RuntimeRoot -Force -ErrorAction SilentlyContinue
+    if ($item.IsReadOnly) { $item.IsReadOnly = $false }
+    [IO.File]::Delete($item.FullName)
   }
 }
-
-# Same detach/background-delete treatment for the legacy runtime-packs cache
-# (verbatim from the NSIS inline span).
-$legacyRoot = Join-Path (Split-Path $RuntimeRoot -Parent) 'runtime-packs'
-$legacyUninstallGlob = 'for /d %D in ("' + $legacyRoot + '.uninstall.*") do @start "" /b cmd /d /c rd /s /q "%~fD"'
-& "$env:COMSPEC" /c $legacyUninstallGlob | Out-Null
-if (Test-Path -LiteralPath $legacyRoot) {
-  if (@(Get-ChildItem -LiteralPath $legacyRoot -Force -ErrorAction SilentlyContinue).Count -gt 0) {
-    $detachedLegacy = $legacyRoot + '.uninstall.' + [Environment]::TickCount
-    Rename-Item -LiteralPath $legacyRoot -NewName (Split-Path $detachedLegacy -Leaf) -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $detachedLegacy) {
-      & "$env:COMSPEC" /c ('start "" /b cmd /d /c rd /s /q "' + $detachedLegacy + '"') | Out-Null
-    }
-  } else {
-    Remove-Item -LiteralPath $legacyRoot -Force -ErrorAction SilentlyContinue
+foreach ($target in @($env:ZY_UNINSTALL_COMPONENT_TARGETS | ConvertFrom-Json)) {
+  Assert-PhysicalDirectoryPath $target
+  if (Test-Path -LiteralPath $target -PathType Container) { Remove-TreeWithoutFollowingLinks $target }
+}
+# Nonrecursive deletion removes only an empty owned root. Any unknown file,
+# component, pending journal or manual backup keeps its containing root alive.
+foreach ($root in @($env:ZY_UNINSTALL_COMPONENT_ROOT, $env:ZY_UNINSTALL_RUNTIME_ROOT)) {
+  Assert-PhysicalDirectoryPath $root
+  if (Test-Path -LiteralPath $root -PathType Container) {
+    try { [IO.Directory]::Delete($root) } catch [IO.IOException] { }
   }
+}
+'@
+$previousTargets = $env:ZY_UNINSTALL_COMPONENT_TARGETS
+$previousComponentRoot = $env:ZY_UNINSTALL_COMPONENT_ROOT
+$previousRuntimeRoot = $env:ZY_UNINSTALL_RUNTIME_ROOT
+try {
+  $env:ZY_UNINSTALL_COMPONENT_TARGETS = ConvertTo-Json -InputObject @($detached) -Compress
+  $env:ZY_UNINSTALL_COMPONENT_ROOT = $componentRoot
+  $env:ZY_UNINSTALL_RUNTIME_ROOT = $RuntimeRoot
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cleanupScript))
+  Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', $encoded | Out-Null
+} finally {
+  $env:ZY_UNINSTALL_COMPONENT_TARGETS = $previousTargets
+  $env:ZY_UNINSTALL_COMPONENT_ROOT = $previousComponentRoot
+  $env:ZY_UNINSTALL_RUNTIME_ROOT = $previousRuntimeRoot
 }

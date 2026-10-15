@@ -70,6 +70,38 @@ test('install and uninstall reject foreign directories before stopping any proce
   expect(ownership).not.toMatch(/Directory\.(Move|Delete)|File\.(Write|Delete)/);
 });
 
+test('system folders protect descendants while Program Files only protects its root', () => {
+  expect(transaction).toContain(
+    'var protectsDescendants = folder is Environment.SpecialFolder.Windows',
+  );
+  expect(transaction).toContain(
+    'or Environment.SpecialFolder.System or Environment.SpecialFolder.SystemX86',
+  );
+  expect(transaction).toContain('protectsDescendants && ContainsPath(protectedRoot, full)');
+  const descendantPolicy = transaction.slice(
+    transaction.indexOf('var protectsDescendants ='),
+    transaction.indexOf('if (!string.IsNullOrEmpty(protectedRoot)'),
+  );
+  expect(descendantPolicy).not.toContain('Environment.SpecialFolder.ProgramFiles');
+});
+
+test('installation identity requires physical executable and asar for both installation and uninstall', () => {
+  expect(transaction).toContain('ValidateInstalledApplication(installDir);');
+  expect(transaction).toContain('Path.Combine(root, "resources", "app.asar")');
+  expect(transaction).toContain('FileAttributes.ReparsePoint | FileAttributes.Directory');
+  expect(transaction).toContain('attributes = File.GetAttributes(dir.FullName)');
+  expect(transaction).not.toContain('dir.Exists &&');
+  expect(uninstaller).toContain(
+    'InstallDirectoryTransaction.ValidateInstalledApplication(installDir);',
+  );
+  const ownership = uninstaller.slice(
+    uninstaller.indexOf('private void ValidateInstallOwnership()'),
+    uninstaller.indexOf('private async Task StepCleanupRuntimeCaches'),
+  );
+  expect(ownership).not.toContain('"uninstall.exe"');
+  expect(transaction).toContain('ValidateInstalledApplication(pending.BackupDir)');
+});
+
 test('upgrade rollback removes partial new files before restoring the previous application', () => {
   const partialRemoval = transaction.indexOf(
     'DeleteTreeWithoutFollowingLinks(installDir);',
@@ -182,6 +214,29 @@ test.skipIf(!dotnetAvailable)(
 using System.Text.Json;
 using ZhiYuan.Setup.Shell;
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+static void Reject(Action action, string message) {
+    var rejected = false;
+    try { action(); } catch (EngineException) { rejected = true; }
+    Check(rejected, message);
+}
+static void WriteOwnedApp(string directory, string value) {
+    Directory.CreateDirectory(Path.Combine(directory, "resources"));
+    File.WriteAllText(Path.Combine(directory, InstallerEngine.AppExeName), value);
+    File.WriteAllText(Path.Combine(directory, "resources", "app.asar"), "owned-asar");
+}
+static void LinkDirectory(string link, string target) {
+    if (!OperatingSystem.IsWindows()) { Directory.CreateSymbolicLink(link, target); return; }
+    using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+        FileName = "cmd.exe", Arguments = $"/d /c mklink /J \\"{link}\\" \\"{target}\\"",
+        UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+    }) ?? throw new Exception("Could not create junction fixture");
+    child.WaitForExit();
+    Check(child.ExitCode == 0, "Junction fixture failed: " + child.StandardError.ReadToEnd());
+}
+static void UnlinkDirectory(string link) {
+    if ((File.GetAttributes(link) & FileAttributes.Directory) != 0) Directory.Delete(link);
+    else File.Delete(link);
+}
 var root = Path.Combine(Path.GetTempPath(), "zy-engine-behavior-" + Guid.NewGuid().ToString("n"));
 Directory.CreateDirectory(root);
 try {
@@ -189,8 +244,7 @@ try {
     var data = Path.Combine(root, "user-data");
     Directory.CreateDirectory(data);
     File.WriteAllText(Path.Combine(data, "sessions.sqlite"), "personal");
-    Directory.CreateDirectory(install);
-    File.WriteAllText(Path.Combine(install, InstallerEngine.AppExeName), "old");
+    WriteOwnedApp(install, "old");
     var first = new InstallDirectoryTransaction(install);
     first.Begin();
     Directory.CreateDirectory(install);
@@ -206,13 +260,13 @@ try {
     freshTransaction.Begin();
     Directory.CreateDirectory(fresh);
     File.WriteAllText(Path.Combine(fresh, "partial"), "new");
+    new InstallDirectoryTransaction(fresh).ValidateOwnership();
     new InstallDirectoryTransaction(fresh).Rollback();
     Check(!Directory.Exists(fresh), "fresh failed installation was not removed");
 
     var committed = new InstallDirectoryTransaction(install);
     committed.Begin();
-    Directory.CreateDirectory(install);
-    File.WriteAllText(Path.Combine(install, InstallerEngine.AppExeName), "committed-new");
+    WriteOwnedApp(install, "committed-new");
     committed.MarkCommitted();
     var recovery = new InstallDirectoryTransaction(install);
     Check(recovery.IsCommitted, "commit marker was not durable");
@@ -232,6 +286,114 @@ try {
     refused = false;
     try { new InstallDirectoryTransaction(data).ValidateOwnership(); } catch (EngineException) { refused = true; }
     Check(refused && File.ReadAllText(Path.Combine(data, "sessions.sqlite")) == "personal", "foreign directory was not rejected without mutation");
+
+    var runtime = Path.Combine(root, "runtime");
+    var emptyInstall = Path.Combine(root, "empty-install");
+    Directory.CreateDirectory(emptyInstall);
+    InstallDirectoryTransaction.ValidateRoots(emptyInstall, runtime, data);
+    new InstallDirectoryTransaction(emptyInstall).ValidateOwnership();
+    InstallDirectoryTransaction.ValidateRoots(install, runtime, data);
+    new InstallDirectoryTransaction(install).ValidateOwnership();
+    Check(File.ReadAllText(Path.Combine(install, InstallerEngine.AppExeName)) == "committed-new", "valid owned installation was changed by validation");
+
+    var emptyTransaction = new InstallDirectoryTransaction(emptyInstall);
+    emptyTransaction.Begin();
+    Directory.CreateDirectory(emptyInstall);
+    File.WriteAllText(Path.Combine(emptyInstall, "partial"), "new");
+    new InstallDirectoryTransaction(emptyInstall).ValidateOwnership();
+    new InstallDirectoryTransaction(emptyInstall).Rollback();
+    Check(Directory.Exists(emptyInstall) && !Directory.EnumerateFileSystemEntries(emptyInstall).Any(), "empty previous directory was not restored");
+
+    var impostor = Path.Combine(root, "uninstall-only");
+    Directory.CreateDirectory(impostor);
+    File.WriteAllText(Path.Combine(impostor, "uninstall.exe"), "not-ownership");
+    Reject(() => new InstallDirectoryTransaction(impostor).ValidateOwnership(), "uninstall-only directory accepted for installation");
+    Reject(() => new UninstallerEngine(impostor, runtime, data, "runtime,registry,shortcuts", new Progress<EngineEvent>()).UninstallAsync(CancellationToken.None).GetAwaiter().GetResult(), "uninstall-only directory accepted for removal");
+    Check(File.ReadAllText(Path.Combine(impostor, "uninstall.exe")) == "not-ownership", "foreign uninstall marker was changed");
+    File.WriteAllText(Path.Combine(impostor, InstallerEngine.AppExeName), "still-not-owned");
+    Reject(() => new InstallDirectoryTransaction(impostor).ValidateOwnership(), "executable alone established ownership without asar");
+    Reject(() => InstallDirectoryTransaction.ValidateInstalledApplication(Path.Combine(root, "missing-install")), "missing install accepted for uninstall");
+
+    var external = Path.Combine(root, "external-data");
+    WriteOwnedApp(external, "external");
+    File.WriteAllText(Path.Combine(external, "keep.txt"), "keep-external");
+    var linkedInstall = Path.Combine(root, "linked-install");
+    LinkDirectory(linkedInstall, external);
+    Reject(() => InstallDirectoryTransaction.ValidateRoots(linkedInstall, runtime, data), "linked install root was accepted");
+    UnlinkDirectory(linkedInstall);
+    var linkedResources = Path.Combine(root, "linked-resources");
+    WriteOwnedApp(linkedResources, "linked");
+    Directory.Delete(Path.Combine(linkedResources, "resources"), recursive: true);
+    LinkDirectory(Path.Combine(linkedResources, "resources"), Path.Combine(external, "resources"));
+    Reject(() => new InstallDirectoryTransaction(linkedResources).ValidateOwnership(), "linked resources established installation ownership");
+    Reject(() => InstallDirectoryTransaction.ValidateInstalledApplication(linkedResources), "linked resources established uninstall ownership");
+    UnlinkDirectory(Path.Combine(linkedResources, "resources"));
+
+    var danglingTarget = Path.Combine(root, "dangling-target");
+    Directory.CreateDirectory(danglingTarget);
+    var danglingAncestor = Path.Combine(root, "dangling-ancestor");
+    LinkDirectory(danglingAncestor, danglingTarget);
+    Directory.Delete(danglingTarget);
+    Reject(() => InstallDirectoryTransaction.ValidateRoots(Path.Combine(danglingAncestor, "child"), runtime, data), "dangling linked ancestor was accepted");
+    UnlinkDirectory(danglingAncestor);
+    Directory.CreateDirectory(danglingTarget);
+    LinkDirectory(Path.Combine(linkedResources, "resources"), danglingTarget);
+    Directory.Delete(danglingTarget);
+    Reject(() => new InstallDirectoryTransaction(linkedResources).ValidateOwnership(), "dangling resources were accepted");
+    UnlinkDirectory(Path.Combine(linkedResources, "resources"));
+
+    if (!OperatingSystem.IsWindows()) {
+        foreach (var identity in new[] { InstallerEngine.AppExeName, Path.Combine("resources", "app.asar") }) {
+            var linkedFileApp = Path.Combine(root, "file-link-" + Guid.NewGuid().ToString("n"));
+            WriteOwnedApp(linkedFileApp, "test");
+            var identityPath = Path.Combine(linkedFileApp, identity);
+            File.Delete(identityPath);
+            File.CreateSymbolicLink(identityPath, Path.Combine(external, "keep.txt"));
+            Reject(() => new InstallDirectoryTransaction(linkedFileApp).ValidateOwnership(), "linked identity file was accepted");
+            File.Delete(identityPath);
+        }
+    }
+
+    var lateFailure = new InstallDirectoryTransaction(install);
+    lateFailure.Begin();
+    Directory.CreateDirectory(Path.Combine(install, "resources"));
+    LinkDirectory(Path.Combine(install, "resources", "mingit"), external);
+    Directory.CreateDirectory(danglingTarget);
+    LinkDirectory(Path.Combine(install, "resources", "dangling-component"), danglingTarget);
+    Directory.Delete(danglingTarget);
+    new InstallDirectoryTransaction(install).ValidateOwnership();
+    new InstallDirectoryTransaction(install).Rollback();
+    Check(File.ReadAllText(Path.Combine(install, InstallerEngine.AppExeName)) == "committed-new", "late failure did not restore the physical old installation");
+    Check(File.ReadAllText(Path.Combine(external, "keep.txt")) == "keep-external", "rollback followed a component junction into external data");
+
+    var foreignRecovery = Path.Combine(root, "foreign-recovery");
+    var foreignBackup = foreignRecovery + ".old." + Guid.NewGuid().ToString("n");
+    Directory.CreateDirectory(foreignBackup);
+    File.WriteAllText(Path.Combine(foreignBackup, "uninstall.exe"), "not-owned");
+    File.WriteAllText(foreignRecovery + ".setup-state.json", JsonSerializer.Serialize(new { InstallDir=foreignRecovery, BackupDir=foreignBackup, Committed=false }));
+    Reject(() => new InstallDirectoryTransaction(foreignRecovery).ValidateOwnership(), "journal accepted a foreign backup");
+    Check(File.ReadAllText(Path.Combine(foreignBackup, "uninstall.exe")) == "not-owned", "foreign backup was modified");
+    Console.WriteLine("PASS: physical ownership, link rejection, interrupted empty/partial installs and component-junction rollback");
+    if (OperatingSystem.IsWindows()) {
+        foreach (var folder in new[] { Environment.SpecialFolder.Windows, Environment.SpecialFolder.System, Environment.SpecialFolder.SystemX86 }) {
+            var systemRoot = Environment.GetFolderPath(folder);
+            Check(!string.IsNullOrEmpty(systemRoot), "Windows system folder could not be resolved: " + folder);
+            foreach (var target in new[] { systemRoot, Path.Combine(systemRoot, "ZhiYuan-contract"), Path.Combine(systemRoot, "nested", "ZhiYuan-contract") }) {
+                refused = false;
+                try { InstallDirectoryTransaction.ValidateRoots(target, runtime, data); } catch (EngineException) { refused = true; }
+                Check(refused, "system folder or descendant accepted: " + target);
+            }
+        }
+        foreach (var folder in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 }) {
+            var programsRoot = Environment.GetFolderPath(folder);
+            Check(!string.IsNullOrEmpty(programsRoot), "Windows program folder could not be resolved: " + folder);
+            refused = false;
+            try { InstallDirectoryTransaction.ValidateRoots(programsRoot, runtime, data); } catch (EngineException) { refused = true; }
+            Check(refused, "Program Files root accepted");
+            InstallDirectoryTransaction.ValidateRoots(Path.Combine(programsRoot, "ZhiYuan-contract-" + Guid.NewGuid().ToString("n")), runtime, data);
+        }
+        Console.WriteLine("PASS: Windows system descendants rejected and Program Files app children accepted");
+    }
 
     var source = Path.Combine(root, "setup.exe");
     var destination = Path.Combine(root, "uninstall.exe");
