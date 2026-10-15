@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { shellScreenshots, observeDetachedUpgrade } from './windows-shell-evidence.mjs';
+import { Cdp } from './windows-shell-browser-evidence.mjs';
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -84,58 +85,6 @@ async function availablePort() {
   const port = server.address().port;
   await new Promise(resolve => server.close(resolve));
   return port;
-}
-
-class Cdp {
-  next = 0;
-  pending = new Map();
-  constructor(socket) {
-    this.socket = socket;
-    socket.addEventListener('message', event => {
-      const result = JSON.parse(event.data);
-      const pending = this.pending.get(result.id);
-      if (!pending) return;
-      this.pending.delete(result.id);
-      clearTimeout(pending.timer);
-      if (result.error) pending.reject(new Error(JSON.stringify(result.error)));
-      else pending.resolve(result.result);
-    });
-    socket.addEventListener('close', () => {
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('WebView2 disconnected'));
-      }
-      this.pending.clear();
-    });
-  }
-  static async connect(url) {
-    assert.equal(new URL(url).hostname, '127.0.0.1', 'CDP must remain on loopback');
-    const socket = new WebSocket(url);
-    await new Promise((resolve, reject) => {
-      socket.addEventListener('open', resolve, { once: true });
-      socket.addEventListener('error', reject, { once: true });
-    });
-    return new Cdp(socket);
-  }
-  send(method, params = {}) {
-    const id = ++this.next;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`CDP timed out: ${method}`));
-      }, 15_000);
-      this.pending.set(id, { resolve, reject, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  async evaluate(expression) {
-    const result = await this.send('Runtime.evaluate', { expression, returnByValue: true });
-    assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails));
-    return result.result.value;
-  }
-  close() {
-    this.socket.close();
-  }
 }
 
 // Read-only DOM evidence. No showPage(), simulated engine messages, preview
@@ -319,6 +268,7 @@ export async function runShellAcceptance() {
     }, 'the real packaged WebView2 page');
     session.cdp = await Cdp.connect(target.webSocketDebuggerUrl);
     await session.cdp.send('Page.enable');
+    await session.cdp.send('Runtime.enable');
     await waitFor(async () => {
       const snapshot = await session.cdp.evaluate(snapshotExpression);
       return (
@@ -331,6 +281,7 @@ export async function runShellAcceptance() {
       (await session.cdp.evaluate(snapshotExpression)).language,
       language === 'zh' ? 'zh-CN' : 'en',
     );
+    await session.cdp.observeClicks();
     return session;
   }
   async function save(session, name, selectors = []) {
@@ -765,7 +716,26 @@ export async function runShellAcceptance() {
   } finally {
     if (await exists(heldApp)) await rename(heldApp, app);
     await writeFile(lockRelease, 'release');
-    for (const session of sessions) session.cdp?.close();
+    for (const session of sessions) {
+      try {
+        if (session.cdp)
+          await writeFile(
+            path.join(evidence, `${session.name}-browser.json`),
+            JSON.stringify(
+              {
+                processId: session.child.pid,
+                events: session.cdp.observations,
+                droppedEvents: session.cdp.droppedObservations,
+              },
+              null,
+              2,
+            ),
+          );
+      } catch (error) {
+        report.browserDiagnosticsError = String(error);
+      }
+      session.cdp?.close();
+    }
     for (const child of children)
       if (child.exitCode === null && child.pid) {
         // Exact owned PID only; never kill an unrelated user application by name.

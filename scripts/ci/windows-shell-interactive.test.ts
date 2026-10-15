@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { load as loadYaml } from 'js-yaml';
+import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 import {
   assertDetachedTransaction,
@@ -12,6 +13,11 @@ import {
   shellScreenshots,
 } from './windows-shell-evidence.mjs';
 import { assertVisibleActions, captureFailurePages } from './windows-shell-interactive.mjs';
+import {
+  browserObservation,
+  Cdp,
+  clickObserverExpression,
+} from './windows-shell-browser-evidence.mjs';
 
 const script = readFileSync('scripts/ci/windows-shell-interactive.mjs', 'utf8');
 const native = readFileSync('scripts/ci/windows-shell-native.ps1', 'utf8');
@@ -208,8 +214,95 @@ describe('real final shell acceptance driver safeguards', () => {
       'report.error = error.stack || String(error);\n    await captureFailurePages(sessions, save, report);\n    throw error;',
     );
     expect(script.indexOf('await captureFailurePages(sessions, save, report)')).toBeLessThan(
-      script.indexOf('for (const session of sessions) session.cdp?.close()'),
+      script.indexOf('session.cdp?.close();', script.indexOf('} finally {')),
     );
+  });
+
+  it('observes clicks without changing the DOM, cancelling events or invoking an action', () => {
+    const dom = new JSDOM('<button id="btnDone">Close</button>', { runScripts: 'outside-only' });
+    try {
+      const observed: unknown[] = [];
+      Object.defineProperty(dom.window, '__zhiyuanAcceptanceObservedClick', {
+        value: (payload: string) => observed.push(JSON.parse(payload)),
+      });
+      const before = dom.window.document.documentElement.outerHTML;
+      let handled = 0;
+      dom.window.document.querySelector('button')!.addEventListener('click', event => {
+        expect(event.defaultPrevented).toBe(false);
+        handled++;
+      });
+      dom.window.eval(clickObserverExpression);
+      expect(handled).toBe(0);
+      expect(observed).toEqual([]);
+      dom.window.document.querySelector('button')!.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 353,
+          clientY: 389,
+        }),
+      );
+      expect(handled).toBe(1);
+      expect(observed).toEqual([
+        expect.objectContaining({
+          isTrusted: false,
+          targetId: 'btnDone',
+          actionId: 'btnDone',
+          x: 353,
+          y: 389,
+          defaultPrevented: false,
+        }),
+      ]);
+      expect(dom.window.document.documentElement.outerHTML).toBe(before);
+      expect(clickObserverExpression).toContain('{ capture: true, passive: true }');
+      expect(clickObserverExpression).not.toMatch(
+        /\.click\(|dispatchEvent|preventDefault|stopPropagation/,
+      );
+    } finally {
+      dom.window.close();
+    }
+  });
+
+  it('retains real CDP exception and click metadata per session with a bounded event buffer', () => {
+    const socket = new EventTarget();
+    const cdp = new Cdp(socket);
+    const exception = {
+      method: 'Runtime.exceptionThrown',
+      params: {
+        exceptionDetails: {
+          text: 'Uncaught',
+          exception: { description: 'TypeError: close failed' },
+        },
+      },
+    };
+    socket.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(exception) }));
+    expect(cdp.observations[0]).toMatchObject({
+      kind: 'exception',
+      details: exception.params.exceptionDetails,
+    });
+    const click = {
+      method: 'Runtime.bindingCalled',
+      params: {
+        name: '__zhiyuanAcceptanceObservedClick',
+        payload: '{"isTrusted":true,"actionId":"btnDone"}',
+      },
+    };
+    expect(browserObservation(click)).toEqual({
+      kind: 'click',
+      details: { isTrusted: true, actionId: 'btnDone' },
+    });
+    expect(
+      browserObservation({ ...click, params: { ...click.params, name: 'unrelated' } }),
+    ).toBeNull();
+    for (let index = 0; index < 501; index++)
+      socket.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(click) }));
+    expect(cdp.observations).toHaveLength(500);
+    expect(cdp.droppedObservations).toBe(2);
+    expect(script).toContain("session.cdp.send('Runtime.enable')");
+    expect(script).toContain('await session.cdp.observeClicks()');
+    expect(script).toContain('`${session.name}-browser.json`');
+    expect(script).toContain('events: session.cdp.observations');
+    expect(script).toContain('processId: session.child.pid');
   });
 
   it('collects independent shell evidence after NSIS failure while keeping delivery success-gated', () => {

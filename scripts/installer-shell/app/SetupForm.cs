@@ -215,19 +215,23 @@ public sealed class SetupForm : Form
 
         FormClosing += (_, e) =>
         {
+            RecordLifecycle("form-closing");
             if (!operationActive) return;
             e.Cancel = true;
             closeRequested = true;
+            RecordLifecycle("form-close-deferred");
             installCts.Cancel();
             OnEngineEvent(new EngineEvent(Type: "phase", Label: "正在安全结束，请稍候"));
         };
         FormClosed += (_, _) =>
         {
+            RecordLifecycle("form-closed");
             webView.Dispose();
             installCts.Dispose();
             foreach (var dir in new[] { materializedUiDir, webViewDataDir })
                 if (dir is not null)
                     try { InstallDirectoryTransaction.DeleteTreeWithoutFollowingLinks(dir); } catch { }
+            RecordLifecycle("form-cleanup-finished");
         };
 
         Load += async (_, _) =>
@@ -492,6 +496,7 @@ public sealed class SetupForm : Form
 
     private void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        RecordLifecycle("web-message-received");
         var message = e.WebMessageAsJson;
         DebugLog($"web message: {message}");
         string? messageType;
@@ -512,7 +517,12 @@ public sealed class SetupForm : Form
         }
         else if (messageType == "close")
         {
-            BeginInvoke(Close);
+            RecordLifecycle("close-message-received");
+            BeginInvoke(() =>
+            {
+                RecordLifecycle("close-dispatched");
+                Close();
+            });
         }
     }
 
@@ -559,8 +569,15 @@ public sealed class SetupForm : Form
     private void FinishOperation()
     {
         operationActive = false;
+        RecordLifecycle("operation-finished");
         if (closeRequested) Close();
     }
+
+    // Local diagnostic metadata only: no web-message payload, paths or user
+    // content, and no extra messages sent back into the WebView.
+    private void RecordLifecycle(string stage) => AppendEvent(eventsLogPath, new EngineEvent(
+        Type: "lifecycle", Label: stage,
+        Detail: $"operationActive={operationActive}; closeRequested={closeRequested}"));
 
     internal void CancelInstall() => installCts.Cancel();
 

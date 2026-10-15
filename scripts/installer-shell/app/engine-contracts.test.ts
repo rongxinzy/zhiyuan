@@ -194,6 +194,31 @@ test('retry gets a fresh cancellation token and closing waits for the engine to 
   );
 });
 
+test('close diagnostics distinguish message delivery and deferred shutdown without payload logging', () => {
+  for (const stage of [
+    'web-message-received',
+    'close-message-received',
+    'close-dispatched',
+    'form-closing',
+    'form-close-deferred',
+    'operation-finished',
+    'form-closed',
+    'form-cleanup-finished',
+  ]) {
+    expect(form).toContain(`RecordLifecycle("${stage}")`);
+  }
+  const diagnostic = form.slice(
+    form.indexOf('private void RecordLifecycle('),
+    form.indexOf('internal void CancelInstall()'),
+  );
+  expect(diagnostic).toContain('AppendEvent(eventsLogPath');
+  expect(diagnostic).toContain('Type: "lifecycle"');
+  expect(diagnostic).toContain(
+    'operationActive={operationActive}; closeRequested={closeRequested}',
+  );
+  expect(diagnostic).not.toMatch(/WebMessageAsJson|PostWebMessage|OnEngineEvent|Close\(/);
+});
+
 test('license is embedded and acceptance debugging is opt-in, loopback-only and isolated', () => {
   expect(read('ZhiYuan.Setup.Shell.csproj')).toContain('LogicalName="ui.license"');
   expect(form).toContain('GetManifestResourceStream("ui.license")');

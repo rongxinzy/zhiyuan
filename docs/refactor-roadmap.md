@@ -201,7 +201,8 @@
 - 2249ad4e 的 Windows 前置回归 280 项通过；新真实对话框 fixture 已识别并点击关闭两种控件 ID，但错误要求 MessageBox 返回值等于改写后的控件 ID。改为验证 MB_OK 的语义返回 IDOK，保留真实控件 ID 1 / 2、模态归属及拒绝错误窗口全部断言。
 - [ccbf22ca Windows run 38696398617](https://github.com/rongxinzy/zhiyuan/actions/runs/38696398617) 所有前置检查、NSIS 完整交互和静默回归通过。最终 WebView2 壳真实首屏 / 进度已截图，缺运行时提示与失败退出通过；首次安装完成应用解包、组件展开 / 激活 / 连接与运行时检查后，在注册 / 快捷方式收尾出现 ArgumentException。尚无堆栈，不能归因中文路径；补无源路径方法栈 / HRESULT 和分步 COM 诊断，以及实际 MTA 临时中文目录快捷方式创建 / 回读前置测试，失败页另行截图且不覆盖原异常。
 - [3265d413 Windows run 38699564913](https://github.com/rongxinzy/zhiyuan/actions/runs/38699564913) 前置真实 MTA 调用已精确复现 WScript.Shortcut.TargetPath 赋值抛出 ArgumentException / 0x80070057，取得 COM 方法栈。改用显式 Unicode IShellLinkW 和 IPersistFile 保存，保留中文目录 / 中文应用名；前置仍实际创建快捷方式，并用独立 COM 对象重新加载、核验目标 / 工作目录 / 图标，错误继续回滚，不跳过快捷方式。
-- 当前状态：快捷方式修复待真实 Windows 回归及最终壳完整交互，尚无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
+- [c988f17c Windows run 38700864300](https://github.com/rongxinzy/zhiyuan/actions/runs/38700864300) Unicode 快捷方式真实创建 / 回读、安全前置、NSIS 交互与静默全部通过；最终壳首次安装已实际完成并截图清晰的关闭 / 启动按钮。实际点击关闭后未退出，现有证据只证明指针命中和输入响应，不足判断 DOM / 宿主回调；补每会话被动点击 / JS 异常与宿主关闭生命周期元数据，未更改退出标准或猜测修复。
+- 当前状态：最终壳完成页关闭仍待闭环，启动及恢复测试尚未全部执行，无 ready artifact。保持无签名验收包属性，正式签名 / 发行不在本次范围内。
 
 ## 六阶段基线验证与剩余验收
 
