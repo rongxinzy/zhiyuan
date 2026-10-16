@@ -338,10 +338,11 @@ export function filterBrowserPreviewSessionSummaries(options?: {
   workspaceId?: string;
   mode?: (typeof CoworkSessionMode)[keyof typeof CoworkSessionMode];
   sources?: (typeof CoworkSessionSource)[keyof typeof CoworkSessionSource][];
+  summaries?: CoworkSessionSummary[];
 }): { sessions: CoworkSessionSummary[]; hasMore: boolean } {
   const offset = options?.offset ?? 0;
   const limit = options?.limit ?? 50;
-  let sessions = [...browserPreviewSessionSummaries];
+  let sessions = [...(options?.summaries ?? browserPreviewSessionSummaries)];
   if (options?.workspaceId) {
     sessions = sessions.filter(session => session.workspaceId === options.workspaceId);
   }

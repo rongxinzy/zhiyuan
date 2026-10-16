@@ -72,6 +72,15 @@ export function WorkBriefingHome({
     return () => window.clearInterval(timer);
   }, []);
 
+  const primaryActionLabel = (item: BriefingItem) => {
+    if (item.target === BriefingTarget.Schedule) return 'briefingViewSchedule';
+    if (item.target === BriefingTarget.Activity) {
+      return expandedRecords.has(item.id) ? 'briefingCollapseRecord' : 'briefingViewActivity';
+    }
+    if (item.reasonKey === 'briefingNeedsDecision') return 'briefingViewDecision';
+    return 'briefingViewWork';
+  };
+
   const openItem = (item: BriefingItem) => {
     if (item.target === BriefingTarget.Session && item.sessionId) {
       void coworkService
@@ -151,10 +160,11 @@ export function WorkBriefingHome({
                 return (
                   <section
                     key={section.title}
-                    aria-labelledby={section.title}
+                    role="region"
+                    aria-label={`${i18nService.t(section.title)} · ${section.count}`}
                     className="flex min-w-0 flex-col gap-4"
                   >
-                    <h2 id={section.title} className="theme-card-title">
+                    <h2 className="theme-card-title">
                       {i18nService.t(section.title)} · {section.count}
                     </h2>
                     {section.items.length === 0 ? (
@@ -171,16 +181,18 @@ export function WorkBriefingHome({
                       <ul className="flex min-w-0 flex-col gap-4">
                         {page.items.map(item => (
                           <li key={item.id} className="flex min-w-0 flex-col gap-2">
+                            <p className="theme-card-title break-words">
+                              {i18nService.t(item.reasonKey)}
+                            </p>
                             <p
                               className={cn(
-                                'theme-card-title break-words',
+                                'theme-home-caption break-words',
                                 !expandedRecords.has(item.id) && 'line-clamp-2',
                               )}
                               title={item.title}
                             >
                               {item.title || i18nService.t('briefingUntitled')}
                             </p>
-                            <p className="theme-home-caption">{i18nService.t(item.reasonKey)}</p>
                             {(item.description || item.descriptionKey) && (
                               <div
                                 className={cn(
@@ -215,7 +227,9 @@ export function WorkBriefingHome({
                             )}
                             <div className="flex flex-wrap gap-2">
                               <Button
-                                variant="outline"
+                                variant={
+                                  item.reasonKey === 'briefingNeedsDecision' ? 'default' : 'outline'
+                                }
                                 size="sm"
                                 onClick={() => openItem(item)}
                                 aria-expanded={
@@ -227,15 +241,7 @@ export function WorkBriefingHome({
                                   item.target === BriefingTarget.Schedule && !onShowScheduledTasks
                                 }
                               >
-                                {i18nService.t(
-                                  item.target === BriefingTarget.Schedule
-                                    ? 'briefingViewSchedule'
-                                    : item.target === BriefingTarget.Activity
-                                      ? expandedRecords.has(item.id)
-                                        ? 'briefingCollapseRecord'
-                                        : 'briefingViewActivity'
-                                      : 'briefingViewWork',
-                                )}
+                                {i18nService.t(primaryActionLabel(item))}
                               </Button>
                               {item.target === BriefingTarget.Activity && item.sessionId && (
                                 <Button

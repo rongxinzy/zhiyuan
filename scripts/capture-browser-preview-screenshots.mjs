@@ -14,6 +14,8 @@ const baseUrl =
 
 const APP_CONFIG_KEY = 'app_config';
 const WORKSPACE_SIDEBAR_STATE_KEY = 'workspaceSidebar.state';
+const BRIEFING_SCENARIO_KEY = 'browser-preview.briefingScenario';
+const BRIEFING_SCENARIO_FULL = 'full';
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -22,10 +24,26 @@ const captures = [
     slug: 'cowork-home',
     navigate: 'cowork',
     wait: async page => {
-      await page.getByRole('region').first().waitFor({ state: 'visible', timeout: 60_000 });
       await page
-        .getByLabel(/进展与结果/)
-        .getByText('季度路线图整理')
+        .getByRole('region', { name: /等你决策/ })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: /已为你推进/ })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: /建议下一步/ })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: /等你决策/ })
+        .getByText('侧栏 Phase 1 走查')
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: /建议下一步/ })
+        .getByText('夜间巡检报告')
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('button', { name: '去确认' })
+        .first()
         .waitFor({ state: 'visible', timeout: 60_000 });
     },
   },
@@ -107,15 +125,18 @@ function seedWorkspaceSidebarState() {
 async function openPreviewForTheme(browser, theme) {
   const page = await browser.newPage({ viewport: VIEWPORT });
   await page.addInitScript(
-    ({ key, config, sidebarKey, sidebarState }) => {
+    ({ key, config, sidebarKey, sidebarState, briefingKey, briefingScenario }) => {
       localStorage.setItem(key, JSON.stringify(config));
       localStorage.setItem(sidebarKey, JSON.stringify(sidebarState));
+      localStorage.setItem(briefingKey, briefingScenario);
     },
     {
       key: APP_CONFIG_KEY,
       config: seedAppConfig(theme),
       sidebarKey: WORKSPACE_SIDEBAR_STATE_KEY,
       sidebarState: seedWorkspaceSidebarState(),
+      briefingKey: BRIEFING_SCENARIO_KEY,
+      briefingScenario: BRIEFING_SCENARIO_FULL,
     },
   );
   await page.goto(baseUrl, { waitUntil: 'networkidle', timeout: 120_000 });

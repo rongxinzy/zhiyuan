@@ -42,5 +42,12 @@ export function useBriefingData() {
     };
   }, [refresh]);
 
+  useEffect(() => {
+    if (!import.meta.env.VITE_BROWSER_PREVIEW) return;
+    const handler = () => void refresh();
+    window.addEventListener('browser-preview:briefing-refresh', handler);
+    return () => window.removeEventListener('browser-preview:briefing-refresh', handler);
+  }, [refresh]);
+
   return { loading, loadFailed, refresh };
 }

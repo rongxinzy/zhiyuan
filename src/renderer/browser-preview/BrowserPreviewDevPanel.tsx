@@ -1,5 +1,10 @@
 import { Button } from '@shared/components/ui/button';
 
+import {
+  BrowserPreviewBriefingScenarioId,
+  browserPreviewBriefingScenarioLabels,
+} from './browserPreviewBriefingScenarios';
+
 const previewViews = [
   { id: 'cowork', label: '会话与工作' },
   { id: 'localInference', label: '本地推理' },
@@ -12,6 +17,8 @@ const previewViews = [
   { id: 'history', label: '历史' },
 ] as const;
 
+const briefingScenarios = Object.values(BrowserPreviewBriefingScenarioId);
+
 export function BrowserPreviewDevPanel() {
   if (!import.meta.env.VITE_BROWSER_PREVIEW) return null;
 
@@ -21,6 +28,25 @@ export function BrowserPreviewDevPanel() {
       data-testid="browser-preview-panel"
     >
       <p className="px-1 text-xs font-medium text-muted-foreground">浏览器预览 · 页面跳转</p>
+      <p className="px-1 text-xs font-medium text-muted-foreground">工作简报夹具</p>
+      <div className="flex flex-wrap gap-1">
+        {briefingScenarios.map(scenarioId => (
+          <Button
+            key={scenarioId}
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8 text-xs"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent('browser-preview:briefing-scenario', { detail: scenarioId }),
+              );
+            }}
+          >
+            {browserPreviewBriefingScenarioLabels[scenarioId]}
+          </Button>
+        ))}
+      </div>
       <div className="flex flex-wrap gap-1">
         {previewViews.map(view => (
           <Button
