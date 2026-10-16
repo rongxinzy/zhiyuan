@@ -7,6 +7,7 @@ import { i18nService } from '../../services/i18n';
 import { coworkService } from '../../services/cowork';
 import type { RootState } from '../../store';
 import PageHeader from '../PageHeader';
+import { formatActivityError } from '../activity/utils';
 import { BriefingTarget } from '../cowork/briefing/constants';
 import { formatBriefingTemplate } from '../cowork/briefing/briefingCopy';
 import { useBriefingData } from '../cowork/briefing/useBriefingData';
@@ -16,6 +17,7 @@ import { buildTaskBoardColumns, type TaskBoardCard } from './taskBoardProjection
 const columnTitleKey: Record<(typeof TaskBoardColumnId)[keyof typeof TaskBoardColumnId], string> = {
   [TaskBoardColumnId.Pending]: 'taskBoardColumnPending',
   [TaskBoardColumnId.InProgress]: 'taskBoardColumnInProgress',
+  [TaskBoardColumnId.NeedsAttention]: 'taskBoardColumnNeedsAttention',
   [TaskBoardColumnId.AwaitingConfirm]: 'taskBoardColumnAwaitingConfirm',
   [TaskBoardColumnId.Completed]: 'taskBoardColumnCompleted',
 };
@@ -30,6 +32,9 @@ interface TaskBoardViewProps {
 }
 
 function resolveCardDetail(card: TaskBoardCard): string {
+  if (card.activityErrorMessage) {
+    return formatActivityError(card.activityErrorMessage);
+  }
   if (card.detailParams) {
     return formatBriefingTemplate(card.detailKey, card.detailParams);
   }
@@ -48,6 +53,7 @@ export function TaskBoardView({
   const permissions = useSelector((state: RootState) => state.cowork.pendingPermissions);
   const activities = useSelector((state: RootState) => state.activity.runs);
   const schedules = useSelector((state: RootState) => state.scheduledTask.tasks);
+  const workspaces = useSelector((state: RootState) => state.workspace.workspaces);
   const [language, setLanguage] = useState(i18nService.getLanguage());
   const [now, setNow] = useState(Date.now);
   const { loading, loadFailed, refresh } = useBriefingData();
@@ -59,9 +65,10 @@ export function TaskBoardView({
         permissions,
         activities,
         schedules,
+        workspaces,
         now,
       }),
-    [sessions, permissions, activities, schedules, now],
+    [sessions, permissions, activities, schedules, workspaces, now],
   );
 
   useEffect(() => i18nService.subscribe(() => setLanguage(i18nService.getLanguage())), []);
@@ -103,7 +110,7 @@ export function TaskBoardView({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="theme-home-caption">{i18nService.t('taskBoardScope')}</p>
             <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
-              {i18nService.t('briefingRefresh')}
+              {i18nService.t('refresh')}
             </Button>
           </div>
           {loading && (
@@ -117,7 +124,7 @@ export function TaskBoardView({
             </p>
           )}
           <div
-            className="grid min-w-[56rem] grid-cols-4 gap-4"
+            className="grid min-w-[70rem] grid-cols-5 gap-4"
             data-testid="task-board-columns"
             lang={language}
           >
@@ -145,6 +152,16 @@ export function TaskBoardView({
                             className={cn('theme-task-board-card flex flex-col')}
                             onClick={() => void openCard(card)}
                           >
+                            {card.showNeedsAttentionPill ? (
+                              <span className="theme-task-board-attention-pill">
+                                {i18nService.t('taskBoardStatusNeedsAttention')}
+                              </span>
+                            ) : null}
+                            {card.projectLabel ? (
+                              <span className="theme-task-board-card-project line-clamp-1">
+                                {card.projectLabel}
+                              </span>
+                            ) : null}
                             <span className="theme-task-board-card-title line-clamp-2">
                               {card.title}
                             </span>

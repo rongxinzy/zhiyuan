@@ -79,6 +79,9 @@ const captures = [
       await page.getByRole('region', { name: '待开始' }).waitFor({ state: 'visible', timeout: 60_000 });
       await page.getByRole('region', { name: '进行中' }).waitFor({ state: 'visible', timeout: 60_000 });
       await page
+        .getByRole('region', { name: '需要处理' })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
         .getByRole('region', { name: '等你确认' })
         .waitFor({ state: 'visible', timeout: 60_000 });
       await page.getByRole('region', { name: '已完成' }).waitFor({ state: 'visible', timeout: 60_000 });
@@ -91,7 +94,16 @@ const captures = [
         state: 'visible',
         timeout: 60_000,
       });
+      await board.getByRole('button', { name: /渠道同步/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
       await board.getByRole('button', { name: /夜间巡检报告/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      const needsAttention = page.getByRole('region', { name: '需要处理' });
+      await needsAttention.getByText('需要处理', { exact: true }).first().waitFor({
         state: 'visible',
         timeout: 60_000,
       });

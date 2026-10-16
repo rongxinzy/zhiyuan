@@ -5173,6 +5173,26 @@
   color: color-mix(in srgb, var(--foreground) 55%, transparent);
   line-height: 1.375;
 }
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-project) {
+  font-size: var(--zy-component-text-xs);
+  font-weight: var(--zy-component-font-weight-medium);
+  color: color-mix(in srgb, var(--foreground) 45%, transparent);
+  line-height: 1.25;
+}
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-attention-pill) {
+  width: fit-content;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--zy-style-radius-sm);
+  font-size: var(--zy-component-text-xs);
+  font-weight: var(--zy-component-font-weight-semibold);
+  letter-spacing: 0.04em;
+  color: var(--destructive);
+  background-color: color-mix(in srgb, var(--destructive) 12%, transparent);
+  border-width: 1px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--destructive) 28%, transparent);
+  line-height: var(--zy-component-text-xs--line-height);
+}
 @media (min-width: 48rem) {
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.peer[data-variant="inset"] ~ .theme-sidebar-inset) {
   border-radius: var(--zy-style-radius-xl);
@@ -8073,7 +8093,9 @@ to {
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-column-title),
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card),
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-title),
-:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-meta) { transition-duration: 0s; animation: none; }
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-meta),
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-project),
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-attention-pill) { transition-duration: 0s; animation: none; }
 }
 }
 :where(:root:not([data-theme]), [data-theme="classic-light"]) [data-sonner-toast].cn-toast {
@@ -13386,6 +13408,26 @@ to {
   color: color-mix(in srgb, var(--foreground) 55%, transparent);
   line-height: 1.375;
 }
+[data-theme="classic-dark"] :where(.theme-task-board-card-project) {
+  font-size: var(--zy-component-text-xs);
+  font-weight: var(--zy-component-font-weight-medium);
+  color: color-mix(in srgb, var(--foreground) 45%, transparent);
+  line-height: 1.25;
+}
+[data-theme="classic-dark"] :where(.theme-task-board-attention-pill) {
+  width: fit-content;
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--zy-style-radius-sm);
+  font-size: var(--zy-component-text-xs);
+  font-weight: var(--zy-component-font-weight-semibold);
+  letter-spacing: 0.04em;
+  color: var(--destructive);
+  background-color: color-mix(in srgb, var(--destructive) 12%, transparent);
+  border-width: 1px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--destructive) 28%, transparent);
+  line-height: var(--zy-component-text-xs--line-height);
+}
 @media (min-width: 48rem) {
 [data-theme="classic-dark"] :where(.peer[data-variant="inset"] ~ .theme-sidebar-inset) {
   border-radius: var(--zy-style-radius-xl);
@@ -16299,7 +16341,9 @@ to {
 [data-theme="classic-dark"] :where(.theme-task-board-column-title),
 [data-theme="classic-dark"] :where(.theme-task-board-card),
 [data-theme="classic-dark"] :where(.theme-task-board-card-title),
-[data-theme="classic-dark"] :where(.theme-task-board-card-meta) { transition-duration: 0s; animation: none; }
+[data-theme="classic-dark"] :where(.theme-task-board-card-meta),
+[data-theme="classic-dark"] :where(.theme-task-board-card-project),
+[data-theme="classic-dark"] :where(.theme-task-board-attention-pill) { transition-duration: 0s; animation: none; }
 }
 }
 [data-theme="classic-dark"] [data-sonner-toast].cn-toast {

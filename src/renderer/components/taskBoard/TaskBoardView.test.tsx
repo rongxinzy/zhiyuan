@@ -6,6 +6,7 @@ import {
   BrowserPreviewBriefingScenarioId,
   resolveBrowserPreviewBriefingScenario,
 } from '../../browser-preview/browserPreviewBriefingScenarios';
+import { browserPreviewWorkspaces } from '../../browser-preview/browserPreviewFixtures';
 import type { RootState } from '../../store';
 import { TaskBoardView } from './TaskBoardView';
 
@@ -48,7 +49,10 @@ vi.mock('../../services/i18n', () => ({
           taskBoardColumnCompleted: '已完成',
           taskBoardColumnEmpty: '暂无条目',
           taskBoardIdleWork: '尚未开始，可随时继续。',
-          briefingRefresh: '刷新',
+          refresh: '刷新',
+          taskBoardColumnNeedsAttention: '需要处理',
+          taskBoardStatusNeedsAttention: '需要处理',
+          activityErrorInterrupted: '上次运行被中断，可打开记录查看已保存的部分结果。',
           briefingLoading: '加载中',
           briefingLoadFailed: '读取失败',
         } as Record<string, string>
@@ -66,6 +70,7 @@ beforeEach(() => {
     cowork: { sessions: scenario.sessionSummaries, pendingPermissions: scenario.pendingPermissions },
     activity: { runs: scenario.activityRuns },
     scheduledTask: { tasks: scenario.scheduledTasks },
+    workspace: { workspaces: browserPreviewWorkspaces },
   } as unknown as RootState;
 });
 
@@ -80,8 +85,11 @@ test('renders four kanban columns with preview fixture cards', () => {
   expect(screen.getByTestId('task-board-columns')).toBeTruthy();
   expect(screen.getByRole('region', { name: '待开始' })).toBeTruthy();
   expect(screen.getByRole('region', { name: '进行中' })).toBeTruthy();
+  expect(screen.getByRole('region', { name: '需要处理' })).toBeTruthy();
   expect(screen.getByRole('region', { name: '等你确认' })).toBeTruthy();
   expect(screen.getByRole('region', { name: '已完成' })).toBeTruthy();
   expect(screen.getByText('侧栏 Phase 1 走查')).toBeTruthy();
   expect(screen.getByText('发布流水线预检')).toBeTruthy();
+  expect(screen.getAllByText('知远客户端').length).toBeGreaterThan(0);
+  expect(screen.getByRole('button', { name: /渠道同步/ })).toBeTruthy();
 });

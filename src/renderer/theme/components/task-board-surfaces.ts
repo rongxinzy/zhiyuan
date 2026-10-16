@@ -67,5 +67,28 @@ export function taskBoardAppearances() {
         'line-height': '1.375',
       },
     }),
+    'task-board-card-project': recipe({
+      base: {
+        'font-size': 'var(--zy-component-text-xs)',
+        'font-weight': 'var(--zy-component-font-weight-medium)',
+        color: 'color-mix(in srgb, var(--foreground) 45%, transparent)',
+        'line-height': '1.25',
+      },
+    }),
+    'task-board-attention-pill': recipe({
+      base: {
+        width: 'fit-content',
+        padding: '0.125rem 0.375rem',
+        'border-radius': 'var(--zy-style-radius-sm)',
+        'font-size': 'var(--zy-component-text-xs)',
+        'font-weight': 'var(--zy-component-font-weight-semibold)',
+        'letter-spacing': '0.04em',
+        color: 'var(--destructive)',
+        'background-color': 'color-mix(in srgb, var(--destructive) 12%, transparent)',
+        'border-width': '1px',
+        'border-style': 'solid',
+        'border-color': 'color-mix(in srgb, var(--destructive) 28%, transparent)',
+      },
+    }),
   };
 }
