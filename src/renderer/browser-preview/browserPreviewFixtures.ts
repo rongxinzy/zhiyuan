@@ -399,7 +399,7 @@ export const browserPreviewScheduledTasks: ScheduledTask[] = [
     state: {
       nextRunAtMs: minutesFromNow(90),
       lastRunAtMs: hoursAgo(24),
-      lastStatus: TaskStatus.Completed,
+      lastStatus: TaskStatus.Success,
       lastError: null,
       lastDurationMs: 45_000,
       runningAtMs: null,
@@ -422,7 +422,7 @@ export const browserPreviewScheduledTasks: ScheduledTask[] = [
     state: {
       nextRunAtMs: minutesFromNow(26 * 60),
       lastRunAtMs: hoursAgo(168),
-      lastStatus: TaskStatus.Completed,
+      lastStatus: TaskStatus.Success,
       lastError: null,
       lastDurationMs: 120_000,
       runningAtMs: null,

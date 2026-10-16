@@ -50,5 +50,8 @@ test('browser preview mock exposes rich fixtures for main views', async () => {
     BrowserPreviewFixtureId.SessionRoadmap,
   );
   expect(workDocument.success).toBe(true);
-  expect(workDocument.data?.goal).toContain('Phase 1');
+  if (!workDocument.success) {
+    throw new Error('expected work document fixture');
+  }
+  expect(workDocument.data.goal).toContain('Phase 1');
 });
