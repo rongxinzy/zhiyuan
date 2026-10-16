@@ -71,6 +71,33 @@ const captures = [
     },
   },
   {
+    slug: 'task-board',
+    navigate: 'taskBoard',
+    wait: async page => {
+      await page.getByTestId('task-board-columns').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByTestId('sidebar-task-board').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('region', { name: '待开始' }).waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('region', { name: '进行中' }).waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: '等你确认' })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('region', { name: '已完成' }).waitFor({ state: 'visible', timeout: 60_000 });
+      const board = page.getByTestId('task-board-columns');
+      await board.getByRole('button', { name: /侧栏 Phase 1 走查/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      await board.getByRole('button', { name: /发布流水线预检/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      await board.getByRole('button', { name: /夜间巡检报告/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+    },
+  },
+  {
     slug: 'local-inference',
     navigate: 'localInference',
     wait: async page => {

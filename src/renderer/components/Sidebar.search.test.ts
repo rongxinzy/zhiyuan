@@ -95,6 +95,7 @@ const props = () => ({
   onShowExpert: vi.fn(),
   onShowCoding: vi.fn(),
   onShowTodo: vi.fn(),
+  onShowTaskBoard: vi.fn(),
   onNewChat: vi.fn(),
   onToggleCollapse: vi.fn(),
   codingSelection: null as never,

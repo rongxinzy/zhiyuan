@@ -1,12 +1,13 @@
 import { Button } from '@shared/components/ui/button';
 import { Switch } from '@shared/components/ui/switch';
 import { cn } from '@shared/lib/utils';
-import { Bot, MessageCirclePlus, Plus } from 'lucide-react';
+import { Bot, LayoutGrid, MessageCirclePlus, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 const icons = {
   conversation: MessageCirclePlus,
   localInference: Bot,
+  taskBoard: LayoutGrid,
 };
 
 export interface SidebarNavigationEntry {

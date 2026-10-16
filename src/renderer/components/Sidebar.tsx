@@ -70,6 +70,7 @@ interface SidebarProps {
   onShowExpert: () => void;
   onShowCoding: () => void;
   onShowTodo: () => void;
+  onShowTaskBoard: () => void;
   codingSelection: CodingSidebarSelection;
   onCodingSelectionChange: (selection: CodingSidebarSelection) => void;
   onNewChat: () => void;
@@ -98,6 +99,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onShowExpert: _onShowExpert,
   onShowCoding: _onShowCoding,
   onShowTodo: _onShowTodo,
+  onShowTaskBoard,
   codingSelection,
   onCodingSelectionChange,
   onNewChat,
@@ -429,6 +431,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               activeView={activeView}
               onNewChat={onNewChat}
               onShowLocalInference={onShowLocalInference}
+              onShowTaskBoard={onShowTaskBoard}
               onWorkModeChange={handleWorkModeChange}
               workMode={workMode}
               managedModelsOnly={managedModelsOnly}

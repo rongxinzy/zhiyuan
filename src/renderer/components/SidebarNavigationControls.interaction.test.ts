@@ -31,6 +31,7 @@ const props = () => ({
   workMode: WorkMode.Work,
   onNewChat: vi.fn(),
   onShowLocalInference: vi.fn(),
+  onShowTaskBoard: vi.fn(),
   onWorkModeChange: vi.fn(),
   onPrefetchView: vi.fn(),
 });
@@ -61,6 +62,14 @@ test('keeps slim primary navigation and local inference routing', async () => {
   expect(screen.queryByRole('button', { name: 'expert' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'historyTitle' })).toBeNull();
   expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active', 'true');
+  expect(screen.getByTestId('sidebar-task-board')).toBeTruthy();
+
+  handlers.onPrefetchView.mockClear();
+  const taskBoard = screen.getByRole('button', { name: 'taskBoardTitle' });
+  await user.hover(taskBoard);
+  expect(handlers.onPrefetchView).toHaveBeenCalledWith('taskBoard');
+  await user.click(taskBoard);
+  expect(handlers.onShowTaskBoard).toHaveBeenCalledTimes(1);
 
   await user.click(screen.getByTestId('sidebar-new-conversation'));
   expect(mocks.clearWorkspaceSelection).toHaveBeenCalledTimes(1);
