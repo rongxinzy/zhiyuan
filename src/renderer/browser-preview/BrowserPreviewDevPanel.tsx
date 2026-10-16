@@ -7,10 +7,10 @@ import {
 
 const previewViews = [
   { id: 'cowork', label: '会话与工作' },
+  { id: 'taskBoard', label: '任务看板' },
   { id: 'localInference', label: '本地推理' },
   { id: 'skillsMcp', label: '技能与 MCP' },
   { id: 'settings', label: '设置' },
-  { id: 'todo', label: '待办' },
   { id: 'scheduledTasks', label: '计划任务' },
   { id: 'activity', label: '活动' },
   { id: 'coding', label: '编程' },

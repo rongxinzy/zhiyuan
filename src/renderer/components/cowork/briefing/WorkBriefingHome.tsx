@@ -200,7 +200,7 @@ export function WorkBriefingHome({
                     aria-label={`${i18nService.t(section.title)} · ${section.count}`}
                     className="flex min-w-0 flex-col gap-4"
                   >
-                    <h2 className="theme-card-title">
+                    <h2 className="theme-briefing-section-title">
                       {i18nService.t(section.title)} · {section.count}
                     </h2>
                     {section.items.length === 0 ? (
@@ -218,8 +218,11 @@ export function WorkBriefingHome({
                         {page.items.map(item => {
                           const detail = resolveItemDetail(item);
                           return (
-                            <li key={item.id} className="flex min-w-0 flex-col gap-2">
-                              <p className="theme-card-title break-words">
+                            <li
+                              key={item.id}
+                              className="theme-briefing-item flex min-w-0 flex-col gap-2"
+                            >
+                              <p className="theme-briefing-item-headline break-words">
                                 {resolveItemHeadline(item)}
                               </p>
                               <p

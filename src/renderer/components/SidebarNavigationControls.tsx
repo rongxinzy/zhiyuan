@@ -15,12 +15,14 @@ export type SidebarActiveView =
   | 'expert'
   | 'coding'
   | 'todo'
+  | 'taskBoard'
   | 'history';
 
 interface SidebarNavigationControlsProps {
   activeView: SidebarActiveView;
   onNewChat: () => void;
   onShowLocalInference: () => void;
+  onShowTaskBoard: () => void;
   onWorkModeChange: (checked: boolean) => void;
   workMode: WorkMode;
   managedModelsOnly?: boolean;
@@ -32,6 +34,7 @@ const WORK_SURFACE_VIEWS = new Set<SidebarActiveView>([
   'cowork',
   'coding',
   'todo',
+  'taskBoard',
   'scheduledTasks',
   'activity',
   'history',
@@ -41,6 +44,7 @@ export const SidebarNavigationControls = ({
   activeView,
   onNewChat,
   onShowLocalInference,
+  onShowTaskBoard,
   onWorkModeChange,
   workMode,
   managedModelsOnly = false,
@@ -52,6 +56,18 @@ export const SidebarNavigationControls = ({
     onNewChat();
   };
   const entries: SidebarNavigationEntry[] = [];
+  if (!isChat) {
+    entries.push({
+      id: 'taskBoard',
+      icon: 'taskBoard',
+      label: i18nService.t('taskBoardTitle'),
+      onClick: onShowTaskBoard,
+      active: activeView === 'taskBoard',
+      currentPage: activeView === 'taskBoard',
+      testId: 'sidebar-task-board',
+      onIntent: () => onPrefetchView?.('taskBoard'),
+    });
+  }
   if (shouldShowLocalInferenceNavigation(isChat, managedModelsOnly)) {
     entries.push({
       id: 'localInference',

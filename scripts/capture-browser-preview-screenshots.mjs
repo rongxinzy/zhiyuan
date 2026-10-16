@@ -71,6 +71,56 @@ const captures = [
     },
   },
   {
+    slug: 'task-board',
+    navigate: 'taskBoard',
+    wait: async page => {
+      await page.getByTestId('task-board-columns').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByTestId('sidebar-task-board').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('region', { name: '待开始' }).waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('region', { name: '进行中' }).waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: '需要处理' })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByRole('region', { name: '等你确认' })
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('region', { name: '已完成' }).waitFor({ state: 'visible', timeout: 60_000 });
+      const board = page.getByTestId('task-board-columns');
+      await board.getByRole('button', { name: /侧栏 Phase 1 走查/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      await board.getByRole('button', { name: /发布流水线预检/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      await board.getByRole('button', { name: /渠道同步/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      await board.getByRole('button', { name: /夜间巡检报告/ }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      const needsAttention = page.getByRole('region', { name: '需要处理' });
+      await needsAttention.getByText('需要处理', { exact: true }).first().waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      await board.getByRole('button', { name: /侧栏 Phase 1 走查/ }).click();
+      await page.getByTestId('task-board-detail-panel').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByTestId('task-board-thread').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByText('请把 Phase 1 导航截图补进验收包').waitFor({ state: 'visible', timeout: 60_000 });
+      const scroll = page.getByTestId('task-board-scroll');
+      await scroll.evaluate(el => {
+        if (el.scrollWidth > el.clientWidth) {
+          el.scrollLeft = el.scrollWidth - el.clientWidth;
+        }
+      });
+      await board.getByRole('region', { name: '已完成' }).waitFor({ state: 'visible', timeout: 60_000 });
+    },
+  },
+  {
     slug: 'local-inference',
     navigate: 'localInference',
     wait: async page => {

@@ -137,7 +137,7 @@ const roadmapMessages: CoworkMessage[] = [
     id: 'msg-roadmap-5',
     type: 'assistant',
     content:
-      '## 本季度要点\n\n1. **导航收敛**：主侧栏保留「会话与工作」「本地推理」，技能/MCP 与设置固定底部。\n2. **Work 首页**：以简报聚合进行中的会话、活动与计划任务。\n3. **本地推理**：统一模型目录、运行态与 Magpie 云模型切换。\n\n下一步建议先完成浏览器预览夹具，便于设计验收。',
+      '## 本季度要点\n\n1. **导航收敛**：主侧栏保留「会话与工作」「任务看板」「本地推理」，技能/MCP 与设置固定底部。\n2. **Work 首页**：以简报聚合进行中的会话、活动与计划任务；任务看板按状态分列。\n3. **本地推理**：统一模型目录、运行态与 Magpie 云模型切换。\n\n下一步建议先完成浏览器预览夹具，便于设计验收。',
     timestamp: hoursAgo(1),
     sequence: 5,
     metadata: { isFinalAnswer: true, model: 'qwen3-235b-cloud' },
@@ -210,6 +210,19 @@ export const browserPreviewSessionSummaries: CoworkSessionSummary[] = [
     agentId: BrowserPreviewFixtureId.AgentMain,
     createdAt: hoursAgo(24),
     updatedAt: hoursAgo(2.8),
+  },
+  {
+    id: 'preview-session-release-pipeline',
+    title: '发布流水线预检',
+    status: CoworkSessionStatus.Running,
+    mode: CoworkSessionMode.Work,
+    source: CoworkSessionSource.Manual,
+    pinned: false,
+    workspaceId: BrowserPreviewFixtureId.WorkspaceMain,
+    agentId: BrowserPreviewFixtureId.AgentMain,
+    createdAt: hoursAgo(2),
+    updatedAt: hoursAgo(0.15),
+    runStartedAt: hoursAgo(0.15),
   },
   {
     id: 'preview-session-ui-review',
@@ -399,7 +412,7 @@ export const browserPreviewScheduledTasks: ScheduledTask[] = [
     state: {
       nextRunAtMs: minutesFromNow(90),
       lastRunAtMs: hoursAgo(24),
-      lastStatus: TaskStatus.Completed,
+      lastStatus: TaskStatus.Success,
       lastError: null,
       lastDurationMs: 45_000,
       runningAtMs: null,
@@ -422,7 +435,7 @@ export const browserPreviewScheduledTasks: ScheduledTask[] = [
     state: {
       nextRunAtMs: minutesFromNow(26 * 60),
       lastRunAtMs: hoursAgo(168),
-      lastStatus: TaskStatus.Completed,
+      lastStatus: TaskStatus.Success,
       lastError: null,
       lastDurationMs: 120_000,
       runningAtMs: null,
@@ -564,7 +577,10 @@ const browserPreviewDurableWorkSeed: Record<string, DurableWorkSnapshot> = {
 const browserPreviewWorkDocumentSeed: Record<string, WorkDocument> = {
   [BrowserPreviewFixtureId.SessionRoadmap]: {
     goal: '完成 Phase 1 侧栏收敛，并让浏览器预览接近真实产品密度。',
-    agreements: ['主 nav 仅保留「会话与工作」「本地推理」', '底部固定「技能与 MCP」「设置」'],
+    agreements: [
+      '主 nav 保留「会话与工作」「任务看板」「本地推理」',
+      '底部固定「技能与 MCP」「设置」',
+    ],
     decisions: ['预览使用 rich IPC 夹具，不调用真实主进程'],
     progress: ['侧栏布局已验收', '预览截图改为 1440×900 全窗口'],
     revision: 3,

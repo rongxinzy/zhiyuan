@@ -144,6 +144,8 @@ export const CoworkStreamIpc = {
   UiEvent: 'cowork:stream:uiEvent',
   SessionsChanged: 'cowork:sessions:changed',
 } as const;
+
+export { TaskBoardIpc } from '../taskBoard/constants';
 export type CoworkStreamIpc = (typeof CoworkStreamIpc)[keyof typeof CoworkStreamIpc];
 
 // ─── Project (working directory helpers) ────────────────────────────────────

@@ -48,6 +48,17 @@ export const browserPreviewBriefingPendingPermissions: CoworkPermissionRequest[]
 const fullActivityRuns: ActivityRun[] = [
   ...browserPreviewActivityRuns,
   {
+    id: 'activity-running-release',
+    source: ActivitySource.ScheduledTask,
+    status: ActivityStatus.Running,
+    startedAt: hoursAgo(0.2),
+    updatedAt: hoursAgo(0.05),
+    sessionId: 'preview-session-release-pipeline',
+    taskName: '发布流水线预检',
+    inputPreview: '校验 electron-builder 产物与签名配置',
+    replyPreview: '正在对比 manifest 与上次发布记录…',
+  },
+  {
     id: 'activity-gpu-batch-1',
     source: ActivitySource.ScheduledTask,
     status: ActivityStatus.Completed,

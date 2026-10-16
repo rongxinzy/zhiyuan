@@ -12,6 +12,7 @@ export type PrefetchableFeatureView =
   | 'localInference'
   | 'expert'
   | 'todo'
+  | 'taskBoard'
   | 'history';
 
 export const prefetchFeatureView = (view: PrefetchableFeatureView): void => {
@@ -39,6 +40,9 @@ export const prefetchFeatureView = (view: PrefetchableFeatureView): void => {
       break;
     case 'todo':
       void import('./todo/TodoView').catch(() => undefined);
+      break;
+    case 'taskBoard':
+      void import('./taskBoard/TaskBoardView').catch(() => undefined);
       break;
   }
 };

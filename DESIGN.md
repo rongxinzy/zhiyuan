@@ -1,7 +1,7 @@
 # DESIGN.md - 知远智能体 (ZhiYuan Agent) 前端设计规范与工程约束
 
-> **版本**：v2.0（Codex & Modern Agent Studio 标准）
-> **更新日期**：2026-10-13
+> **版本**：v2.2（MonoCode-inspired studio）
+> **更新日期**：2026-10-16
 > **定位**：项目级强制约束。所有新增和修改的前端界面必须遵守，与 `AGENTS.md` 的工程规则配套使用。
 > **设计基准**：参考 Codex、Kimi、Raycast、Cursor 的现代桌面客户端设计语言：极简克制、内容优先、层次明确、对齐精确。
 
@@ -24,7 +24,7 @@
 
 ## 二、核心原则与工程归属
 
-1. **界面退后，内容向前。** Codex 主题骨架采用中性冷石墨色阶，品牌蓝为唯一主强调色；红、绿、黄只表达状态。禁止装饰性高饱和色、发光与多色卡片。
+1. **界面退后，内容向前。** 默认外观采用 MonoCode 式无饱和 HSL 中性底（`hue 240 / sat 0%` 的等价灰阶）：画布与侧栏同色，层级靠 `content` 墨水比例 mix（5–20%）而非彩色 surface。实体主按钮在深色为白底黑字、浅色为墨底纸字；`--zy-primary` 只服务链接、焦点与 accent 环。红、绿、黄只表达状态。禁止装饰性高饱和色、发光与多色卡片。
 2. **留白与字重建立层级。** 分组优先靠间距，强调使用 500/600 字重；表面按 `background`、`surface`、`surface-raised`、`surface-overlay` 分工，避免厚边框与层层套卡片。
 3. **工作首页以真实进展为中心，对话以输入为中心。** 工作首页展示工作简报，输入区常驻底部作为辅助入口；对话、项目和会话保留同一输入流程，模式、权限、模型与上下文状态就近呈现。功能页保持自己的操作层级，不重复堆叠 Hero。
 4. **默认外观同时设计明暗。** 浅色、深色与跟随系统共用 DOM 和业务逻辑，不为某个主题复制页面，不提供独立颜色、字体、背景、圆角或透明度设置。
@@ -58,25 +58,46 @@ UI 实现前先查现成组件，并参考 `shadcn`、`ai-elements`、`rongxinai
 
 ## 三、色彩与 Token 契约
 
-### Codex 浅色目标色板
+### MonoCode-inspired 色板（v2.2）
 
-以下从设计建议的备选值中确定单一目标值；HEX 仅供主题作者落实 token，禁止复制到业务组件。深色须提供完整的对应角色，不通过 `dark:` 局部补丁实现。
+**参考与许可**：视觉语言参考 [MonoCode](https://github.com/hardbeat920/monocode)（MIT License © 2026 Nick）与 [usemono.dev](https://www.usemono.dev/)。知远为 AGPL-3.0：仅研究其 token 结构与 UI 行为，在 `classic-light.ts` / `classic-dark.ts` 与 recipe 中**重新实现**，不拷贝其源码、图标或打包资产。对照截图：`docs/theme-previews/monocode-reference.jpg`（上游 `docs/screenshot.jpg`）。
 
-| 角色 | CSS 变量 | Light 目标 | 用途 |
-| --- | --- | --- | --- |
-| 画布底层 | `--zy-background` | `#FFFFFF` | 应用视口与内容画布 |
-| 基础表面 | `--zy-surface` | `#FAFAFA` | 侧栏、卡片默认底色、输入区外围表面 |
-| 浮起表面 | `--zy-surface-raised` | `#F1F3F5` | hover、次级标签、开关轨道 |
-| 覆盖浮层 | `--zy-surface-overlay` | `#FFFFFF` | 菜单、Popover、搜索弹层；配 1px 边框 |
-| 主文本 | `--zy-text-primary` / `--zy-foreground` | `#1E293B` | 正文、标题、激活项 |
-| 次文本 | `--zy-text-secondary` | `#64748B` | 辅助说明、占位符、快捷键、时间戳 |
-| 弱文本 | `--zy-text-muted` | `#94A3B8` | 禁用内容；不得用于必须读清的正文或状态 |
-| 微边框 | `--zy-border` | `#E2E8F0` | 常规 1px 分隔与描边 |
-| 弱边框 | `--zy-border-subtle` | `#F1F5F9` | 非必要的内部细分隔；不承担唯一控件识别 |
-| 品牌强调 | `--zy-primary` / `--zy-primary-strong` | `#0F6BF2` | 主动作、激活链接及焦点反馈 |
-| 品牌微背景 | `--zy-primary-muted` | `#EFF6FF` | 已定义强调语义的轻背景；不普遍铺满选中项 |
+**设计 rationale（2026-10-16）**
 
-`primary-hover`、`destructive`、`success`、`warning` 及对应前景色继续由默认明暗 token 完整定义。`primary-strong` 与 `primary` 保持独立角色：深色可以提亮链接/图标，同时保留适合浅色按钮文字的实色背景。`text-muted-foreground` 等 shadcn 映射跟随相应语义角色。
+- **中性底**：等价 MonoCode `hsl(240 0% L%)` — 浅 `L=97%`、深 `L=9%`；`--zy-surface` 与 `--zy-background` 对齐，侧栏不再用独立灰块。
+- **Stroke / selection**：边框为 content 7% mix（`--zy-border`）；hover/选中 5–10% content mix（侧栏 recipe、`--zy-surface-raised`）。
+- **Accent**：链接与 focus 使用 accent 族（浅 `#0870CC`、深 `#7DD3FC`）；`--zy-ring` 为 `#3B9EFF`。
+- **主按钮**：映射 MonoCode `.primary-action` — 浅墨底纸字、深白底黑字（`button-default` recipe）。
+- **滚动条**：全局隐藏原生滚动条（`components.css`），保留滚动。
+- **动效**：120ms、`cubic-bezier(0.22, 1, 0.36, 1)` 用于侧栏与 composer。
+
+| 角色 | CSS 变量 | Light 目标 | Dark 目标 | 用途 |
+| --- | --- | --- | --- | --- |
+| 画布 / 表面 | `--zy-background` / `--zy-surface` | `#F7F7F8` | `#171717` | 画布、侧栏、设置 |
+| 浮起 | `--zy-surface-raised` | `#EBEBED` | `#262626` | hover、选中 |
+| 主文本 | `--zy-foreground` | `#2E2E30` | `#EBEBEB` | 正文、标题 |
+| 次文本 | `--zy-text-muted-foreground` | `#69696D` | `#A8A8AD` | 说明、时间戳 |
+| Stroke | `--zy-border` | `#E3E3E6` | `#2A2A2A` | 1px 分隔 |
+| 链接 | `--zy-primary-strong` | `#0870CC` | `#7DD3FC` | 链接 |
+| Focus | `--zy-ring` | `#3B9EFF` | `#3B9EFF` | 焦点环 |
+| 用户气泡（浅） | `--zy-chat-user` | `#0A0A0A` | raised | 用户消息 |
+
+#### MonoCode 元素 → 知远 token / 组件
+
+| MonoCode（概念） | 知远实现 |
+| --- | --- |
+| `--color-background-base` / `--color-content` | `--zy-background`、`--zy-foreground` |
+| `--color-stroke` | `--zy-border` + sidebar stroke mix |
+| `--color-selection-*` | `--zy-surface-raised`、`shell-sidebar-nav-selected` |
+| `--color-accent` / `--link-color` | `--zy-primary-strong`、`--zy-ring` |
+| `.primary-action` | `button-default` recipe |
+| `.sidebar-glass` 同色底 | `--semantic-sidebar` = background |
+| Composer 浅阴影 | `composer-input-surface` recipe |
+| `.agent-chat-user-bubble` | `--zy-chat-user`、`message-cowork-user` |
+| 隐藏滚动条 | `components.css` |
+| 简报条目 | `work-briefing-surfaces.ts` → `.theme-briefing-*` |
+
+仍仅 **light / dark / system**；不提供 MonoCode 的 hue/sat 用户滑条。`destructive` / `success` / `warning` 由明暗 token 完整定义。
 
 ### 使用规则
 
@@ -305,7 +326,7 @@ Codex 基准 `--zy-radius` 为 10px；各派生 token 按下表确定，不依�
 - 对外统一使用“知远智能体 (ZhiYuan Agent)”，不恢复旧名称。内部引擎和传输实现不进入品牌或普通界面文案。
 - 欢迎 Hero 使用正式“知远”字标及右上蓝色实心圆点，字标视觉高度目标约 48px；这是资产尺寸，不是额外界面字号。浅色用正式深色字标，深色使用可读的正式反白版本，保留蓝点。
 - 顶栏与侧栏使用正式紧凑品牌组合（图形标识与知远 / ZhiYuan 标准字）。缺少目标资产时先补正式资产，不用系统字体拼字或手绘图标冒充 Logo。
-- 品牌圆点沿用资产原色；控件主色目标为 `#0F6BF2`，二者职责不同。禁止主题把品牌圆点改成红色、橙色或其他强调色，禁止拉伸、压扁或替换字标字体。
+- 品牌圆点沿用资产原色；实体主按钮为墨/白反转（见 `button-default`），链接 accent 为 `#0870CC`（浅）/ `#7DD3FC`（深）。禁止主题把品牌圆点改成红色、橙色或其他强调色，禁止拉伸、压扁或替换字标字体。
 - 内容区初始化继续复用 `LogoLoadingState`，只在其既定加载用途使用正式单色衍生轮廓；它不替代导航和 Hero 的标准品牌组合。后续对齐时保证品牌识别与明暗可读性。
 
 ## 八、动效、交互状态与连续性

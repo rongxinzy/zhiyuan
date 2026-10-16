@@ -85,6 +85,7 @@ const CodingWorkbenchView = React.lazy(() =>
   import('./components/coding').then(module => ({ default: module.CodingWorkbenchView })),
 );
 const TodoView = React.lazy(() => import('./components/todo/TodoView'));
+const TaskBoardView = React.lazy(() => import('./components/taskBoard/TaskBoardView'));
 const SkillsAndMcpView = React.lazy(() => import('./components/skillsMcp/SkillsAndMcpView'));
 
 /**
@@ -122,6 +123,7 @@ const App: React.FC = () => {
     | 'expert'
     | 'coding'
     | 'todo'
+    | 'taskBoard'
     | 'history'
   >('cowork');
   const historyNavigation = useRef(0);
@@ -554,6 +556,10 @@ const App: React.FC = () => {
     setMainView('todo');
   }, []);
 
+  const handleShowTaskBoard = useCallback(() => {
+    setMainView('taskBoard');
+  }, []);
+
   const handleToggleSidebar = useCallback(() => {
     setIsSidebarCollapsed(prev => !prev);
   }, []);
@@ -894,6 +900,7 @@ const App: React.FC = () => {
             onShowExpert={handleShowExpert}
             onShowCoding={handleShowCoding}
             onShowTodo={handleShowTodo}
+            onShowTaskBoard={handleShowTaskBoard}
             codingSelection={codingSelection}
             onCodingSelectionChange={setCodingSelection}
             onNewChat={handleNewChat}
@@ -1003,6 +1010,14 @@ const App: React.FC = () => {
                       onToggleSidebar={handleToggleSidebar}
                       onNewChat={handleNewChat}
                       updateBadge={null}
+                    />
+                  ) : mainView === 'taskBoard' ? (
+                    <TaskBoardView
+                      isSidebarCollapsed={isSidebarCollapsed}
+                      onToggleSidebar={handleToggleSidebar}
+                      onNewChat={handleNewChat}
+                      updateBadge={null}
+                      onShowScheduledTasks={handleShowScheduledTasks}
                     />
                   ) : mainView === 'skillsMcp' ? (
                     <SkillsAndMcpView

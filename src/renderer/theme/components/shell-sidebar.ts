@@ -1,7 +1,8 @@
 import { recipe } from './recipe';
 
+const stroke = 'color-mix(in srgb, var(--sidebar-foreground) 7%, transparent)';
 const surface = (amount: number) =>
-  `color-mix(in oklab, var(--sidebar-foreground) ${amount}%, transparent)`;
+  `color-mix(in srgb, var(--sidebar-foreground) ${amount}%, transparent)`;
 const feedback = {
   'transition-property': 'color, background-color, box-shadow, translate',
   'transition-duration': '120ms',
@@ -22,7 +23,7 @@ export function shellSidebarAppearances() {
         color: 'var(--sidebar-foreground)',
         'border-right-width': '1px',
         'border-style': 'solid',
-        'border-color': 'var(--zy-border-subtle)',
+        'border-color': stroke,
       },
     }),
     'shell-sidebar-header': recipe({
@@ -31,7 +32,7 @@ export function shellSidebarAppearances() {
         'padding-inline': '0.5rem',
         'border-bottom-width': '1px',
         'border-style': 'solid',
-        'border-color': 'var(--zy-border-subtle)',
+        'border-color': stroke,
       },
     }),
     'shell-sidebar-logo': recipe({ base: { height: '1rem' } }),
@@ -54,7 +55,7 @@ export function shellSidebarAppearances() {
         'padding-block': '0.5rem',
         'border-top-width': '1px',
         'border-style': 'solid',
-        'border-color': 'var(--zy-border-subtle)',
+        'border-color': stroke,
       },
     }),
     'shell-sidebar-nav': recipe({

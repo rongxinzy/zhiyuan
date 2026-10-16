@@ -20,6 +20,7 @@ import {
   CoworkQueueIpc,
   CoworkSessionIpc,
   CoworkStreamIpc,
+  TaskBoardIpc,
   DialogIpc,
   EnterpriseIpc,
   HardwareIpc,
@@ -881,5 +882,10 @@ contextBridge.exposeInMainWorld('electron', {
   activity: {
     list: () => ipcRenderer.invoke(ActivityIpc.List),
     onUpdated: (callback: (run: ActivityRun) => void) => onPush(ActivityIpc.Updated, callback),
+  },
+
+  taskBoard: {
+    onWorkEvent: (callback: (event: import('../shared/taskBoard/constants').TaskBoardWorkEvent) => void) =>
+      onPush(TaskBoardIpc.WorkEvent, callback),
   },
 });

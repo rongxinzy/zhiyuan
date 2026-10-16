@@ -34,10 +34,10 @@ export function classicMessageSurfaces() {
     'message-role-user': recipe({
       base: {
         'border-radius': 'var(--zy-style-radius-lg)',
-        'background-color': 'var(--secondary)',
+        'background-color': 'var(--zy-chat-user)',
         'padding-inline': '1rem',
         'padding-block': '0.75rem',
-        color: 'var(--foreground)',
+        color: 'var(--zy-chat-user-foreground)',
       },
     }),
     'message-role-assistant': recipe({ base: { color: 'var(--foreground)' } }),
@@ -50,19 +50,21 @@ export function classicMessageSurfaces() {
     }),
     'composer-surface': recipe({
       base: {
-        'border-radius': 'var(--zy-style-radius-3xl)',
+        'border-radius': 'var(--zy-style-radius-lg)',
         'box-shadow': 'var(--zy-style-shadow-sm)',
-        'transition-property': 'box-shadow',
-        'transition-duration': '150ms',
-        'transition-timing-function': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        'transition-property': 'box-shadow, border-color',
+        'transition-duration': '120ms',
+        'transition-timing-function': 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
       composerFocus: { 'box-shadow': 'var(--zy-style-shadow-md)' },
     }),
     'composer-input-surface': recipe({
       base: {
-        'border-radius': 'var(--zy-style-radius-3xl)',
-        'background-color': 'var(--zy-surface-overlay)',
-        'border-color': 'var(--border)',
+        'border-radius': 'var(--zy-style-radius-lg)',
+        'background-color': 'var(--background)',
+        'border-color': 'color-mix(in srgb, var(--foreground) 10%, transparent)',
+        'box-shadow':
+          '0 6px 24px color-mix(in srgb, var(--foreground) 9%, transparent), 0 2px 6px color-mix(in srgb, var(--foreground) 6%, transparent)',
       },
       groupFocus: { 'border-color': 'var(--ring)', 'box-shadow': 'none' },
       composerFocus: { 'border-color': 'var(--ring)', 'box-shadow': 'none' },
@@ -81,11 +83,11 @@ export function classicMessageSurfaces() {
     'message-cowork-user': recipe({
       base: {
         ...bubble,
-        'border-radius': 'var(--zy-style-radius-2xl)',
+        'border-radius': 'var(--zy-style-radius-lg)',
         'border-bottom-right-radius': 'var(--zy-style-radius-md)',
-        'background-color': 'var(--secondary)',
+        'background-color': 'var(--zy-chat-user)',
         'font-size': 'var(--zy-component-text-sm)',
-        color: 'var(--foreground)',
+        color: 'var(--zy-chat-user-foreground)',
       },
     }),
   };
