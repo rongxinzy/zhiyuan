@@ -2,9 +2,9 @@ import { AppUpdateStatus } from '../../shared/appUpdate/constants';
 import { ManagedProviderAccessMode } from '../../shared/managedProviders';
 import { CONFIG_KEYS, defaultConfig, type AppConfig } from '../config';
 
+import { browserPreviewBriefingRuntime } from './browserPreviewBriefingScenarios';
 import {
   BrowserPreviewFixtureId,
-  browserPreviewActivityRuns,
   browserPreviewAgents,
   browserPreviewLlamaStatus,
   browserPreviewLocalModels,
@@ -119,7 +119,17 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
       setSubscriptionAccounts: async () => browserPreviewMagpieCatalog.status,
     },
     activity: {
-      list: async () => ({ success: true, runs: browserPreviewActivityRuns }),
+      list: async () => {
+        const { activityListDelayMs, activityListSuccess, activityRuns } =
+          browserPreviewBriefingRuntime.config;
+        if (activityListDelayMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, activityListDelayMs));
+        }
+        if (!activityListSuccess) {
+          return { success: false as const, runs: [] };
+        }
+        return { success: true as const, runs: activityRuns };
+      },
       onUpdated: noopUnsub,
     },
     agents: {
@@ -157,7 +167,10 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
       listSessions: async (
         options?: Parameters<typeof filterBrowserPreviewSessionSummaries>[0],
       ) => {
-        const { sessions, hasMore } = filterBrowserPreviewSessionSummaries(options);
+        const { sessions, hasMore } = filterBrowserPreviewSessionSummaries({
+          ...options,
+          summaries: browserPreviewBriefingRuntime.config.sessionSummaries,
+        });
         return { success: true, sessions, hasMore };
       },
       getSession: async (sessionId: string) => {
@@ -330,7 +343,10 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
       deleteStep: async () => ({ success: true }),
     },
     scheduledTasks: {
-      list: async () => ({ success: true, tasks: browserPreviewScheduledTasks }),
+      list: async () => ({
+        success: true,
+        tasks: browserPreviewBriefingRuntime.config.scheduledTasks,
+      }),
       get: async (id: string) => {
         const task = browserPreviewScheduledTasks.find(entry => entry.id === id);
         return task

@@ -30,7 +30,8 @@ test('browser preview mock exposes rich fixtures for main views', async () => {
   expect(session.session?.messages.length).toBeGreaterThan(2);
 
   const activity = await electron.activity.list();
-  expect(activity.runs?.length).toBeGreaterThan(0);
+  expect(activity.success).toBe(true);
+  expect(activity.runs?.length).toBeGreaterThan(2);
 
   const tasks = await electron.scheduledTasks.list();
   expect(tasks.tasks?.length).toBeGreaterThan(0);

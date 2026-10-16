@@ -32,6 +32,11 @@ import {
 } from './services/availableModels';
 import { ZhiyuanModelPoolEvent } from '../shared/modelPool/constants';
 import { configService } from './services/config';
+import { switchBrowserPreviewBriefingScenario } from './browser-preview/applyBrowserPreviewBriefingToStore';
+import {
+  BrowserPreviewBriefingScenarioId,
+  type BrowserPreviewBriefingScenarioId as BriefingScenarioId,
+} from './browser-preview/browserPreviewBriefingScenarios';
 import { coworkService } from './services/cowork';
 import { i18nService } from './services/i18n';
 import { TOAST_DEFAULT_DURATION_MS, TOAST_MAX_DURATION_MS } from './services/errorNormalization';
@@ -430,6 +435,22 @@ const App: React.FC = () => {
     window.addEventListener('browser-preview:load-session', handler);
     return () => window.removeEventListener('browser-preview:load-session', handler);
   }, [isBrowserPreview]);
+
+  useEffect(() => {
+    if (!isBrowserPreview) return;
+    const handler = (event: Event) => {
+      const scenarioId = (event as CustomEvent<string>).detail;
+      if (typeof scenarioId !== 'string' || !scenarioId.trim()) return;
+      if (
+        !Object.values(BrowserPreviewBriefingScenarioId).includes(scenarioId as BriefingScenarioId)
+      ) {
+        return;
+      }
+      switchBrowserPreviewBriefingScenario(dispatch, scenarioId as BriefingScenarioId);
+    };
+    window.addEventListener('browser-preview:briefing-scenario', handler);
+    return () => window.removeEventListener('browser-preview:briefing-scenario', handler);
+  }, [dispatch, isBrowserPreview]);
 
   useEffect(() => {
     if (mainView === 'localInference') {

@@ -52,6 +52,8 @@ import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInpu
 import CoworkSessionViewport from './CoworkSessionViewport';
 import SecurityStatusIndicator from './SecurityStatusIndicator';
 import { useUnmanagedWorkingDirectory } from './useUnmanagedWorkingDirectory';
+import { switchBrowserPreviewBriefingScenario } from '../../browser-preview/applyBrowserPreviewBriefingToStore';
+import { readBrowserPreviewBriefingScenarioId } from '../../browser-preview/browserPreviewBriefingScenarios';
 import { WorkBriefingHome } from './briefing/WorkBriefingHome';
 
 export interface CoworkViewProps {
@@ -165,6 +167,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     const init = async () => {
       await coworkService.init();
       await agentService.loadAgents();
+      if (import.meta.env.VITE_BROWSER_PREVIEW) {
+        switchBrowserPreviewBriefingScenario(dispatch, readBrowserPreviewBriefingScenarioId());
+      }
       // Browsing home and existing work must not require a configured model.
       // Validate the catalog only when the user explicitly submits new work.
       setIsInitialized(true);

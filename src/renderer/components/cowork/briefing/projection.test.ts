@@ -98,7 +98,7 @@ test('keeps failed scheduled and channel runs visible with their real error reco
   });
   expect(result.next[1]).toMatchObject({
     target: BriefingTarget.Activity,
-    descriptionKey: 'activityErrorInterrupted',
+    activityErrorMessage: ActivityErrorCode.Interrupted,
   });
   expect(result.next[1].description).toBeUndefined();
   expect(result.progressed).toEqual([]);
@@ -134,6 +134,7 @@ test('groups live approvals by work and excludes Chat approvals and completed du
   });
   expect(result.decisionCount).toBe(1);
   expect(result.decisions[0].sessionId).toBe('work');
+  expect(result.decisions[0].headlineI18nKey).toBeTruthy();
   expect(result.progressed).toEqual([]);
 });
 

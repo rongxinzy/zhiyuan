@@ -8,13 +8,17 @@ import {
 import type { ScheduledTask } from '../../../../scheduledTask/types';
 import type { CoworkPermissionRequest, CoworkSessionSummary } from '../../../types/cowork';
 import { BRIEFING_ITEM_LIMIT, BriefingTarget } from './constants';
+import { buildPermissionBriefingHeadline } from './permissionHeadline';
 
 export interface BriefingItem {
   id: string;
   title: string;
   description?: string;
-  descriptionKey?: string;
+  /** Raw activity error code or message; render with formatActivityError. */
+  activityErrorMessage?: string;
   reasonKey: string;
+  headlineI18nKey?: string;
+  headlineI18nParams?: Record<string, string>;
   timestamp?: number;
   target: (typeof BriefingTarget)[keyof typeof BriefingTarget];
   sessionId?: string;
@@ -47,10 +51,13 @@ export function buildWorkBriefing(input: BriefingInput) {
     const session = sessionById.get(permission.sessionId);
     if (session?.mode === CoworkSessionMode.Chat || waitingIds.has(permission.sessionId)) continue;
     waitingIds.add(permission.sessionId);
+    const headline = buildPermissionBriefingHeadline(permission);
     decisions.push({
       id: `decision:${permission.sessionId}`,
       title: session?.title ?? '',
       reasonKey: 'briefingNeedsDecision',
+      headlineI18nKey: headline.i18nKey,
+      headlineI18nParams: headline.params,
       target: BriefingTarget.Session,
       sessionId: permission.sessionId,
     });
@@ -116,9 +123,10 @@ export function buildWorkBriefing(input: BriefingInput) {
       id: `activity:${run.id}`,
       title: run.taskName || run.inputPreview || '',
       description:
-        run.errorMessage === ActivityErrorCode.Interrupted ? undefined : run.errorMessage,
-      descriptionKey:
-        run.errorMessage === ActivityErrorCode.Interrupted ? 'activityErrorInterrupted' : undefined,
+        run.errorMessage && run.errorMessage !== ActivityErrorCode.Interrupted
+          ? run.errorMessage
+          : undefined,
+      activityErrorMessage: run.errorMessage,
       reasonKey: 'briefingInspectWork',
       timestamp: run.updatedAt,
       target: BriefingTarget.Activity,
