@@ -1,10 +1,6 @@
-import { useSelector } from 'react-redux';
-
 import { i18nService } from '../services/i18n';
 import { workspaceService } from '../services/workspace';
 import { shouldShowLocalInferenceNavigation } from '../services/managedModelUiPolicy';
-import type { RootState } from '../store';
-import { selectHasActiveActivityRun } from '../store/selectors/activitySelectors';
 import { WorkMode } from '../store/workMode/constants';
 import type { PrefetchableFeatureView } from './featureViewPrefetch';
 import { SidebarNavigationView, type SidebarNavigationEntry } from './shell/SidebarNavigationView';
@@ -12,6 +8,7 @@ import { SidebarNavigationView, type SidebarNavigationEntry } from './shell/Side
 export type SidebarActiveView =
   | 'cowork'
   | 'settings'
+  | 'skillsMcp'
   | 'scheduledTasks'
   | 'activity'
   | 'localInference'
@@ -23,13 +20,7 @@ export type SidebarActiveView =
 interface SidebarNavigationControlsProps {
   activeView: SidebarActiveView;
   onNewChat: () => void;
-  onShowExpert: () => void;
-  onShowCoding: () => void;
-  onShowTodo: () => void;
   onShowLocalInference: () => void;
-  onShowScheduledTasks: () => void;
-  onShowActivity: () => void;
-  onShowHistory?: () => void;
   onWorkModeChange: (checked: boolean) => void;
   workMode: WorkMode;
   managedModelsOnly?: boolean;
@@ -37,72 +28,46 @@ interface SidebarNavigationControlsProps {
   onPrefetchView?: (view: PrefetchableFeatureView) => void;
 }
 
+const WORK_SURFACE_VIEWS = new Set<SidebarActiveView>([
+  'cowork',
+  'coding',
+  'todo',
+  'scheduledTasks',
+  'activity',
+  'history',
+]);
+
 export const SidebarNavigationControls = ({
   activeView,
   onNewChat,
-  onShowExpert,
-  onShowCoding,
-  onShowTodo,
   onShowLocalInference,
-  onShowScheduledTasks,
-  onShowActivity,
-  onShowHistory,
   onWorkModeChange,
   workMode,
   managedModelsOnly = false,
   onPrefetchView,
 }: SidebarNavigationControlsProps) => {
-  const hasActiveActivityRun = useSelector((state: RootState) => selectHasActiveActivityRun(state));
   const isChat = workMode === WorkMode.Chat;
   const handleNewConversation = () => {
     if (workMode === WorkMode.Work) void workspaceService.clearWorkspaceSelection();
     onNewChat();
   };
   const entries: SidebarNavigationEntry[] = [];
-  const workEntries: SidebarNavigationEntry[] = [];
-  const addView = (
-    id: SidebarNavigationEntry['icon'] & SidebarActiveView,
-    label: string,
-    onClick: () => void,
-    prefetch?: PrefetchableFeatureView,
-  ) => {
-    (id === 'localInference' || id === 'history' ? entries : workEntries).push({
-      id,
-      icon: id,
-      label,
-      onClick,
-      active: activeView === id,
-      currentPage: activeView === id,
-      onIntent: prefetch ? () => onPrefetchView?.(prefetch) : undefined,
-      ...(id === 'activity'
-        ? { running: hasActiveActivityRun, testId: 'sidebar-view-activity' }
-        : {}),
-    });
-  };
   if (shouldShowLocalInferenceNavigation(isChat, managedModelsOnly)) {
-    addView(
-      'localInference',
-      i18nService.t('localInferenceTitle'),
-      onShowLocalInference,
-      'localInference',
-    );
+    entries.push({
+      id: 'localInference',
+      icon: 'localInference',
+      label: i18nService.t('localInferenceTitle'),
+      onClick: onShowLocalInference,
+      active: activeView === 'localInference',
+      currentPage: activeView === 'localInference',
+      onIntent: () => onPrefetchView?.('localInference'),
+    });
   }
-  if (onShowHistory) addView('history', i18nService.t('historyTitle'), onShowHistory, 'history');
-  if (!isChat) {
-    addView('coding', i18nService.t('codingAgent'), onShowCoding);
-    addView('todo', i18nService.t('todoTitle'), onShowTodo, 'todo');
-    addView(
-      'scheduledTasks',
-      i18nService.t('scheduledTasks'),
-      onShowScheduledTasks,
-      'scheduledTasks',
-    );
-    addView('activity', i18nService.t('activityTitle'), onShowActivity, 'activity');
-    addView('expert', i18nService.t('expert'), onShowExpert, 'expert');
-  }
+  const onWorkSurface = WORK_SURFACE_VIEWS.has(activeView);
   return (
     <SidebarNavigationView
       isChat={isChat}
+      sessionsAndWorkLabel={i18nService.t('sidebarSessionsAndWork')}
       workLabel={i18nService.t('workMode')}
       chatLabel={i18nService.t('chatMode')}
       onModeChange={onWorkModeChange}
@@ -110,14 +75,12 @@ export const SidebarNavigationControls = ({
         id: 'conversation',
         icon: 'conversation',
         label: i18nService.t(isChat ? 'newChat' : 'newTask'),
-        active: activeView === 'cowork',
+        active: onWorkSurface,
+        currentPage: activeView === 'cowork',
         onClick: handleNewConversation,
         testId: 'sidebar-new-conversation',
       }}
       entries={entries}
-      workEntries={workEntries}
-      workToolsLabel={i18nService.t('sidebarWorkTools')}
-      runningLabel={i18nService.t('activityStatusRunning')}
     />
   );
 };

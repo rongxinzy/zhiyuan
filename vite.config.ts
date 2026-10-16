@@ -74,6 +74,7 @@ const copyPhotonWasmPlugin = () => ({
 });
 
 export default defineConfig(async ({ command }) => {
+  const isBrowserPreview = process.env.VITE_BROWSER_PREVIEW === '1';
   const electronSourceMap = command === 'serve' || process.env.VITE_ELECTRON_SOURCEMAP === '1';
   if (!electronSourceMap) {
     for (const sourceMap of ['main.js.map', 'preload.js.map']) {
@@ -277,6 +278,9 @@ export default defineConfig(async ({ command }) => {
       rolldownOptions: {
         input: {
           main: path.resolve(projectRoot, 'index.html'),
+          ...(isBrowserPreview
+            ? { 'browser-preview': path.resolve(projectRoot, 'index.browser-preview.html') }
+            : {}),
         },
       },
       // CI 中指定 chrome130（Electron 40 运行时）跳过降级转译省内存
@@ -295,7 +299,9 @@ export default defineConfig(async ({ command }) => {
       },
     },
     optimizeDeps: {
-      entries: ['src/renderer/main.tsx'],
+      entries: isBrowserPreview
+        ? [path.resolve(projectRoot, 'index.browser-preview.html')]
+        : ['src/renderer/main.tsx'],
       include: [
         '@wecom/wecom-aibot-sdk',
         'ansi-to-react',

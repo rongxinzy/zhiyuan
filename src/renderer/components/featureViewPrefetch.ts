@@ -6,6 +6,7 @@
  */
 export type PrefetchableFeatureView =
   | 'settings'
+  | 'skillsMcp'
   | 'scheduledTasks'
   | 'activity'
   | 'localInference'
@@ -20,6 +21,9 @@ export const prefetchFeatureView = (view: PrefetchableFeatureView): void => {
       break;
     case 'settings':
       void import('./settings/SettingsPage').catch(() => undefined);
+      break;
+    case 'skillsMcp':
+      void import('./skillsMcp/SkillsAndMcpView').catch(() => undefined);
       break;
     case 'scheduledTasks':
       void import('./scheduledTasks').catch(() => undefined);

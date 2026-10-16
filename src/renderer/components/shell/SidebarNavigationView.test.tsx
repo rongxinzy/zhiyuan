@@ -10,6 +10,7 @@ afterEach(() => {
 
 const baseProps = () => ({
   isChat: false,
+  sessionsAndWorkLabel: 'Sessions & Work',
   workLabel: 'Work',
   chatLabel: 'Chat',
   onModeChange: vi.fn(),

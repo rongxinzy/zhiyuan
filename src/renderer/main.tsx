@@ -1,6 +1,11 @@
 import './index.css';
 
+import { installBrowserPreviewMock } from './browser-preview/installBrowserPreviewMock';
 import { TooltipProvider } from '@shared/components/ui/tooltip';
+
+if (import.meta.env.VITE_BROWSER_PREVIEW === '1') {
+  installBrowserPreviewMock();
+}
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
@@ -45,7 +50,7 @@ async function renderRoot(): Promise<void> {
   }
 
   // 2026/09/17 lixiang  开发态：主进程 HTTP → xr-net beacon → DevTools Network
-  if (import.meta.env.DEV) {
+  if (import.meta.env.DEV && import.meta.env.VITE_BROWSER_PREVIEW !== '1') {
     const { startDevNetworkBeacon } = await import('./services/devNetworkBeacon');
     devNetworkUnsubscribe?.();
     devNetworkUnsubscribe = startDevNetworkBeacon();
@@ -64,12 +69,17 @@ async function renderRoot(): Promise<void> {
   const activityResult = await window.electron.activity.list();
   if (activityResult.success) store.dispatch(hydrateRuns(activityResult.runs));
 
+  const { BrowserPreviewDevPanel } = import.meta.env.VITE_BROWSER_PREVIEW
+    ? await import('./browser-preview/BrowserPreviewDevPanel')
+    : { BrowserPreviewDevPanel: () => null };
+
   root.render(
     <React.StrictMode>
       <EnterpriseSessionGate>
         <Provider store={store}>
           <App />
           <ContextMenu />
+          <BrowserPreviewDevPanel />
         </Provider>
       </EnterpriseSessionGate>
     </React.StrictMode>,

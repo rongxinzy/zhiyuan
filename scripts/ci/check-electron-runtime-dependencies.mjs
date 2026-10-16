@@ -119,6 +119,8 @@ export function checkElectronRuntimeDependencies(projectRoot, { resolve = false 
       "const { Harness } = await import('@earendil-works/pi-durable');",
       "const { openNodeSqliteStorage } = await import('@earendil-works/pi-durable/storage/sqlite/node');",
       "const { BACKGROUND_CONTEXT } = await import('@earendil-works/chord/context');",
+      "require('@earendil-works/chord/context');",
+      "require('@earendil-works/pi-ai/utils/validation');",
       "if (typeof Harness.open !== 'function' || typeof openNodeSqliteStorage !== 'function' || !BACKGROUND_CONTEXT) throw new Error('Native execution exports are unavailable');",
     ].join('\n');
     const probe = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
