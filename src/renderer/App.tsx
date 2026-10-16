@@ -1018,7 +1018,6 @@ const App: React.FC = () => {
                       onNewChat={handleNewChat}
                       updateBadge={null}
                       onShowScheduledTasks={handleShowScheduledTasks}
-                      onOpenCowork={handleShowCowork}
                     />
                   ) : mainView === 'skillsMcp' ? (
                     <SkillsAndMcpView

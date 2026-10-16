@@ -107,6 +107,10 @@ const captures = [
         state: 'visible',
         timeout: 60_000,
       });
+      await board.getByRole('button', { name: /侧栏 Phase 1 走查/ }).click();
+      await page.getByTestId('task-board-detail-panel').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByTestId('task-board-thread').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByText('请把 Phase 1 导航截图补进验收包').waitFor({ state: 'visible', timeout: 60_000 });
     },
   },
   {

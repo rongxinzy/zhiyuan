@@ -2,6 +2,7 @@ import { AppUpdateStatus } from '../../shared/appUpdate/constants';
 import { ManagedProviderAccessMode } from '../../shared/managedProviders';
 import { CONFIG_KEYS, defaultConfig, type AppConfig } from '../config';
 
+import { runBrowserPreviewTaskBoardCommentDemo } from './browserPreviewTaskBoardDemo';
 import { browserPreviewBriefingRuntime } from './browserPreviewBriefingScenarios';
 import {
   BrowserPreviewFixtureId,
@@ -118,6 +119,17 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
       openManagement: async () => undefined,
       setSubscriptionAccounts: async () => browserPreviewMagpieCatalog.status,
     },
+    taskBoard: {
+      onWorkEvent: (
+        callback: (event: import('../../shared/taskBoard/constants').TaskBoardWorkEvent) => void,
+      ) => {
+        const handler = (event: Event) => {
+          callback((event as CustomEvent).detail);
+        };
+        window.addEventListener('browser-preview:task-board-work-event', handler);
+        return () => window.removeEventListener('browser-preview:task-board-work-event', handler);
+      },
+    },
     activity: {
       list: async () => {
         const { activityListDelayMs, activityListSuccess, activityRuns } =
@@ -230,6 +242,10 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
       deleteSession: async () => ({ success: true }),
       deleteSessions: async () => ({ success: true }),
       respondToPermission: async () => ({ success: true }),
+      continueSession: async (options: { sessionId: string; prompt: string }) => {
+        runBrowserPreviewTaskBoardCommentDemo(options.sessionId, options.prompt);
+        return { success: true };
+      },
       onStreamUiEvent: noopUnsub,
       onStreamMessage: noopUnsub,
       onStreamMessageUpdate: noopUnsub,

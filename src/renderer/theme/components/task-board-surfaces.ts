@@ -75,6 +75,11 @@ export function taskBoardAppearances() {
         'line-height': '1.25',
       },
     }),
+    'task-board-detail': recipe({
+      base: {
+        'background-color': 'color-mix(in srgb, var(--foreground) 2%, transparent)',
+      },
+    }),
     'task-board-attention-pill': recipe({
       base: {
         width: 'fit-content',

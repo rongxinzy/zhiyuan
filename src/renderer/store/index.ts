@@ -7,6 +7,7 @@ import coworkReducer from './slices/coworkSlice';
 import modelReducer from './slices/modelSlice';
 import scheduledTaskReducer from './slices/scheduledTaskSlice';
 import workspaceReducer from './slices/workspaceSlice';
+import taskBoardReducer from './slices/taskBoardSlice';
 import workModeReducer from './workMode/workModeSlice';
 
 export const store = configureStore({
@@ -19,6 +20,7 @@ export const store = configureStore({
     activity: activityReducer,
     workspace: workspaceReducer,
     workMode: workModeReducer,
+    taskBoard: taskBoardReducer,
   },
 });
 

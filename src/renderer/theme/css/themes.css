@@ -5193,6 +5193,9 @@
   border-color: color-mix(in srgb, var(--destructive) 28%, transparent);
   line-height: var(--zy-component-text-xs--line-height);
 }
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-detail) {
+  background-color: color-mix(in srgb, var(--foreground) 2%, transparent);
+}
 @media (min-width: 48rem) {
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.peer[data-variant="inset"] ~ .theme-sidebar-inset) {
   border-radius: var(--zy-style-radius-xl);
@@ -8095,7 +8098,8 @@ to {
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-title),
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-meta),
 :where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-card-project),
-:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-attention-pill) { transition-duration: 0s; animation: none; }
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-attention-pill),
+:where(:root:not([data-theme]), [data-theme="classic-light"]) :where(.theme-task-board-detail) { transition-duration: 0s; animation: none; }
 }
 }
 :where(:root:not([data-theme]), [data-theme="classic-light"]) [data-sonner-toast].cn-toast {
@@ -13428,6 +13432,9 @@ to {
   border-color: color-mix(in srgb, var(--destructive) 28%, transparent);
   line-height: var(--zy-component-text-xs--line-height);
 }
+[data-theme="classic-dark"] :where(.theme-task-board-detail) {
+  background-color: color-mix(in srgb, var(--foreground) 2%, transparent);
+}
 @media (min-width: 48rem) {
 [data-theme="classic-dark"] :where(.peer[data-variant="inset"] ~ .theme-sidebar-inset) {
   border-radius: var(--zy-style-radius-xl);
@@ -16343,7 +16350,8 @@ to {
 [data-theme="classic-dark"] :where(.theme-task-board-card-title),
 [data-theme="classic-dark"] :where(.theme-task-board-card-meta),
 [data-theme="classic-dark"] :where(.theme-task-board-card-project),
-[data-theme="classic-dark"] :where(.theme-task-board-attention-pill) { transition-duration: 0s; animation: none; }
+[data-theme="classic-dark"] :where(.theme-task-board-attention-pill),
+[data-theme="classic-dark"] :where(.theme-task-board-detail) { transition-duration: 0s; animation: none; }
 }
 }
 [data-theme="classic-dark"] [data-sonner-toast].cn-toast {

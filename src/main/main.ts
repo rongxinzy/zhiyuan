@@ -28,6 +28,8 @@ import { pathToFileURL } from 'url';
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
 import { parseCoworkExecutionMode } from '../shared/cowork/executionMode';
 import { createPiUiEventBatcher } from './piUiEventBatcher';
+import { broadcastTaskBoardWorkEvent } from './taskBoard/broadcastWorkEvent';
+import { mapPiUiEventToWorkEvent } from './taskBoard/mapPiUiEventToWorkEvent';
 import { persistCoworkTerminalError } from './coworkTerminalErrorPersistence';
 import { bindCoworkContentBridge } from './coworkContentBridge';
 import { registerArtifactFileAvailabilityHandler } from './artifactFileAvailability';
@@ -1378,6 +1380,8 @@ const forwardPiWorkbenchRuntimeToRenderer = (runtime: PiRuntimeAdapter): void =>
         console.error('[PiWorkbenchForwarder] failed to forward a Pi UI event:', error);
       }
     });
+    const workEvent = mapPiUiEventToWorkEvent(event);
+    if (workEvent) broadcastTaskBoardWorkEvent(workEvent);
   };
   const emitUiEvent = createPiUiEventBatcher((payload: PiUiEventPayload) => {
     broadcastUiEvent(sequencer.next(payload));

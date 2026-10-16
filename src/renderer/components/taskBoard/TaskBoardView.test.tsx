@@ -19,17 +19,24 @@ const scenarioState = vi.hoisted(() => ({
 vi.mock('../PageHeader', () => ({
   default: ({ title }: { title?: string }) => (title ? <h1>{title}</h1> : null),
 }));
+vi.mock('../../browser-preview/browserPreviewTaskBoardDemo', () => ({
+  seedBrowserPreviewTaskBoardDemo: vi.fn(),
+}));
 
 vi.mock('react-redux', () => ({
   useSelector: (selector: (state: RootState) => unknown) => selector(scenarioState.state),
+  useDispatch: () => vi.fn(),
 }));
 
-vi.mock('../cowork/briefing/useBriefingData', () => ({
-  useBriefingData: () => ({
+vi.mock('./useTaskBoardLiveData', () => ({
+  useTaskBoardLiveData: () => ({
     loading: scenarioState.loading,
     loadFailed: scenarioState.loadFailed,
     refresh: vi.fn(),
   }),
+}));
+vi.mock('./useTaskBoardWorkEventSubscription', () => ({
+  useTaskBoardWorkEventSubscription: () => {},
 }));
 
 vi.mock('../../services/cowork', () => ({
@@ -71,6 +78,12 @@ beforeEach(() => {
     activity: { runs: scenario.activityRuns },
     scheduledTask: { tasks: scenario.scheduledTasks },
     workspace: { workspaces: browserPreviewWorkspaces },
+    taskBoard: {
+      selectedThreadKey: null,
+      selectedCardId: null,
+      threads: {},
+      conclusionByThreadKey: {},
+    },
   } as unknown as RootState;
 });
 

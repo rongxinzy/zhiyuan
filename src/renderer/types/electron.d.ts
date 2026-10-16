@@ -1182,6 +1182,11 @@ interface IElectronAPI {
     list: () => Promise<{ success: boolean; runs: ActivityRun[] }>;
     onUpdated: (callback: (run: ActivityRun) => void) => () => void;
   };
+  taskBoard: {
+    onWorkEvent: (
+      callback: (event: import('../../shared/taskBoard/constants').TaskBoardWorkEvent) => void,
+    ) => () => void;
+  };
 }
 
 declare global {

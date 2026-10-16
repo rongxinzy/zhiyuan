@@ -10,6 +10,8 @@ import {
 } from '../../shared/activity/constants';
 import { shouldAcceptActivityUpdate } from '../../shared/activity/ordering';
 import type { ActivityRun, ActivityRunUpdate } from '../../shared/activity/types';
+import { broadcastTaskBoardWorkEvent } from '../taskBoard/broadcastWorkEvent';
+import { mapActivityRunToWorkEvent } from '../taskBoard/mapActivityToWorkEvent';
 
 type ActivityRow = {
   id: string;
@@ -129,6 +131,8 @@ export class ActivityService {
       );
     for (const window of BrowserWindow.getAllWindows())
       if (!window.isDestroyed()) window.webContents.send(ActivityIpc.Updated, run);
+    const workEvent = mapActivityRunToWorkEvent(run);
+    if (workEvent) broadcastTaskBoardWorkEvent(workEvent);
     return run;
   }
 
