@@ -31,7 +31,9 @@ export const browserPreviewBriefingPendingPermissions: CoworkPermissionRequest[]
     origin: CoworkPermissionOrigin.PiWorkbench,
     sessionId: 'preview-session-ui-review',
     toolName: 'bash',
-    toolInput: { command: 'git push origin cursor/phase1-sidebar-slimming-fb95' },
+    toolInput: {
+      command: 'rm -rf dist/old-build-1 dist/old-build-2 dist/old-build-3',
+    },
     requestId: 'preview-permission-push',
   },
   {

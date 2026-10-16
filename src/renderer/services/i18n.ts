@@ -2238,6 +2238,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     activityStatusRunning: '进行中',
     activityStatusCompleted: '成功',
     activityStatusFailed: '失败',
+    activityErrorInterrupted: '上次运行被中断，可打开记录查看已保存的部分结果。',
     activityEmpty: '暂无后台任务运行记录',
     activityEmptyAction: '查看定时任务',
     activityFilterEmpty: '暂无相关活动数据',
@@ -4995,6 +4996,8 @@ const translations: Record<LanguageType, Record<string, string>> = {
     activityStatusRunning: 'Running',
     activityStatusCompleted: 'Completed',
     activityStatusFailed: 'Failed',
+    activityErrorInterrupted:
+      'The last run was interrupted. Open the record to review any saved partial output.',
     activityEmpty: 'No background task runs yet',
     activityEmptyAction: 'View scheduled tasks',
     activityFilterEmpty: 'No related activity data',

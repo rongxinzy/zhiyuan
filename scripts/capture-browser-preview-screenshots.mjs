@@ -42,8 +42,10 @@ const captures = [
         .getByText('夜间巡检报告')
         .waitFor({ state: 'visible', timeout: 60_000 });
       await page
-        .getByRole('button', { name: '去确认' })
-        .first()
+        .getByText('要删除 3 个旧构建产物，需要你确认')
+        .waitFor({ state: 'visible', timeout: 60_000 });
+      await page
+        .getByText('上次运行被中断，可打开记录查看已保存的部分结果。')
         .waitFor({ state: 'visible', timeout: 60_000 });
     },
   },

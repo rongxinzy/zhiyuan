@@ -2,15 +2,18 @@ import { Button } from '@shared/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@shared/components/ui/empty';
 import { Separator } from '@shared/components/ui/separator';
 import { cn } from '@shared/lib/utils';
+import { MessageSquarePlus } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { formatActivityError } from '../../activity/utils';
 import { coworkService } from '../../../services/cowork';
 import { i18nService } from '../../../services/i18n';
 import { showAppErrorToast } from '../../../services/toastNotification';
 import type { RootState } from '../../../store';
 import { selectTask } from '../../../store/slices/scheduledTaskSlice';
 import MarkdownContent from '../../MarkdownContent';
+import { formatBriefingTemplate } from './briefingCopy';
 import { BRIEFING_CLOCK_INTERVAL_MS, BriefingTarget } from './constants';
 import { buildWorkBriefing, pageBriefingItems, type BriefingItem } from './projection';
 import { useBriefingData } from './useBriefingData';
@@ -20,6 +23,25 @@ interface WorkBriefingHomeProps {
   prompt: React.ReactNode;
   onFocusInput: () => void;
   onShowScheduledTasks?: () => void;
+}
+
+const RAW_I18N_KEY_PATTERN = /\b(?:briefing|activity)[A-Z][A-Za-z]+\b/;
+
+function resolveItemHeadline(item: BriefingItem): string {
+  if (item.headlineI18nKey) {
+    return formatBriefingTemplate(item.headlineI18nKey, item.headlineI18nParams);
+  }
+  return i18nService.t(item.reasonKey);
+}
+
+function resolveItemDetail(item: BriefingItem): string | null {
+  if (item.activityErrorMessage) {
+    return formatActivityError(item.activityErrorMessage);
+  }
+  if (item.description?.trim()) {
+    return item.description;
+  }
+  return null;
 }
 
 export function WorkBriefingHome({
@@ -38,6 +60,7 @@ export function WorkBriefingHome({
   const [now, setNow] = useState(Date.now);
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(() => new Set());
   const [pages, setPages] = useState<Record<string, number>>({});
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const { loading, loadFailed, refresh } = useBriefingData();
   const briefing = useMemo(
     () =>
@@ -72,12 +95,19 @@ export function WorkBriefingHome({
     return () => window.clearInterval(timer);
   }, []);
 
+  const expandComposer = () => {
+    setComposerExpanded(true);
+    window.requestAnimationFrame(() => onFocusInput());
+  };
+
   const primaryActionLabel = (item: BriefingItem) => {
     if (item.target === BriefingTarget.Schedule) return 'briefingViewSchedule';
     if (item.target === BriefingTarget.Activity) {
       return expandedRecords.has(item.id) ? 'briefingCollapseRecord' : 'briefingViewActivity';
     }
-    if (item.reasonKey === 'briefingNeedsDecision') return 'briefingViewDecision';
+    if (item.headlineI18nKey || item.reasonKey === 'briefingNeedsDecision') {
+      return 'briefingViewDecision';
+    }
     return 'briefingViewWork';
   };
 
@@ -150,7 +180,13 @@ export function WorkBriefingHome({
                 <EmptyDescription>{i18nService.t('briefingNewWork')}</EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
-                <Button onClick={onFocusInput}>{i18nService.t('briefingStartWork')}</Button>
+                <Button
+                  onClick={() => {
+                    expandComposer();
+                  }}
+                >
+                  {i18nService.t('briefingStartWork')}
+                </Button>
               </EmptyContent>
             </Empty>
           ) : (
@@ -179,85 +215,80 @@ export function WorkBriefingHome({
                       </p>
                     ) : (
                       <ul className="flex min-w-0 flex-col gap-4">
-                        {page.items.map(item => (
-                          <li key={item.id} className="flex min-w-0 flex-col gap-2">
-                            <p className="theme-card-title break-words">
-                              {i18nService.t(item.reasonKey)}
-                            </p>
-                            <p
-                              className={cn(
-                                'theme-home-caption break-words',
-                                !expandedRecords.has(item.id) && 'line-clamp-2',
-                              )}
-                              title={item.title}
-                            >
-                              {item.title || i18nService.t('briefingUntitled')}
-                            </p>
-                            {(item.description || item.descriptionKey) && (
-                              <div
+                        {page.items.map(item => {
+                          const detail = resolveItemDetail(item);
+                          return (
+                            <li key={item.id} className="flex min-w-0 flex-col gap-2">
+                              <p className="theme-card-title break-words">
+                                {resolveItemHeadline(item)}
+                              </p>
+                              <p
                                 className={cn(
-                                  'theme-home-caption min-w-0 break-words overflow-hidden',
-                                  !expandedRecords.has(item.id) && 'line-clamp-3',
+                                  'theme-home-caption break-words',
+                                  !expandedRecords.has(item.id) && 'line-clamp-2',
                                 )}
+                                title={item.title}
                               >
-                                <MarkdownContent
-                                  content={
-                                    item.descriptionKey
-                                      ? i18nService.t(item.descriptionKey)
-                                      : (item.description ?? '')
-                                  }
-                                />
-                              </div>
-                            )}
-                            {item.timestamp !== undefined && (
-                              <time
-                                className="theme-home-status"
-                                dateTime={new Date(item.timestamp).toISOString()}
-                              >
-                                {new Date(item.timestamp).toLocaleString(
-                                  language === 'zh' ? 'zh-CN' : 'en-US',
-                                  {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  },
-                                )}
-                              </time>
-                            )}
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                variant={
-                                  item.reasonKey === 'briefingNeedsDecision' ? 'default' : 'outline'
-                                }
-                                size="sm"
-                                onClick={() => openItem(item)}
-                                aria-expanded={
-                                  item.target === BriefingTarget.Activity
-                                    ? expandedRecords.has(item.id)
-                                    : undefined
-                                }
-                                disabled={
-                                  item.target === BriefingTarget.Schedule && !onShowScheduledTasks
-                                }
-                              >
-                                {i18nService.t(primaryActionLabel(item))}
-                              </Button>
-                              {item.target === BriefingTarget.Activity && item.sessionId && (
+                                {item.title || i18nService.t('briefingUntitled')}
+                              </p>
+                              {detail && (
+                                <div
+                                  className={cn(
+                                    'theme-home-caption min-w-0 break-words overflow-hidden',
+                                    !expandedRecords.has(item.id) && 'line-clamp-3',
+                                  )}
+                                >
+                                  <MarkdownContent content={detail} />
+                                </div>
+                              )}
+                              {item.timestamp !== undefined && (
+                                <time
+                                  className="theme-home-status"
+                                  dateTime={new Date(item.timestamp).toISOString()}
+                                >
+                                  {new Date(item.timestamp).toLocaleString(
+                                    language === 'zh' ? 'zh-CN' : 'en-US',
+                                    {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    },
+                                  )}
+                                </time>
+                              )}
+                              <div className="flex flex-wrap gap-2">
                                 <Button
-                                  variant="ghost"
+                                  variant={item.headlineI18nKey ? 'default' : 'outline'}
                                   size="sm"
-                                  onClick={() =>
-                                    openItem({ ...item, target: BriefingTarget.Session })
+                                  onClick={() => openItem(item)}
+                                  aria-expanded={
+                                    item.target === BriefingTarget.Activity
+                                      ? expandedRecords.has(item.id)
+                                      : undefined
+                                  }
+                                  disabled={
+                                    item.target === BriefingTarget.Schedule && !onShowScheduledTasks
                                   }
                                 >
-                                  {i18nService.t('briefingViewWork')}
+                                  {i18nService.t(primaryActionLabel(item))}
                                 </Button>
-                              )}
-                            </div>
-                            <Separator />
-                          </li>
-                        ))}
+                                {item.target === BriefingTarget.Activity && item.sessionId && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      openItem({ ...item, target: BriefingTarget.Session })
+                                    }
+                                  >
+                                    {i18nService.t('briefingViewWork')}
+                                  </Button>
+                                )}
+                              </div>
+                              <Separator />
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                     {page.pageCount > 1 && (
@@ -306,9 +337,25 @@ export function WorkBriefingHome({
           )}
         </div>
       </div>
-      <div className="shrink-0 px-6 pb-4 pt-2">
-        <div className="mx-auto w-full max-w-3xl min-w-0">{prompt}</div>
+      <div className="shrink-0 border-t border-border/70 bg-background px-6 py-3">
+        <div className="mx-auto w-full max-w-3xl min-w-0">
+          {composerExpanded ? (
+            prompt
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 w-full justify-start gap-2 font-normal text-muted-foreground"
+              onClick={expandComposer}
+            >
+              <MessageSquarePlus className="size-4 shrink-0 opacity-70" aria-hidden />
+              {i18nService.t('briefingQuickInput')}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
+export { RAW_I18N_KEY_PATTERN };
