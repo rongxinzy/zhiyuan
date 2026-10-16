@@ -1,29 +1,19 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement } from 'react';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
 import { SidebarNavigationControls } from './SidebarNavigationControls';
 import { WorkMode } from '../store/workMode/constants';
 
 const mocks = vi.hoisted(() => ({
-  state: {
-    activity: { runs: [] as { status: string }[] },
-    skill: { activeSkillIds: [] as string[] },
-  },
   clearWorkspaceSelection: vi.fn(async () => {}),
-}));
-vi.mock('react-redux', () => ({
-  useSelector: (selector: (state: unknown) => unknown) => selector(mocks.state),
 }));
 vi.mock('../services/workspace', () => ({
   workspaceService: { clearWorkspaceSelection: mocks.clearWorkspaceSelection },
 }));
 vi.mock('../services/i18n', () => ({ i18nService: { t: (key: string) => key } }));
-beforeEach(() => {
-  mocks.state = { activity: { runs: [] }, skill: { activeSkillIds: [] } };
-});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -40,12 +30,7 @@ const props = () => ({
   activeView: 'cowork' as const,
   workMode: WorkMode.Work,
   onNewChat: vi.fn(),
-  onShowExpert: vi.fn(),
-  onShowCoding: vi.fn(),
-  onShowTodo: vi.fn(),
   onShowLocalInference: vi.fn(),
-  onShowScheduledTasks: vi.fn(),
-  onShowActivity: vi.fn(),
   onWorkModeChange: vi.fn(),
   onPrefetchView: vi.fn(),
 });
@@ -66,45 +51,30 @@ test('changes work mode exactly once per click or keyboard activation', async ()
   expect(handlers.onWorkModeChange).toHaveBeenCalledTimes(1);
 });
 
-test('preserves new-task workspace cleanup and view navigation callbacks', async () => {
+test('keeps slim primary navigation and local inference routing', async () => {
   const user = userEvent.setup();
   const handlers = props();
   render(createElement(SidebarNavigationControls, { ...handlers, activeView: 'todo' }));
+  expect(screen.getByText('sidebarSessionsAndWork')).toBeTruthy();
+  expect(screen.queryByTestId('sidebar-work-tools')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'todoTitle' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'expert' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'historyTitle' })).toBeNull();
+  expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active', 'true');
+
   await user.click(screen.getByTestId('sidebar-new-conversation'));
   expect(mocks.clearWorkspaceSelection).toHaveBeenCalledTimes(1);
   expect(handlers.onNewChat).toHaveBeenCalledTimes(1);
   expect(mocks.clearWorkspaceSelection.mock.invocationCallOrder[0]).toBeLessThan(
     handlers.onNewChat.mock.invocationCallOrder[0],
   );
-  const views = [
-    ['codingAgent', handlers.onShowCoding, undefined],
-    ['todoTitle', handlers.onShowTodo, 'todo'],
-    ['scheduledTasks', handlers.onShowScheduledTasks, 'scheduledTasks'],
-    ['activityTitle', handlers.onShowActivity, 'activity'],
-    ['expert', handlers.onShowExpert, 'expert'],
-  ] as const;
+
+  handlers.onPrefetchView.mockClear();
   const localInference = screen.getByRole('button', { name: 'localInferenceTitle' });
+  await user.hover(localInference);
+  expect(handlers.onPrefetchView).toHaveBeenCalledWith('localInference');
   await user.click(localInference);
   expect(handlers.onShowLocalInference).toHaveBeenCalledTimes(1);
-  expect(screen.queryByRole('button', { name: 'todoTitle' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'expert' })).toBeNull();
-  expect(screen.getByTestId('sidebar-work-tools')).toHaveAttribute('data-active', 'true');
-  for (const [label, callback, prefetch] of views) {
-    await user.click(screen.getByTestId('sidebar-work-tools'));
-    const button = await screen.findByRole('menuitem', { name: label });
-    if (label === 'todoTitle') expect(button).toHaveAttribute('aria-current', 'page');
-    handlers.onPrefetchView.mockClear();
-    await user.hover(button);
-    if (prefetch) expect(handlers.onPrefetchView).toHaveBeenCalledWith(prefetch);
-    // Menu hover moves focus as well; leave the item before testing focus intent separately.
-    button.blur();
-    handlers.onPrefetchView.mockClear();
-    button.focus();
-    if (prefetch) expect(handlers.onPrefetchView).toHaveBeenCalledWith(prefetch);
-    await user.keyboard('{Enter}');
-    expect(callback).toHaveBeenCalledTimes(1);
-  }
-  expect(screen.getByTestId('sidebar-new-conversation')).not.toHaveAttribute('aria-current');
 });
 
 test('keeps managed-only and chat navigation policies and chat workspace selection', async () => {
@@ -114,9 +84,8 @@ test('keeps managed-only and chat navigation policies and chat workspace selecti
     createElement(SidebarNavigationControls, { ...handlers, managedModelsOnly: true }),
   );
   expect(screen.queryByRole('button', { name: 'localInferenceTitle' })).toBeNull();
-  expect(screen.getByTestId('sidebar-work-tools')).toBeTruthy();
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
-  expect(screen.getAllByRole('button')).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'localInferenceTitle' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'newChat' }));
   expect(handlers.onNewChat).toHaveBeenCalledTimes(1);
   expect(mocks.clearWorkspaceSelection).not.toHaveBeenCalled();
@@ -125,49 +94,10 @@ test('keeps managed-only and chat navigation policies and chat workspace selecti
   expect(handlers.onWorkModeChange.mock.calls[0][0]).toBe(false);
 });
 
-test('preserves activity status and highlights the current conversation route', async () => {
-  const user = userEvent.setup();
-  mocks.state = {
-    activity: { runs: [{ status: 'running' }] },
-    skill: { activeSkillIds: ['skill-1'] },
-  };
+test('highlights the current conversation route in chat mode', () => {
   const handlers = props();
   const view = render(createElement(SidebarNavigationControls, handlers));
-  expect(screen.getByTestId('sidebar-work-tools')).toHaveAccessibleName(
-    'sidebarWorkTools activityStatusRunning',
-  );
-  await user.click(screen.getByTestId('sidebar-work-tools'));
-  expect(await screen.findByTestId('sidebar-view-activity')).toHaveTextContent(
-    'activityStatusRunning',
-  );
-  await user.keyboard('{Escape}');
-  await waitFor(() => expect(screen.getByTestId('sidebar-work-tools')).toHaveFocus());
-  view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
-  expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active');
-  mocks.state = { activity: { runs: [] }, skill: { activeSkillIds: [] } };
+  expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active', 'true');
   view.rerender(createElement(SidebarNavigationControls, { ...handlers, workMode: WorkMode.Chat }));
   expect(screen.getByTestId('sidebar-new-conversation')).toHaveAttribute('data-active', 'true');
 });
-
-test.each([WorkMode.Work, WorkMode.Chat])(
-  'opens read-only history from %s without starting work',
-  async workMode => {
-    const user = userEvent.setup();
-    const handlers = props();
-    const onShowHistory = vi.fn();
-    render(
-      createElement(SidebarNavigationControls, {
-        ...handlers,
-        workMode,
-        activeView: 'history',
-        onShowHistory,
-      }),
-    );
-    const history = screen.getByRole('button', { name: 'historyTitle' });
-    expect(history).toHaveAttribute('aria-current', 'page');
-    await user.click(history);
-    expect(onShowHistory).toHaveBeenCalledTimes(1);
-    expect(handlers.onNewChat).not.toHaveBeenCalled();
-    expect(mocks.clearWorkspaceSelection).not.toHaveBeenCalled();
-  },
-);

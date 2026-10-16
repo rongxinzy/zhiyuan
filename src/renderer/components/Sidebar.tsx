@@ -56,9 +56,11 @@ import { toAgentSidebarTaskNode } from './agentSidebar/useAgentSidebarState';
 import LoginButton from './LoginButton';
 import type { PrefetchableFeatureView } from './featureViewPrefetch';
 import { SidebarNavigationControls, type SidebarActiveView } from './SidebarNavigationControls';
+import { SidebarPinnedControls } from './shell/SidebarPinnedControls';
 
 interface SidebarProps {
   onShowSettings: () => void;
+  onShowSkillsAndMcp: () => void;
   activeView: SidebarActiveView;
   onShowCowork: () => void;
   onShowScheduledTasks: () => void;
@@ -86,15 +88,16 @@ const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_COLLAPSE_TRANSITION_MS = 200;
 const Sidebar: React.FC<SidebarProps> = ({
   onShowSettings,
+  onShowSkillsAndMcp,
   activeView,
   onShowCowork,
   onShowScheduledTasks,
-  onShowActivity,
-  onShowHistory,
   onShowLocalInference,
-  onShowExpert,
-  onShowCoding,
-  onShowTodo,
+  onShowActivity: _onShowActivity,
+  onShowHistory: _onShowHistory,
+  onShowExpert: _onShowExpert,
+  onShowCoding: _onShowCoding,
+  onShowTodo: _onShowTodo,
   codingSelection,
   onCodingSelectionChange,
   onNewChat,
@@ -425,13 +428,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <SidebarNavigationControls
               activeView={activeView}
               onNewChat={onNewChat}
-              onShowExpert={onShowExpert}
-              onShowCoding={onShowCoding}
-              onShowTodo={onShowTodo}
               onShowLocalInference={onShowLocalInference}
-              onShowScheduledTasks={onShowScheduledTasks}
-              onShowActivity={onShowActivity}
-              onShowHistory={onShowHistory}
               onWorkModeChange={handleWorkModeChange}
               workMode={workMode}
               managedModelsOnly={managedModelsOnly}
@@ -610,6 +607,18 @@ const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <div className="theme-sidebar-footer space-y-1">
               {updateEntry}
+              <SidebarPinnedControls
+                activeView={activeView}
+                onShowSkillsAndMcp={() => {
+                  onPrefetchView?.('skillsMcp');
+                  onShowSkillsAndMcp();
+                }}
+                onShowSettings={() => {
+                  onPrefetchView?.('settings');
+                  onShowSettings();
+                }}
+                onPrefetchView={onPrefetchView}
+              />
               {!hideLogin ? (
                 <LoginButton
                   settingsActive={activeView === 'settings'}

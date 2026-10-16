@@ -934,6 +934,11 @@ const translations: Record<LanguageType, Record<string, string>> = {
     keyboardShortcuts: '键盘快捷键',
     shortcutNotSet: '未设置',
     workMode: '工作',
+    sidebarSessionsAndWork: '会话与工作',
+    sidebarSkillsAndMcp: '技能与 MCP',
+    sidebarSkillsAndMcpEmptyTitle: '能力配置筹备中',
+    sidebarSkillsAndMcpEmptyDescription:
+      '工作技能与 MCP 连接器将在此统一配置。当前请继续通过会话与工作区完成日常任务。',
     sidebarWorkTools: '工作工具',
     chatMode: '对话',
     codingAgent: '编程',
@@ -3592,6 +3597,11 @@ const translations: Record<LanguageType, Record<string, string>> = {
     keyboardShortcuts: 'Keyboard Shortcuts',
     shortcutNotSet: 'Not set',
     workMode: 'Work',
+    sidebarSessionsAndWork: 'Sessions & Work',
+    sidebarSkillsAndMcp: 'Skills & MCP',
+    sidebarSkillsAndMcpEmptyTitle: 'Capabilities coming soon',
+    sidebarSkillsAndMcpEmptyDescription:
+      'Work skills and MCP connectors will be managed here. Continue day-to-day tasks from Sessions & Work for now.',
     sidebarWorkTools: 'Work tools',
     chatMode: 'Chat',
     codingAgent: 'Coding',

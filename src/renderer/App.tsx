@@ -80,6 +80,7 @@ const CodingWorkbenchView = React.lazy(() =>
   import('./components/coding').then(module => ({ default: module.CodingWorkbenchView })),
 );
 const TodoView = React.lazy(() => import('./components/todo/TodoView'));
+const SkillsAndMcpView = React.lazy(() => import('./components/skillsMcp/SkillsAndMcpView'));
 
 /**
  * Full-area fallback shown while a lazily loaded feature chunk downloads.
@@ -109,6 +110,7 @@ const App: React.FC = () => {
   const [mainView, setMainView] = useState<
     | 'cowork'
     | 'settings'
+    | 'skillsMcp'
     | 'scheduledTasks'
     | 'activity'
     | 'localInference'
@@ -465,6 +467,10 @@ const App: React.FC = () => {
       notice: options?.notice,
     });
     setMainView('settings');
+  }, []);
+
+  const handleShowSkillsAndMcp = useCallback(() => {
+    setMainView('skillsMcp');
   }, []);
 
   const handleOpenLocalModelSettings = useCallback(() => {
@@ -831,6 +837,7 @@ const App: React.FC = () => {
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <Sidebar
             onShowSettings={handleShowSettings}
+            onShowSkillsAndMcp={handleShowSkillsAndMcp}
             activeView={mainView}
             onShowCowork={handleShowCowork}
             onShowScheduledTasks={handleShowScheduledTasks}
@@ -949,6 +956,12 @@ const App: React.FC = () => {
                       onToggleSidebar={handleToggleSidebar}
                       onNewChat={handleNewChat}
                       updateBadge={null}
+                    />
+                  ) : mainView === 'skillsMcp' ? (
+                    <SkillsAndMcpView
+                      isSidebarCollapsed={isSidebarCollapsed}
+                      onToggleSidebar={handleToggleSidebar}
+                      onNewChat={handleNewChat}
                     />
                   ) : mainView === 'localInference' ? null : (
                     <CoworkView
