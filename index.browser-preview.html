@@ -12,15 +12,12 @@
           if (savedConfig) {
             const config = JSON.parse(savedConfig);
             const theme = config.theme || 'system';
-            if (theme === 'dark') {
-              document.documentElement.classList.add('dark');
-            } else if (theme === 'light') {
-              document.documentElement.classList.add('light');
-            } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-              document.documentElement.classList.add('dark');
-            } else {
-              document.documentElement.classList.add('light');
-            }
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const effective =
+              theme === 'dark' ? 'dark' : theme === 'light' ? 'light' : prefersDark ? 'dark' : 'light';
+            document.documentElement.dataset.theme = `classic-${effective}`;
+            document.documentElement.classList.add(effective);
+            document.documentElement.style.colorScheme = effective;
           }
         } catch (error) {
           console.error('Browser preview theme bootstrap failed:', error);

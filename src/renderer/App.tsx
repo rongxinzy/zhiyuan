@@ -421,6 +421,17 @@ const App: React.FC = () => {
   }, [isBrowserPreview]);
 
   useEffect(() => {
+    if (!isBrowserPreview) return;
+    const handler = (event: Event) => {
+      const sessionId = (event as CustomEvent<string>).detail;
+      if (typeof sessionId !== 'string' || !sessionId.trim()) return;
+      void coworkService.loadSession(sessionId);
+    };
+    window.addEventListener('browser-preview:load-session', handler);
+    return () => window.removeEventListener('browser-preview:load-session', handler);
+  }, [isBrowserPreview]);
+
+  useEffect(() => {
     if (mainView === 'localInference') {
       setHasMountedLocalInference(true);
       setIsLocalInferenceDormant(false);

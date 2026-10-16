@@ -84,11 +84,14 @@ The development command starts Vite and Electron. To use local inference, downlo
 
 ### Browser UI preview (no Electron)
 
-For fast UI iteration, run the renderer in a normal browser with a stubbed `window.electron` bridge and seeded demo data. This path does not require Electron and works with **npm**, **pnpm**, or **Bun**:
+For fast UI iteration, run the renderer in a normal browser with a stubbed `window.electron` bridge and seeded demo data. This path does not require Electron or Bun:
 
 ```bash
+npm install
 npm run preview:web
 ```
+
+(`preview:web` runs via `node scripts/run-preview-web.mjs`; `cross-env` remains in devDependencies for other scripts.)
 
 Static build and serve (for sharing or offline inspection):
 
