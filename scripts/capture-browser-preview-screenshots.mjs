@@ -41,6 +41,13 @@ const captures = [
         );
       });
       await page.getByText('导航收敛').waitFor({ state: 'visible', timeout: 60_000 });
+      await page.getByRole('button', { name: '继续这项工作' }).waitFor({
+        state: 'visible',
+        timeout: 60_000,
+      });
+      if ((await page.getByText('暂时无法读取这项工作的恢复状态').count()) > 0) {
+        throw new Error('[BrowserPreviewScreenshots] durable recovery load failed in preview');
+      }
     },
   },
   {

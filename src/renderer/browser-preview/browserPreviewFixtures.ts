@@ -10,6 +10,8 @@ import {
 } from '../../shared/cowork/constants';
 import { SessionTarget, TaskStatus, WakeMode } from '../../scheduledTask/constants';
 import type { ScheduledTask } from '../../scheduledTask/types';
+import type { DurableWorkSnapshot } from '../../shared/durable/types';
+import type { WorkDocument, WorkDocumentPatch } from '../../shared/durable/workDocument';
 import type { Workspace } from '../../shared/workspace';
 import type { LlamaCppModel, LlamaCppStatusSnapshot } from '../../shared/llamacpp/types';
 import type { CoworkMessage, CoworkSession, CoworkSessionSummary } from '../types/cowork';
@@ -523,3 +525,105 @@ export const browserPreviewLlamaStatus: LlamaCppStatusSnapshot = {
 };
 
 export const browserPreviewModelsDir = '/Users/demo/Models';
+
+const browserPreviewDurableWorkSeed: Record<string, DurableWorkSnapshot> = {
+  [BrowserPreviewFixtureId.SessionRoadmap]: {
+    sessionId: BrowserPreviewFixtureId.SessionRoadmap,
+    conversationId: 1001,
+    scheduling: 'paused',
+    canResume: true,
+    tasks: [{ id: 7, kind: 'work', state: 'paused' }],
+    submissions: [{ id: 9, status: 'pending' }],
+    pendingSubmissionCount: 1,
+    lastCommittedEntry: {
+      id: 12,
+      kind: 'message',
+      text: '已整理 Phase 1 导航要点，待确认是否继续生成发布说明。',
+      timestamp: hoursAgo(0.9),
+    },
+  },
+  'preview-session-ui-review': {
+    sessionId: 'preview-session-ui-review',
+    conversationId: 1002,
+    scheduling: 'running',
+    canResume: false,
+    blockedReason: 'already_running',
+    tasks: [{ id: 3, kind: 'work', state: 'running' }],
+    submissions: [{ id: 4, status: 'placed' }],
+    pendingSubmissionCount: 1,
+    lastCommittedEntry: {
+      id: 5,
+      kind: 'message',
+      text: '正在对比侧栏截图与 DESIGN.md 基准…',
+      timestamp: hoursAgo(0.2),
+    },
+  },
+};
+
+const browserPreviewWorkDocumentSeed: Record<string, WorkDocument> = {
+  [BrowserPreviewFixtureId.SessionRoadmap]: {
+    goal: '完成 Phase 1 侧栏收敛，并让浏览器预览接近真实产品密度。',
+    agreements: ['主 nav 仅保留「会话与工作」「本地推理」', '底部固定「技能与 MCP」「设置」'],
+    decisions: ['预览使用 rich IPC 夹具，不调用真实主进程'],
+    progress: ['侧栏布局已验收', '预览截图改为 1440×900 全窗口'],
+    revision: 3,
+    updatedAt: hoursAgo(1),
+  },
+  [BrowserPreviewFixtureId.SessionApiDocs]: {
+    goal: '同步 OpenAPI 变更并输出中文摘要。',
+    agreements: ['Breaking change 必须单独标注'],
+    decisions: [],
+    progress: ['已完成 12 个接口比对'],
+    revision: 1,
+    updatedAt: hoursAgo(2.5),
+  },
+};
+
+export type BrowserPreviewDurableState = {
+  getDurableWork: (sessionId: string) => DurableWorkSnapshot | undefined;
+  resumeDurableWork: (sessionId: string) => void;
+  getWorkDocument: (sessionId: string) => WorkDocument | undefined;
+  updateWorkDocument: (sessionId: string, patch: WorkDocumentPatch) => WorkDocument | null;
+};
+
+/** Mutable durable/work-document state for the browser preview mock. */
+export function createBrowserPreviewDurableState(): BrowserPreviewDurableState {
+  const durableWork = structuredClone(browserPreviewDurableWorkSeed);
+  const workDocuments = structuredClone(browserPreviewWorkDocumentSeed);
+
+  return {
+    getDurableWork(sessionId: string) {
+      return durableWork[sessionId];
+    },
+    resumeDurableWork(sessionId: string) {
+      const current = durableWork[sessionId];
+      if (!current) return;
+      durableWork[sessionId] = {
+        ...current,
+        scheduling: 'running',
+        canResume: false,
+        tasks: [],
+        submissions: [],
+        pendingSubmissionCount: 0,
+        blockedReason: 'already_running',
+      };
+    },
+    getWorkDocument(sessionId: string) {
+      return workDocuments[sessionId];
+    },
+    updateWorkDocument(sessionId, patch) {
+      const current = workDocuments[sessionId];
+      if (!current || patch.expectedRevision !== current.revision) return null;
+      const next: WorkDocument = {
+        goal: patch.goal ?? current.goal,
+        agreements: patch.agreements ?? current.agreements,
+        decisions: patch.decisions ?? current.decisions,
+        progress: patch.progress ?? current.progress,
+        revision: current.revision + 1,
+        updatedAt: Date.now(),
+      };
+      workDocuments[sessionId] = next;
+      return next;
+    },
+  };
+}

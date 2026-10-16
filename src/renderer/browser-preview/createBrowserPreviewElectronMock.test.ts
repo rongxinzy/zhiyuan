@@ -40,4 +40,14 @@ test('browser preview mock exposes rich fixtures for main views', async () => {
 
   const llamaStatus = await electron.llamacpp.status();
   expect(llamaStatus.status).toBe('running');
+
+  const durable = await electron.cowork.getDurableWork(BrowserPreviewFixtureId.SessionRoadmap);
+  expect(durable.success).toBe(true);
+  expect(durable.snapshot?.pendingSubmissionCount).toBeGreaterThan(0);
+
+  const workDocument = await electron.cowork.getWorkDocument(
+    BrowserPreviewFixtureId.SessionRoadmap,
+  );
+  expect(workDocument.success).toBe(true);
+  expect(workDocument.data?.goal).toContain('Phase 1');
 });

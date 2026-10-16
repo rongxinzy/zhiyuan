@@ -12,6 +12,7 @@ import {
   browserPreviewModelsDir,
   browserPreviewScheduledTasks,
   browserPreviewWorkspaces,
+  createBrowserPreviewDurableState,
   filterBrowserPreviewSessionSummaries,
   getBrowserPreviewSession,
 } from './browserPreviewFixtures';
@@ -53,6 +54,7 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
   };
 
   const runningLocalModels = browserPreviewLocalModels.filter(model => model.status === 'loaded');
+  const durableState = createBrowserPreviewDurableState();
 
   const electron = {
     platform: 'darwin',
@@ -181,6 +183,36 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
         };
       },
       getRuntimeSnapshots: async () => [],
+      getDurableWork: async (sessionId: string) => {
+        const snapshot = durableState.getDurableWork(sessionId);
+        return snapshot ? { success: true, snapshot } : { success: true };
+      },
+      resumeDurableWork: async (sessionId: string) => {
+        durableState.resumeDurableWork(sessionId);
+        return { success: true };
+      },
+      replayContent: async () => ({ success: true }),
+      getWorkDocument: async (sessionId: string) => {
+        const data = durableState.getWorkDocument(sessionId);
+        return data
+          ? { success: true, data }
+          : { success: false, error: 'Work document not found in browser preview' };
+      },
+      updateWorkDocument: async (
+        sessionId: string,
+        patch: Parameters<typeof durableState.updateWorkDocument>[1],
+      ) => {
+        const data = durableState.updateWorkDocument(sessionId, patch);
+        return data
+          ? { success: true, data }
+          : { success: false, error: 'Work document revision conflict in browser preview' };
+      },
+      compactSession: async () => ({ success: true }),
+      exportSessionText: async () => ({
+        success: true,
+        canceled: false,
+        path: '/tmp/preview-export.txt',
+      }),
       onSessionsChanged: noopUnsub,
       deleteSession: async () => ({ success: true }),
       deleteSessions: async () => ({ success: true }),
@@ -221,6 +253,12 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
       onModelLaunchLog: noopUnsub,
       onModelLaunchLogCleared: noopUnsub,
       onModelLaunchLogWindowTargetChanged: noopUnsub,
+      installModel: async () => ({ success: false, error: 'Browser preview' }),
+      loadModel: async () => ({ success: false, error: 'Browser preview' }),
+      cancelModelLoad: async () => ({ success: true }),
+      unloadModel: async () => ({ success: true }),
+      deleteModel: async () => ({ success: true }),
+      cancelInstall: async () => ({ success: true }),
     },
     ollama: {
       status: async () => ({ running: false }),
@@ -354,10 +392,12 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
     },
     dialog: {
       readFileAsDataUrl: async () => ({ success: false }),
+      selectDirectory: async () => ({ canceled: true }),
     },
     shell: {
       openExternal: async () => undefined,
       showItemInFolder: async () => undefined,
+      openPath: async () => ({ success: true }),
     },
     runtimeNotices: {
       onNotice: noopUnsub,
@@ -381,12 +421,26 @@ export function createBrowserPreviewElectronMock(): Window['electron'] {
         success: true,
         memory: { totalBytes: 16_000_000_000, usedBytes: 8_000_000_000 },
       }),
+      systemMemory: async () => ({
+        source: 'system' as const,
+        available: true,
+        checkedAt: new Date().toISOString(),
+        totalMemoryMiB: 16_384,
+        freeMemoryMiB: 8_192,
+      }),
+      nvidiaSmi: async () => ({
+        source: 'nvidia-smi' as const,
+        available: false,
+        checkedAt: new Date().toISOString(),
+        gpus: [],
+      }),
     },
     permissions: {
       get: async () => ({ mode: 'ask' }),
     },
     marketplace: {
-      search: async () => ({ success: true, models: [] }),
+      search: async () => ({ success: true, models: [], requestId: 'preview' }),
+      cancelSearch: async () => ({ cancelled: true }),
     },
     api: {
       fetch: async () => ({
