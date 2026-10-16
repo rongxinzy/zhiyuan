@@ -1,0 +1,39 @@
+diff --git a/node_modules/@earendil-works/chord/package.json b/node_modules/@earendil-works/chord/package.json
+index 1111111..2222222 100644
+--- a/node_modules/@earendil-works/chord/package.json
++++ b/node_modules/@earendil-works/chord/package.json
+@@ -9,21 +9,33 @@
+ 		".": {
+ 			"source": "./src/index.ts",
+ 			"types": "./dist/index.d.ts",
+-			"import": "./dist/index.js"
++			"import": "./dist/index.js",
++			"require": "./dist/index.js",
++			"default": "./dist/index.js"
+ 		},
+ 		"./context": {
+ 			"source": "./src/context/index.ts",
+ 			"types": "./dist/context/index.d.ts",
+-			"import": "./dist/context/index.js"
++			"import": "./dist/context/index.js",
++			"require": "./dist/context/index.js",
++			"default": "./dist/context/index.js"
+ 		},
+ 		"./delta": {
+ 			"source": "./src/delta/index.ts",
+ 			"types": "./dist/delta/index.d.ts",
+-			"import": "./dist/delta/index.js"
++			"import": "./dist/delta/index.js",
++			"require": "./dist/delta/index.js",
++			"default": "./dist/delta/index.js"
+ 		},
+ 		"./node": {
+ 			"source": "./src/node.ts",
+ 			"types": "./dist/node.d.ts",
+-			"import": "./dist/node.js"
++			"import": "./dist/node.js",
++			"require": "./dist/node.js",
++			"default": "./dist/node.js"
+ 		},
+ 		"./package.json": "./package.json"
+ 	},

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="./zhiyuan-icon-primary.ico" />
+    <title>知远智能体 · 浏览器预览</title>
+    <script>
+      (function () {
+        try {
+          const savedConfig = localStorage.getItem('app_config');
+          if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            const theme = config.theme || 'system';
+            if (theme === 'dark') {
+              document.documentElement.classList.add('dark');
+            } else if (theme === 'light') {
+              document.documentElement.classList.add('light');
+            } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+              document.documentElement.classList.add('dark');
+            } else {
+              document.documentElement.classList.add('light');
+            }
+          }
+        } catch (error) {
+          console.error('Browser preview theme bootstrap failed:', error);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import './src/renderer/browser-preview/installBrowserPreviewMock.ts';
+      import './src/renderer/main.tsx';
+    </script>
+  </body>
+</html>

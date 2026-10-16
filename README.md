@@ -82,6 +82,23 @@ bun run electron:dev
 
 The development command starts Vite and Electron. To use local inference, download the inference runtime for your host separately:
 
+### Browser UI preview (no Electron)
+
+For fast UI iteration, run the renderer in a normal browser with a stubbed `window.electron` bridge and seeded demo data. This path does not require Electron and works with **npm**, **pnpm**, or **Bun**:
+
+```bash
+npm run preview:web
+```
+
+Static build and serve (for sharing or offline inspection):
+
+```bash
+npm run build:preview:web
+npm run serve:preview:web
+```
+
+Open `http://localhost:4173/index.browser-preview.html` (or the URL printed by Vite). Use the floating **浏览器预览 · 页面跳转** panel to switch main views, including the slimmed sidebar from Phase 1. Theme follows **Settings → Appearance** or the `app_config` entry in `localStorage`.
+
 ```bash
 bun run llamacpp:runtime:download
 ```
@@ -97,6 +114,8 @@ bun run llamacpp:runtime:download
 | `bun run test:bundle-budget` | Check the built renderer's bundle size |
 | `bun run theme:generate` | Regenerate CSS after changing default tokens or recipes |
 | `bun run compile:electron` | Compile the Electron main process, including native dependency preparation |
+| `npm run preview:web` | Browser-only UI preview (Vite dev server + IPC mock) |
+| `npm run build:preview:web` / `npm run serve:preview:web` | Build and serve the static browser preview |
 
 Release packaging uses `bun run dist:mac`, `bun run dist:win`, or `bun run dist:linux`. These also involve platform runtimes, resources, and signing configuration; see [CONTRIBUTING.md](CONTRIBUTING.md) and [`package.json`](package.json).
 

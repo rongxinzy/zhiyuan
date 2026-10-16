@@ -163,7 +163,8 @@ const App: React.FC = () => {
   const [localInferenceInstallRequestId, setLocalInferenceInstallRequestId] = useState<string>();
   const [localInferenceRefreshRequestId, setLocalInferenceRefreshRequestId] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [bootScreenVisible, setBootScreenVisible] = useState(true);
+  const isBrowserPreview = import.meta.env.VITE_BROWSER_PREVIEW === '1';
+  const [bootScreenVisible, setBootScreenVisible] = useState(!isBrowserPreview);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isToastError, setIsToastError] = useState(false);
@@ -404,6 +405,20 @@ const App: React.FC = () => {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isBrowserPreview) return;
+    const handler = (event: Event) => {
+      const view = (event as CustomEvent<string>).detail;
+      if (typeof view !== 'string') return;
+      setMainView(current => {
+        if (view === current) return current;
+        return view as typeof current;
+      });
+    };
+    window.addEventListener('browser-preview:navigate', handler);
+    return () => window.removeEventListener('browser-preview:navigate', handler);
+  }, [isBrowserPreview]);
 
   useEffect(() => {
     if (mainView === 'localInference') {
