@@ -253,23 +253,15 @@ body {
   height: 100vh;
 }
 
-/* Custom scrollbar styles - cold modern */
+/* MonoCode-style: native scrollbars hidden; scrolling preserved (see DESIGN.md). */
+* {
+  scrollbar-width: none;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: var(--zy-scroll-thumb);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--zy-scroll-thumb-hover);
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .scrollbar-hidden {

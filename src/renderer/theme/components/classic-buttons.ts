@@ -41,10 +41,31 @@ export function classicButtons(dark: boolean): ButtonAppearances {
       },
     }),
     'button-default': recipe({
-      base: { 'background-color': 'var(--zy-primary-strong)', color: 'var(--primary-foreground)' },
-      hover: {
-        'background-color': 'color-mix(in oklab, var(--zy-primary-strong) 90%, black)',
-      },
+      base: dark
+        ? {
+            'background-color': '#FFFFFF',
+            color: '#171717',
+            'border-color': 'transparent',
+          }
+        : {
+            'background-color': 'var(--foreground)',
+            color: 'var(--background)',
+            'border-color': 'transparent',
+          },
+      hover: dark
+        ? { 'background-color': 'color-mix(in srgb, #ffffff 90%, transparent)' }
+        : {
+            'background-color': 'color-mix(in srgb, var(--foreground) 90%, transparent)',
+          },
+      disabled: dark
+        ? {
+            'background-color': 'color-mix(in srgb, #ffffff 30%, transparent)',
+            color: 'color-mix(in srgb, #171717 40%, transparent)',
+          }
+        : {
+            'background-color': 'color-mix(in srgb, var(--foreground) 25%, transparent)',
+            color: 'color-mix(in srgb, var(--background) 75%, transparent)',
+          },
     }),
     'button-outline': recipe({
       base: {

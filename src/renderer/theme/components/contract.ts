@@ -5,6 +5,7 @@ import { CODING_SIDEBAR_SELECTORS } from './coding-sidebar-contract';
 import { CHAT_TOOL_SELECTORS } from './chat-tool-contract';
 import { SHELL_SIDEBAR_SELECTORS } from './shell-sidebar-contract';
 import { HOME_STUDIO_SELECTORS } from './home-studio-contract';
+import { WORK_BRIEFING_SELECTORS } from './work-briefing-contract';
 const appearanceVariables = new Set<string>([
   ...Object.values(TOKEN_CONTRACT),
   '--zy-control-icon-size',
@@ -960,6 +961,7 @@ export const COMPONENT_SELECTORS = {
   ...CHAT_TOOL_SELECTORS,
   ...SHELL_SIDEBAR_SELECTORS,
   ...HOME_STUDIO_SELECTORS,
+  ...WORK_BRIEFING_SELECTORS,
 } as const;
 
 const enabled =

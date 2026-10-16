@@ -39,6 +39,7 @@ import { runIndicatorAppearances } from './run-indicator';
 import { chatToolAppearances } from './chat-tool';
 import { shellSidebarAppearances } from './shell-sidebar';
 import { homeStudioAppearances } from './home-studio';
+import { workBriefingAppearances } from './work-briefing-surfaces';
 import type { ComponentAppearance, ComponentAppearances } from './contract';
 
 /** Codex appearance recipes are package data, never imported by React controls. */
@@ -189,5 +190,6 @@ export function classicComponentAppearances(dark: boolean): ComponentAppearances
     ...shellSidebarAppearances(),
     ...classicAppearancePreview(),
     ...homeStudioAppearances(),
+    ...workBriefingAppearances(),
   };
 }

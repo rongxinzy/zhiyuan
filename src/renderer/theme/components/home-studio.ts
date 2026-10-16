@@ -7,7 +7,8 @@ export function homeStudioAppearances() {
     'home-caption': recipe({
       base: {
         'font-size': 'var(--zy-component-text-sm)',
-        color: 'var(--muted-foreground)',
+        color: 'color-mix(in srgb, var(--foreground) 55%, transparent)',
+        'line-height': '1.375',
       },
     }),
     'home-sticky': recipe({ base: { 'background-color': 'var(--background)' } }),
