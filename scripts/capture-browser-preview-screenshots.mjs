@@ -111,6 +111,13 @@ const captures = [
       await page.getByTestId('task-board-detail-panel').waitFor({ state: 'visible', timeout: 60_000 });
       await page.getByTestId('task-board-thread').waitFor({ state: 'visible', timeout: 60_000 });
       await page.getByText('请把 Phase 1 导航截图补进验收包').waitFor({ state: 'visible', timeout: 60_000 });
+      const scroll = page.getByTestId('task-board-scroll');
+      await scroll.evaluate(el => {
+        if (el.scrollWidth > el.clientWidth) {
+          el.scrollLeft = el.scrollWidth - el.clientWidth;
+        }
+      });
+      await board.getByRole('region', { name: '已完成' }).waitFor({ state: 'visible', timeout: 60_000 });
     },
   },
   {

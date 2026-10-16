@@ -106,7 +106,7 @@ export function TaskBoardDetailPanel({ card, columnLabel }: TaskBoardDetailPanel
 
   return (
     <aside
-      className="theme-task-board-detail flex h-full min-h-0 w-[22rem] shrink-0 flex-col border-l border-border"
+      className="theme-task-board-detail flex h-full min-h-0 w-[min(100%,22rem)] shrink-0 basis-[22rem] flex-col border-l border-border"
       data-testid="task-board-detail-panel"
     >
       <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">

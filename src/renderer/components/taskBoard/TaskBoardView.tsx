@@ -11,7 +11,11 @@ import PageHeader from '../PageHeader';
 import { formatActivityError } from '../activity/utils';
 import { BriefingTarget } from '../cowork/briefing/constants';
 import { formatBriefingTemplate } from '../cowork/briefing/briefingCopy';
-import { TASK_BOARD_COLUMN_ORDER, TaskBoardColumnId } from './constants';
+import {
+  TASK_BOARD_COLUMN_MIN_WIDTH_REM,
+  TASK_BOARD_COLUMN_ORDER,
+  TaskBoardColumnId,
+} from './constants';
 import { buildTaskBoardColumns, type TaskBoardCard } from './taskBoardProjection';
 import { TaskBoardDetailPanel } from './TaskBoardDetailPanel';
 import { resolveTaskBoardThreadKey } from './taskBoardThreadKey';
@@ -78,6 +82,8 @@ export function TaskBoardView({
     [sessions, permissions, activities, schedules, workspaces, now],
   );
 
+  const detailPanelOpen = selectedCardId !== null;
+
   const selectedCard = useMemo(() => {
     if (!selectedCardId) return null;
     for (const columnId of TASK_BOARD_COLUMN_ORDER) {
@@ -131,9 +137,15 @@ export function TaskBoardView({
         onNewChat={onNewChat}
         updateBadge={updateBadge}
       />
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto px-6 py-6">
-          <div className="mx-auto flex w-full max-w-[80rem] min-w-0 flex-col gap-4">
+      <div
+        className="flex min-h-0 flex-1 overflow-hidden"
+        data-task-board-layout={detailPanelOpen ? 'split' : 'full'}
+      >
+        <div
+          className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto px-6 py-6"
+          data-testid="task-board-scroll"
+        >
+          <div className="flex w-full min-w-0 flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="theme-home-caption">{i18nService.t('taskBoardScope')}</p>
               <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
@@ -151,16 +163,25 @@ export function TaskBoardView({
               </p>
             )}
             <div
-              className="grid min-w-[70rem] grid-cols-5 gap-4"
+              className={cn(
+                'grid grid-cols-5 gap-3',
+                detailPanelOpen ? 'w-max min-w-full' : 'w-full min-w-0',
+              )}
               data-testid="task-board-columns"
+              data-panel-open={detailPanelOpen || undefined}
               lang={language}
+              style={{
+                gridTemplateColumns: detailPanelOpen
+                  ? `repeat(5, minmax(${TASK_BOARD_COLUMN_MIN_WIDTH_REM}rem, 1fr))`
+                  : 'repeat(5, minmax(0, 1fr))',
+              }}
             >
               {TASK_BOARD_COLUMN_ORDER.map(columnId => {
                 const cards = columns[columnId];
                 return (
                   <section
                     key={columnId}
-                    className="theme-task-board-column flex min-w-0 flex-col"
+                    className="theme-task-board-column flex min-w-[11rem] flex-col"
                     aria-label={i18nService.t(columnTitleKey[columnId])}
                   >
                     <h2 className="theme-task-board-column-title uppercase">
